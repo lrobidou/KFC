@@ -1,5 +1,9 @@
 # KFC
 
+# Tests
+# data sources
+Place [https://www.ebi.ac.uk/ena/browser/view/U00096](https://www.ebi.ac.uk/ena/browser/view/U00096) in data/U00096.3.fasta
+
 # Contributing
 
 ## Testing
