@@ -1,0 +1,13 @@
+[package]
+name = "kfc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+env_logger = "0.11.3"
+log = "0.4.21"
+mashmap = "0.1.1"
+thiserror = "1.0"
+xxhash-rust = { version = "0.8.5", features = ["xxh3", "const_xxh3"] }
