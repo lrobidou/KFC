@@ -1,7 +1,7 @@
 use log::warn;
 use mashmap::MashMap;
 use std::collections::HashMap;
-use superkmers::{compute_superkmers, SuperKmerInfos};
+use std::time::Instant;
 use xxhash_rust::const_xxh3::xxh3_64;
 
 type Minimizer = String; // TODO change to integer when done
@@ -9,6 +9,9 @@ type HashSuperKmer = u64;
 type Count = u16;
 
 mod superkmers;
+
+use fastxgz::fasta_reads;
+use superkmers::{compute_superkmers_precompute_mmers, SuperKmerInfos};
 
 fn get_count_superkmer(
     sk_count: &MashMap<Minimizer, (HashSuperKmer, Count)>,
@@ -116,7 +119,13 @@ fn first_stage(
     let mut hyperkmers: Vec<String> = Vec::new();
 
     for sequence in sequences {
-        let superkmers = compute_superkmers(sequence, k, m);
+        let start_superkmers = Instant::now();
+        let superkmers = compute_superkmers_precompute_mmers(sequence, k, m);
+        println!(
+            "super kmers computed in {} seconds",
+            start_superkmers.elapsed().as_secs()
+        );
+
         for triplet in superkmers.windows(3) {
             // OPTIMIZE this implem is surely slow, we can do better by not using `String` everywhere, but &str
             let (previous_sk, current_sk, next_sk) = (&triplet[0], &triplet[1], &triplet[2]);
@@ -156,7 +165,7 @@ fn first_stage(
                     id_left_hk
                 };
                 let id_right_hk = if get_count_superkmer(&sk_count, next_sk) >= threshold {
-                    get_hyperkmer_left_id(&hk_count, &hyperkmers, &current_sk.minimizer, right_hk)
+                    get_hyperkmer_left_id(&hk_count, &hyperkmers, &next_sk.minimizer, right_hk)
                         .unwrap()
                 } else {
                     let id_right_hk = hyperkmers.len();
@@ -202,7 +211,7 @@ fn second_stage(
     let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
 
     for sequence in sequences {
-        let superkmers = compute_superkmers(sequence, k, m);
+        let superkmers = compute_superkmers_precompute_mmers(sequence, k, m); // TODO discuss if we compute them twice or store them accross steps
         for superkmer in &superkmers {
             if get_count_superkmer(sk_count, superkmer) >= threshold {
                 continue;
@@ -264,14 +273,25 @@ fn second_stage(
 }
 
 fn main() {
-    let sequences =
-        vec!["ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGACGACGTACGTGACGGGGTCGGATGACG"];
-    let k = 31;
-    let m = 20;
+    let sequences: Vec<String> = fasta_reads("data/U00096.3.fasta")
+        .unwrap()
+        .map(|rcstring| rcstring.to_string())
+        .collect();
+    let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
+
+    // println!("{:?}", sequences);
+
+    let k = 40;
+    let m = 31;
     let threshold = 2;
 
-    let (mut sk_count, mut hk_count, mut hyperkmers) = first_stage(&sequences, k, m, threshold);
-
+    let start_fisrt_step = Instant::now();
+    let (mut sk_count, mut hk_count, hyperkmers) = first_stage(&sequences, k, m, threshold);
+    println!(
+        "time first step: {} seconds",
+        start_fisrt_step.elapsed().as_secs()
+    );
+    let start_second_stage = Instant::now();
     let (truncated_hk, discarded_minimizers) = second_stage(
         &mut sk_count,
         &mut hk_count,
@@ -281,12 +301,16 @@ fn main() {
         m,
         threshold,
     );
-    for sequence in sequences {
-        let superkmers = superkmers::compute_superkmers(sequence, k, m);
-        for superkmerinfo in superkmers {
-            println!("{:?}", superkmerinfo);
-        }
-    }
+    println!(
+        "time second stage: {} seconds",
+        start_second_stage.elapsed().as_secs()
+    );
+    // for sequence in sequences {
+    //     let superkmers = superkmers::compute_superkmers_linear(sequence, k, m);
+    //     for superkmerinfo in superkmers {
+    //         println!("{:?}", superkmerinfo);
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -337,5 +361,121 @@ mod tests {
             assert_eq!(update_count_superkmer(&mut sk_count, &sk), 6);
             assert_eq!(get_count_superkmer(&sk_count, &sk), 6);
         }
+    }
+
+    #[test]
+    fn test_suffix_preffix() {
+        let x = "aazerty______";
+        let y = "aazerty-___---------";
+        assert_eq!(common_prefix_length(x, y), 7);
+        assert_eq!(common_prefix_length(y, x), 7);
+
+        assert_eq!(common_prefix_length("x", "y"), 0);
+        assert_eq!(common_prefix_length("", ""), 0);
+        assert_eq!(common_prefix_length("xyyyyyyyyyy", "xyy"), 3);
+
+        // suffix
+        let x = "aazerty_____-erc---------";
+        let y = "aazerty-___erc---------";
+        assert_eq!(common_suffix_length(x, y), 12);
+        assert_eq!(common_suffix_length(y, x), 12);
+
+        assert_eq!(common_suffix_length("x", "y"), 0);
+        assert_eq!(common_suffix_length("", ""), 0);
+        assert_eq!(common_suffix_length("xyyyyyyyyyy", "xyy"), 2);
+    }
+
+    #[test]
+    fn test_get_hyperkmer_left_and_rigth_id() {
+        use rand::{distributions::Alphanumeric, Rng}; // 0.8
+        let mut hk_count: MashMap<Minimizer, (usize, usize, Count)> = MashMap::new();
+        let mut hyperkmers: Vec<String> = Vec::new();
+
+        let nb_insertions = 10000;
+
+        // random insertions in hyperkmers
+        for _ in 0..nb_insertions {
+            let s: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(100)
+                .map(char::from)
+                .collect();
+            hyperkmers.push(s);
+        }
+
+        // random minimizers
+        let mut minimizers = Vec::new();
+        for _ in 0..(hyperkmers.len() - 1) {
+            let minimizer: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(20)
+                .map(char::from)
+                .collect();
+            minimizers.push(minimizer);
+        }
+
+        // link minimizer and hyperkmers
+        // start by inserting random values
+        let mut rng = rand::thread_rng();
+        for _ in 0..3 {
+            for minimizer in &minimizers {
+                let random_left = rng.gen_range(0..hyperkmers.len());
+                let random_rigth = rng.gen_range(0..hyperkmers.len());
+                let random_count = rng.gen_range(0..hyperkmers.len()) as u16;
+
+                hk_count.insert(minimizer.clone(), (random_left, random_rigth, random_count));
+            }
+        }
+
+        // then link minimizer and hyperkmers
+        for (i, minimizer) in minimizers.iter().enumerate() {
+            let random_count: u16 = rng.gen_range(0..hyperkmers.len()) as u16;
+            hk_count.insert(minimizer.clone(), (i, i + 1, random_count));
+        }
+
+        // add another random values
+        for _ in 0..10 {
+            for minimizer in &minimizers {
+                let random_left = rng.gen_range(0..hyperkmers.len());
+                let random_rigth = rng.gen_range(0..hyperkmers.len());
+                let random_count = rng.gen_range(0..hyperkmers.len()) as u16;
+
+                hk_count.insert(minimizer.clone(), (random_left, random_rigth, random_count));
+            }
+        }
+
+        // among all the random values, we are still able to get back our real data
+        let hk_id = get_hyperkmer_left_id(&hk_count, &hyperkmers, &minimizers[5], &hyperkmers[5]);
+        assert_eq!(hk_id, Some(5));
+        let hk_id = get_hyperkmer_right_id(&hk_count, &hyperkmers, &minimizers[5], &hyperkmers[6]);
+        assert_eq!(hk_id, Some(6));
+
+        // query a non existant minimiser
+        let minimizer: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(20)
+            .map(char::from)
+            .collect();
+        let hk_id = get_hyperkmer_left_id(&hk_count, &hyperkmers, &minimizer, &hyperkmers[5]);
+        assert_eq!(hk_id, None);
+        let hk_id = get_hyperkmer_right_id(&hk_count, &hyperkmers, &minimizer, &hyperkmers[6]);
+        assert_eq!(hk_id, None);
+
+        // query an existing minimizer, but with a random hyperkmer
+        let hyperkmer: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(100)
+            .map(char::from)
+            .collect();
+        let hk_id = get_hyperkmer_left_id(&hk_count, &hyperkmers, &minimizer, &hyperkmer);
+        assert_eq!(hk_id, None);
+        let hk_id = get_hyperkmer_right_id(&hk_count, &hyperkmers, &minimizer, &hyperkmer);
+        assert_eq!(hk_id, None);
+
+        // query an existing minimizer, but with a random existing hyperkmer (TODO probability of failure is small but not null)
+        let hk_id = get_hyperkmer_left_id(&hk_count, &hyperkmers, &minimizer, &hyperkmers[3]);
+        assert_eq!(hk_id, None);
+        let hk_id = get_hyperkmer_right_id(&hk_count, &hyperkmers, &minimizer, &hyperkmers[4]);
+        assert_eq!(hk_id, None);
     }
 }
