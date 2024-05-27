@@ -22,21 +22,6 @@ fn get_canonical_kmer(kmer: &str) -> (bool, String) {
     }
 }
 
-// Get the lexicographically smallest m-mer in a sequence considering canonicity
-fn get_canonical_minimizer(seq: &str, m: usize) -> (String, usize, bool) {
-    let (mut is_forward, mut minimizer) = get_canonical_kmer(&seq[0..m]);
-    let mut position = 0;
-    for i in 1..=seq.len() - m {
-        let (is_candidate_forward, candidate) = get_canonical_kmer(&seq[i..i + m]);
-        if candidate <= minimizer {
-            minimizer = candidate;
-            is_forward = is_candidate_forward;
-            position = i;
-        }
-    }
-    (minimizer, position, is_forward)
-}
-
 // OPTIMIZE we don't need so many infos here (the superkmer content itself can be deduced from the original sequence)
 #[derive(Debug, PartialEq)]
 pub struct SuperKmerInfos {
@@ -47,110 +32,75 @@ pub struct SuperKmerInfos {
     pub start_of_superkmer: usize,
 }
 
+#[derive(PartialEq, Eq)]
+struct MinimizerInfos {
+    value: String,
+    position: usize,
+    is_forward: bool,
+}
+
+use std::cmp::Ordering;
+
+use crate::brrr_minimizers::MinimizerQueue;
+impl PartialOrd for MinimizerInfos {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.value.cmp(&other.value))
+    }
+}
+
+impl Ord for MinimizerInfos {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.cmp(&other.value)
+    }
+}
+
 // Function to compute superkmers
 // OPTIMIZE: this is on O(k*sequence.len()). A solution in O(sequence.len()) is possible
-pub fn compute_superkmers(sequence: &str, k: usize, m: usize) -> Vec<SuperKmerInfos> {
+pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<SuperKmerInfos> {
     let mut superkmers = Vec::with_capacity(sequence.len());
     if sequence.len() < k {
         return superkmers;
     }
 
-    let kmer = &sequence[0..k];
-    let (current_minimizer, current_relative_position, forward) = get_canonical_minimizer(kmer, m);
-    // superkmer up to here, that will be pushed in the returned vector when the minimizer changes
-    let mut superkmerinfos = SuperKmerInfos {
-        superkmer: kmer.to_string(), // superkmer will be modified as we see new bases
-        minimizer: current_minimizer,
-        is_forward: forward,
-        start_of_minimizer: current_relative_position,
-        start_of_superkmer: 0,
-    };
-
-    let mut nb_last_print = 0;
-    for i in 1..=sequence.len() - k {
-        if nb_last_print == 0 {
-            println!("{} (i = {})", i as f32 / sequence.len() as f32 * 100.0, i);
-        }
-        nb_last_print = (nb_last_print + 1) % 1000;
-
-        // for each kmer: if the minimiser the same, append the new base to the superkmer, else create a new superkmer
-        let kmer = &sequence[i..i + k];
-        let (candidate_minimizer, candidate_relative_minimizer_position, candidate_is_forward) =
-            get_canonical_minimizer(kmer, m);
-        let candidate_absolute_minimizer_position = candidate_relative_minimizer_position + i;
-
-        // does the minimizer of this kmer have the same value and same position as the minimizer of the previous kmer?
-        let is_same_minimizer = candidate_minimizer == superkmerinfos.minimizer;
-        let is_at_same_position =
-            superkmerinfos.start_of_minimizer == candidate_absolute_minimizer_position;
-
-        if is_same_minimizer && is_at_same_position {
-            // if so, add the new base to the superkmer and keep other data untouched
-            superkmerinfos
-                .superkmer
-                .push(sequence.chars().nth(i + k - 1).unwrap());
-        } else {
-            // otherwise, push the superkmer and create a new one
-            superkmers.push(superkmerinfos);
-            superkmerinfos = SuperKmerInfos {
-                superkmer: kmer.to_string(),
-                minimizer: candidate_minimizer,
-                is_forward: candidate_is_forward,
-                start_of_minimizer: candidate_absolute_minimizer_position,
-                start_of_superkmer: i,
-            };
-        }
-    }
-
-    // Add the last superkmer
-    superkmers.push(superkmerinfos);
-
-    superkmers
-}
-
-// Get the lexicographically smallest m-mer in a sequence considering canonicity
-fn min_window(mmers: &[(bool, String)], w: usize, start_pos: usize) -> (String, usize, bool) {
-    let (mut is_forward, mut minimizer) = mmers[0].clone();
-    let mut position = 0;
-    for i in 1..w {
-        let (is_candidate_forward, candidate) = mmers[start_pos + i].clone();
-        if candidate <= minimizer {
-            minimizer = candidate;
-            is_forward = is_candidate_forward;
-            position = i;
-        }
-    }
-    (minimizer, position, is_forward)
-
-    // let minimum = mmers[start_pos];
-    // let minimum = mmers[start_pos..start_pos + w]
-    //     .iter()
-    //     .enumerate()
-    //     .rev()
-    //     .min_by_key(|x| x.1)
-    //     .unwrap();
-    // (minimum.1 .1.clone(), minimum.0, minimum.1 .0)
-}
-
-// Function to compute superkmers
-// OPTIMIZE: this is on O(k*sequence.len()). A solution in O(sequence.len()) is possible
-pub fn compute_superkmers_precompute_mmers(
-    sequence: &str,
-    k: usize,
-    m: usize,
-) -> Vec<SuperKmerInfos> {
-    let mut superkmers = Vec::with_capacity(sequence.len());
-    if sequence.len() < k {
-        return superkmers;
-    }
+    let w = k - m + 1;
 
     let mut mmers = Vec::with_capacity(sequence.len());
-    for i in 0..sequence.len() - m + 1 {
-        mmers.push(get_canonical_kmer(&sequence[i..m + i]))
+    for position in 0..sequence.len() - m + 1 {
+        let (is_forward, value) = get_canonical_kmer(&sequence[position..m + position]);
+        mmers.push(MinimizerInfos {
+            value,
+            position,
+            is_forward,
+        })
     }
 
+    let mut queue = MinimizerQueue::<_>::new(w);
+    let mut minimizers: Vec<(String, usize, bool)> = vec![];
+
+    for (i, input) in mmers.iter().enumerate() {
+        if i < w {
+            queue.insert(input);
+        } else {
+            let MinimizerInfos {
+                value,
+                position,
+                is_forward,
+            } = queue.get_min();
+            minimizers.push((value.clone(), *position, *is_forward));
+
+            queue.insert(input);
+        }
+    }
+    let MinimizerInfos {
+        value,
+        position,
+        is_forward,
+    } = queue.get_min();
+
+    minimizers.push((value.clone(), *position, *is_forward));
+
     let kmer = &sequence[0..k];
-    let (current_minimizer, current_relative_position, forward) = min_window(&mmers, k - m + 1, 0);
+    let (current_minimizer, current_relative_position, forward) = minimizers[0].clone();
     // superkmer up to here, that will be pushed in the returned vector when the minimizer changes
     let mut superkmerinfos = SuperKmerInfos {
         superkmer: kmer.to_string(), // superkmer will be modified as we see new bases
@@ -160,7 +110,7 @@ pub fn compute_superkmers_precompute_mmers(
         start_of_superkmer: 0,
     };
 
-    let mut nb_last_print = 0;
+    // let mut nb_last_print = 0;
     for i in 1..=sequence.len() - k {
         // if nb_last_print == 0 {
         //     println!("{} (i = {})", i as f32 / sequence.len() as f32 * 100.0, i);
@@ -169,32 +119,27 @@ pub fn compute_superkmers_precompute_mmers(
 
         // for each kmer: if the minimiser the same, append the new base to the superkmer, else create a new superkmer
         let kmer = &sequence[i..i + k];
-        let (candidate_minimizer, candidate_relative_minimizer_position, candidate_is_forward) =
-            min_window(&mmers, k - m + 1, i);
-        // println!(
-        //     "i = {}, {}, {}, {}",
-        //     i, candidate_minimizer, candidate_relative_minimizer_position, candidate_is_forward,
-        // );
-        let candidate_absolute_minimizer_position = candidate_relative_minimizer_position + i;
+        let (candidate_minimizer, candidate_absolute_minimizer_position, candidate_is_forward) =
+            &minimizers[i];
 
         // does the minimizer of this kmer have the same value and same position as the minimizer of the previous kmer?
-        let is_same_minimizer = candidate_minimizer == superkmerinfos.minimizer;
+        let is_same_minimizer = *candidate_minimizer == superkmerinfos.minimizer;
         let is_at_same_position =
-            superkmerinfos.start_of_minimizer == candidate_absolute_minimizer_position;
+            superkmerinfos.start_of_minimizer == *candidate_absolute_minimizer_position;
 
         if is_same_minimizer && is_at_same_position {
             // if so, add the new base to the superkmer and keep other data untouched
             superkmerinfos
                 .superkmer
-                .push(sequence.chars().nth(i + k - 1).unwrap());
+                .push(sequence.as_bytes()[i + k - 1] as char);
         } else {
             // otherwise, push the superkmer and create a new one
             superkmers.push(superkmerinfos);
             superkmerinfos = SuperKmerInfos {
                 superkmer: kmer.to_string(),
-                minimizer: candidate_minimizer,
-                is_forward: candidate_is_forward,
-                start_of_minimizer: candidate_absolute_minimizer_position,
+                minimizer: candidate_minimizer.clone(),
+                is_forward: *candidate_is_forward,
+                start_of_minimizer: *candidate_absolute_minimizer_position,
                 start_of_superkmer: i,
             };
         }
@@ -237,17 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_canonical_minimizer() {
-        assert_eq!(
-            get_canonical_minimizer("AGCAGCTAGCATTTTTGCAGT", 5),
-            (String::from("AAAAA"), 11, false)
-        );
-    }
-
-    #[test]
     fn test_compute_superkmers() {
         assert_eq!(
-            compute_superkmers_precompute_mmers("AGCAGCTAGCATTTTTGCAGT", 16, 5),
+            compute_superkmers_linear("AGCAGCTAGCATTTTTGCAGT", 16, 5),
             vec![SuperKmerInfos {
                 superkmer: String::from("AGCAGCTAGCATTTTTGCAGT"),
                 minimizer: String::from("AAAAA"),
@@ -262,7 +199,7 @@ mod tests {
     fn test_compute_superkmers2() {
         // same minimizer further away (AAAAA)
         assert_eq!(
-            compute_superkmers_precompute_mmers("AGCAGCTAGCATTTTTGCAGAAAAACC", 16, 5),
+            compute_superkmers_linear("AGCAGCTAGCATTTTTGCAGAAAAACC", 16, 5),
             // AGCAGCTAGCATTTTTGCAGAAAA"
             //          CATTTTTGCAGAAAAACC
             vec![
@@ -286,10 +223,7 @@ mod tests {
 
     #[test]
     fn test_compute_superkmers_sequence_too_short() {
-        assert_eq!(
-            compute_superkmers_precompute_mmers("AGCAGCTAGCATTTT", 16, 5),
-            vec![]
-        );
+        assert_eq!(compute_superkmers_linear("AGCAGCTAGCATTTT", 16, 5), vec![]);
     }
 
     #[test]

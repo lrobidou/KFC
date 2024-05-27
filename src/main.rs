@@ -8,10 +8,11 @@ type Minimizer = String; // TODO change to integer when done
 type HashSuperKmer = u64;
 type Count = u16;
 
+mod brrr_minimizers;
 mod superkmers;
 
 use fastxgz::fasta_reads;
-use superkmers::{compute_superkmers_precompute_mmers, SuperKmerInfos};
+use superkmers::{compute_superkmers_linear, SuperKmerInfos};
 
 fn get_count_superkmer(
     sk_count: &MashMap<Minimizer, (HashSuperKmer, Count)>,
@@ -120,7 +121,7 @@ fn first_stage(
 
     for sequence in sequences {
         let start_superkmers = Instant::now();
-        let superkmers = compute_superkmers_precompute_mmers(sequence, k, m);
+        let superkmers = compute_superkmers_linear(sequence, k, m);
         println!(
             "super kmers computed in {} seconds",
             start_superkmers.elapsed().as_secs()
@@ -157,6 +158,7 @@ fn first_stage(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 let id_left_hk = if get_count_superkmer(&sk_count, previous_sk) >= threshold {
+                    // println!("{:?}", previous_sk);
                     get_hyperkmer_right_id(&hk_count, &hyperkmers, &previous_sk.minimizer, left_hk)
                         .unwrap()
                 } else {
@@ -211,7 +213,7 @@ fn second_stage(
     let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
 
     for sequence in sequences {
-        let superkmers = compute_superkmers_precompute_mmers(sequence, k, m); // TODO discuss if we compute them twice or store them accross steps
+        let superkmers = compute_superkmers_linear(sequence, k, m); // TODO discuss if we compute them twice or store them accross steps
         for superkmer in &superkmers {
             if get_count_superkmer(sk_count, superkmer) >= threshold {
                 continue;
