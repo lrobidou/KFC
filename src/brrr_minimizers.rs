@@ -31,7 +31,7 @@ impl<T: Copy + Ord> MinimizerQueue<T> {
         }
         let mut i = self.deq.len();
         while i > 0 && self.deq[i - 1].0 >= element {
-            // TODO had to chnage this
+            // TODO had to change this
             i -= 1;
         }
         self.deq.truncate(i);
