@@ -87,7 +87,7 @@ pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Supe
             value,
             position,
             was_read_canonical,
-        })
+        });
     }
 
     let mut queue = MinimizerQueue::<_>::new(w);

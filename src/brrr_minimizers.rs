@@ -1,5 +1,5 @@
 // use ahash::RandomState;
-use core::hash::Hash;
+// use core::hash::Hash;
 use std::collections::VecDeque;
 
 pub struct MinimizerQueue<T: Copy> {
