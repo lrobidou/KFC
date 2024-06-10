@@ -1,55 +1,27 @@
+use fastxgz::fasta_reads;
 use log::warn;
 use mashmap::MashMap;
 use std::collections::HashMap;
 use std::time::Instant;
-use xxhash_rust::const_xxh3::xxh3_64;
 
 type Minimizer = String; // TODO change to integer when done
 type HashSuperKmer = u64;
 type Count = u16;
-type SKCount = MashMap<Minimizer, (HashSuperKmer, Count)>;
+// type SKCount = MashMap<Minimizer, (HashSuperKmer, Count)>;
 // canonical minimmizer -> (id of left hk, orientation flag), ((index of right hyperkmer, orientation flag), count)
 // orientation flag: true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer
 type HKCount = MashMap<Minimizer, ((usize, bool), (usize, bool), Count)>;
 
 mod brrr_minimizers;
+mod search;
 mod superkmers;
 
-use fastxgz::fasta_reads;
 use superkmers::{
     compute_superkmers_linear, get_canonical_kmer, reverse_complement, SuperKmerInfos,
 };
 
-/// Retrieve the count of `superkmer` in `sk_count`.
-/// the superkmer and its minimizer should be canonical.
-/// Returns 0 if the superkmer is not found.
-fn get_count_superkmer(sk_count: &SKCount, superkmer: &SuperKmerInfos) -> Count {
-    let superkmer_hash = xxh3_64(superkmer.superkmer.as_bytes());
-    for (hash, count) in sk_count.get_mut_iter(&superkmer.minimizer) {
-        if *hash == superkmer_hash {
-            return *count;
-        }
-    }
-    // superkmer not found, count is 1
-    0
-}
-
-/// Add 1 to the count of `superkmer` in `sk_count`.
-/// If `superkmer` is not in `sk_count`, add it.
-/// Returns the new count.
-fn update_count_superkmer(sk_count: &mut SKCount, superkmer: &SuperKmerInfos) -> Count {
-    let superkmer_hash = xxh3_64(superkmer.superkmer.as_bytes());
-    for (super_kmer_hash, super_kmer_count) in sk_count.get_mut_iter(&superkmer.minimizer) {
-        if *super_kmer_hash == superkmer_hash {
-            let new_count = super_kmer_count.saturating_add(1);
-            *super_kmer_count = new_count;
-            return new_count;
-        }
-    }
-    // superkmer not found, insert it, count is 1
-    sk_count.insert(superkmer.minimizer.clone(), (superkmer_hash, 1));
-    1
-}
+mod superkmers_count;
+use superkmers_count::SuperKmerCounts;
 
 /// Searches for `hyperkmer_left` in `hk_count[minimizer]`
 /// minimizer is assumed to be in canonical form
@@ -138,15 +110,37 @@ fn common_prefix_length(x: &str, y: &str) -> usize {
     length
 }
 
+// get the reverse complement of a sequence depending on the boolean parameter
+// genereic implementation over the revers complement function to make tests easier
+fn get_rc_if_change_orientation_internal<ReversComplementFunction>(
+    revcompfunc: ReversComplementFunction,
+    seq: &str,
+    change_orientation: bool,
+) -> String
+where
+    ReversComplementFunction: Fn(&str) -> String,
+{
+    if change_orientation {
+        revcompfunc(seq)
+    } else {
+        String::from(seq)
+    }
+}
+
+/// get the reverse complement of a sequence depending on the boolean parameter
+fn get_rc_if_change_orientation(seq: &str, change_orientation: bool) -> String {
+    get_rc_if_change_orientation_internal(reverse_complement, seq, change_orientation)
+}
+
 fn get_left_and_rigth_from_hk(
     previous_sk: &SuperKmerInfos,
     current_sk: &SuperKmerInfos,
     next_sk: &SuperKmerInfos,
 ) -> (String, String) {
-    // Caution: the next and previous superkmer are given as the appear in the read.
-    // To stay consistant accross all orientation of reading,
-    // we conceptually switch the next and previous superkmers
-    // if the current superkmer was not canonical in the read.
+    // Caution: the next and previous superkmer are given as they appear in the read.
+    // * but still in the order they would appear if the current superkmer was canonical *
+    // this leads to conceptually having to reverse the left and right sequences' content
+    // if the superkmer was not read in its canoical form
 
     let (start_of_minimizer_in_sk, distance_to_left, distance_to_right) =
         if current_sk.was_read_canonical {
@@ -201,8 +195,8 @@ fn first_stage(
     k: usize,
     m: usize,
     threshold: Count,
-) -> (SKCount, HKCount, Vec<String>) {
-    let mut sk_count: SKCount = MashMap::new();
+) -> (SuperKmerCounts, HKCount, Vec<String>) {
+    let mut sk_count = SuperKmerCounts::new();
     let mut hk_count: HKCount = MashMap::new();
     let mut hyperkmers: Vec<String> = Vec::new();
 
@@ -225,7 +219,7 @@ fn first_stage(
             // now, current_sk.superkmer[0] is close to the left neighbour
 
             // TODO stocker les counts pour ne pas les recalculer
-            let current_count = update_count_superkmer(&mut sk_count, current_sk);
+            let current_count = sk_count.increase_count_superkmer(current_sk);
 
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
             // so I tell clippy to shup up
@@ -239,7 +233,7 @@ fn first_stage(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
-                let id_left_hk = if get_count_superkmer(&sk_count, previous_sk) >= threshold {
+                let id_left_hk = if sk_count.get_count_superkmer(previous_sk) >= threshold {
                     if previous_sk.was_read_canonical == current_sk.was_read_canonical {
                         get_hyperkmer_right_id(
                             &hk_count,
@@ -260,7 +254,7 @@ fn first_stage(
                 } else {
                     add_new_hyperkmer(&mut hyperkmers, &left_hk)
                 };
-                let id_right_hk = if get_count_superkmer(&sk_count, next_sk) >= threshold {
+                let id_right_hk = if sk_count.get_count_superkmer(next_sk) >= threshold {
                     if current_sk.was_read_canonical == next_sk.was_read_canonical {
                         get_hyperkmer_left_id(&hk_count, &hyperkmers, &next_sk.minimizer, &right_hk)
                             .expect("Hash collision on superkmers. Please change your seed.")
@@ -324,7 +318,7 @@ fn first_stage(
 
 // TODO find a better name for the second stage function
 fn second_stage(
-    sk_count: &mut SKCount,
+    sk_count: &mut SuperKmerCounts,
     hk_count: &mut HKCount,
     hyperkmers: &[String],
     sequences: &Vec<&str>,
@@ -341,7 +335,7 @@ fn second_stage(
     for sequence in sequences {
         let superkmers = compute_superkmers_linear(sequence, k, m);
         for superkmer in &superkmers {
-            if get_count_superkmer(sk_count, superkmer) >= threshold {
+            if sk_count.get_count_superkmer(superkmer) >= threshold {
                 continue;
             }
 
@@ -365,7 +359,7 @@ fn second_stage(
 
             let start_of_minimizer_in_sk =
                 superkmer.start_of_minimizer_as_read - superkmer.start_of_superkmer_as_read;
-            let left_hk_of_sk = &superkmer.superkmer[0..=(start_of_minimizer_in_sk + m - 1)];
+            let left_hk_of_sk = &superkmer.superkmer[0..(start_of_minimizer_in_sk + m - 1)];
             let right_hk_of_sk =
                 &superkmer.superkmer[(start_of_minimizer_in_sk + 1)..superkmer.superkmer.len()];
 
@@ -423,7 +417,7 @@ fn index_hyperkmers(
     threshold: Count,
     sequences: &Vec<&str>,
 ) -> (
-    SKCount,
+    SuperKmerCounts,
     HKCount,
     Vec<String>,
     MashMap<String, (usize, usize)>,
@@ -457,6 +451,7 @@ fn index_hyperkmers(
         discarded_minimizers,
     )
 }
+
 fn main() {
     let sequences: Vec<String> = fasta_reads("data/U00096.3.fasta")
         .unwrap()
@@ -464,63 +459,22 @@ fn main() {
         .collect();
     let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
 
-    let k = 100;
-    let m = 31;
+    let k = 20;
+    let m = 10;
     let threshold = 2;
 
-    let (_sk_count, _hk_count, _hyperkmers, _truncated_hk, _discarded_minimizers) =
+    let (_sk_count, hk_count, hyperkmers, _truncated_hk, _discarded_minimizers) =
         index_hyperkmers(k, m, threshold, &sequences);
+
+    let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
+
+    // search(&hk_count, &hyperkmers, kmer_test, k, m);
+    // println!("{:?}", sk);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_get_count_superkmer() {
-        let sk0 = SuperKmerInfos {
-            superkmer: "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGG".into(),
-            minimizer: "AATCGTCATCCGAAACGTCA".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 7,
-            start_of_superkmer_as_read: 0,
-        };
-        let sk1 = SuperKmerInfos {
-            superkmer: "GACGTTTCGGATGACGATTGTACGTGACGGTG".into(),
-            minimizer: "ACAATCGTCATCCGAAACGT".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 9,
-            start_of_superkmer_as_read: 8,
-        };
-        let sk2 = SuperKmerInfos {
-            superkmer: "CGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATG".into(),
-            minimizer: "ACCGTCACGTACAATCGTCA".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 19,
-            start_of_superkmer_as_read: 10,
-        };
-        let sk3 = SuperKmerInfos {
-            superkmer: "GACGATTGTACGTGACGGTGCGTCCGGATGAC".into(),
-            minimizer: "ACGATTGTACGTGACGGTGC".into(),
-            was_read_canonical: true,
-            start_of_minimizer_as_read: 21,
-            start_of_superkmer_as_read: 20,
-        };
-
-        let mut sk_count: SKCount = MashMap::new();
-
-        for sk in vec![sk0, sk1, sk2, sk3] {
-            assert_eq!(get_count_superkmer(&sk_count, &sk), 0);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 1);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 2);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 3);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 4);
-            assert_eq!(get_count_superkmer(&sk_count, &sk), 4);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 5);
-            assert_eq!(update_count_superkmer(&mut sk_count, &sk), 6);
-            assert_eq!(get_count_superkmer(&sk_count, &sk), 6);
-        }
-    }
 
     #[test]
     fn test_suffix_preffix() {
