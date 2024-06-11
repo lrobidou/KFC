@@ -33,9 +33,14 @@ fn get_extended_hyperkmer_left_id(
 ) -> Option<usize> {
     let (_change_orientation, canonical_extended_hyperkmer_left) =
         get_canonical_kmer(extended_hyperkmer_left);
+    println!(
+        "get_extended_hyperkmer_left_id, searching for {}",
+        canonical_extended_hyperkmer_left
+    );
     for (candidate_left_extended_hk, _candidate_right_extended_hk, _count) in
         hk_count.get_iter(minimizer)
     {
+        println!("candidate: {:?}", hyperkmers[candidate_left_extended_hk.0]);
         if canonical_extended_hyperkmer_left == hyperkmers[candidate_left_extended_hk.0] {
             return Some(candidate_left_extended_hk.0);
         }
@@ -43,6 +48,7 @@ fn get_extended_hyperkmer_left_id(
     None
 }
 
+fn get_left_part_of_canonical_superkmer(sk: &SuperKmerInfos) {}
 /// Searches for `extended_hyperkmer_right` in `hk_count[minimizer]`
 /// minimizer is assumed to be in canonical form
 fn get_extended_hyperkmer_right_id(
@@ -53,9 +59,20 @@ fn get_extended_hyperkmer_right_id(
 ) -> Option<usize> {
     let (_change_orientation, canonical_extended_hyperkmer_right) =
         get_canonical_kmer(extended_hyperkmer_right);
+    println!(
+        "get_extended_hyperkmer_right_id, searching for {}",
+        canonical_extended_hyperkmer_right
+    );
+    if !hk_count.contains_key(minimizer) {
+        println!("table does not have key {}", minimizer);
+    }
     for (_candidate_left_extended_hk, candidate_right_extended_hk, _count) in
         hk_count.get_iter(minimizer)
     {
+        println!(
+            "searching for ext hk {}, current ext hk is{}",
+            canonical_extended_hyperkmer_right, hyperkmers[candidate_right_extended_hk.0]
+        );
         if canonical_extended_hyperkmer_right == hyperkmers[candidate_right_extended_hk.0] {
             return Some(candidate_right_extended_hk.0);
         }
@@ -153,7 +170,7 @@ fn get_rc_if_change_orientation(seq: &str, change_orientation: bool) -> String {
     get_rc_if_change_orientation_internal(reverse_complement, seq, change_orientation)
 }
 
-fn get_left_and_rigth_from_hk(
+fn get_left_and_rigth_hk(
     previous_sk: &SuperKmerInfos,
     current_sk: &SuperKmerInfos,
     next_sk: &SuperKmerInfos,
@@ -213,8 +230,8 @@ fn get_left_and_rigth_from_hk(
     (String::from(left_hk), String::from(right_hk))
 }
 
-/// return the left and right hyperkmers of the currrent superkmer
-/// hyperkmers are, in fact, superkmers with the length of inclusion of the hyperkmer in it
+/// return the left and right extended hyperkmers of the currrent superkmer
+/// extended hyperkmers are, in fact, part of superkmers with the length of inclusion of the hyperkmer in it
 /// returned sequences are not in canonical form, but are sequences as they would appear in the read
 /// if the current superkmer was in its canonical form in the read
 /// returned tuple is (left, right)
@@ -231,6 +248,7 @@ fn get_left_and_rigth_extended_hk(
     // if the superkmer was not read in its canonical form
     let m = current_sk.minimizer.len();
 
+    // get the starting position of the minimizer in the superkmer
     let get_start_of_minimizer = |sk: &SuperKmerInfos| {
         if sk.was_read_canonical {
             sk.start_of_minimizer_as_read - sk.start_of_superkmer_as_read
@@ -284,73 +302,97 @@ fn get_left_and_rigth_extended_hk(
     // this is the sequence in between minimizers, including m-1 bases of the minimizers
     let left_hk = &current_sk.superkmer[start_of_left_hk..end_of_left_hk];
     let right_hk = &current_sk.superkmer[start_of_right_hk..end_of_right_hk];
-
+    // this is the left and rigth part of the superkmer
     let current_left_sk = &current_sk.superkmer[0..end_of_left_hk];
     let current_right_sk = &current_sk.superkmer[start_of_right_hk..current_sk.superkmer.len()];
 
-    let previous_right_sk = &previous_sk.superkmer
-        [get_start_of_minimizer(previous_sk) + 1..previous_sk.superkmer.len()];
-    let next_left_sk = &next_sk.superkmer[0..get_start_of_minimizer(next_sk) + m - 1];
-
-    // sanity check
-    // TODO remove the sanity check
+    let previous_right_sk = if previous_sk.was_read_canonical == current_sk.was_read_canonical {
+        // reverse left and right
+        String::from(
+            &previous_sk.superkmer
+                [get_start_of_minimizer(previous_sk) + 1..previous_sk.superkmer.len()],
+        )
+    } else {
+        reverse_complement(&previous_sk.superkmer[0..get_start_of_minimizer(previous_sk) + m - 1])
+    };
+    let next_left_sk = if next_sk.was_read_canonical == current_sk.was_read_canonical {
+        // reverse left and right
+        String::from(&next_sk.superkmer[0..get_start_of_minimizer(next_sk) + m - 1])
+    } else {
+        reverse_complement(
+            &next_sk.superkmer[get_start_of_minimizer(next_sk) + 1..next_sk.superkmer.len()],
+        )
+    };
+    // TODO remove checks
+    let extended_left_sk = if current_left_sk.len() > previous_right_sk.len() {
+        assert!(current_left_sk.contains(&previous_right_sk));
+        assert!(current_left_sk.ends_with(&previous_right_sk));
+        current_left_sk.into()
+    } else {
+        assert!(previous_right_sk.contains(current_left_sk));
+        assert!(previous_right_sk.starts_with(current_left_sk));
+        previous_right_sk.clone()
+    };
+    let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
+        assert!(current_right_sk.contains(&next_left_sk));
+        assert!(current_right_sk.starts_with(&next_left_sk));
+        current_right_sk.into()
+    } else {
+        assert!(next_left_sk.contains(current_right_sk));
+        assert!(next_left_sk.ends_with(current_right_sk));
+        next_left_sk.clone()
+    };
+    return (
+        (
+            extended_left_sk,
+            std::cmp::min(current_left_sk.len(), previous_right_sk.len()),
+        ),
+        (
+            extended_right_sk,
+            std::cmp::min(current_right_sk.len(), next_left_sk.len()),
+        ),
+    );
     // now, let's compute left and right hyperkmers and check that the hyperkmers are in them
-    // if current_sk.was_read_canonical == next_sk.was_read_canonical {
-    // TODO remove
 
-    let larger_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        current_right_sk
+    let overlap_right = common_suffix_length(right_hk, &next_left_sk);
+    let larger_right_sk = if right_hk.len() > next_left_sk.len() {
+        right_hk
     } else {
-        next_left_sk
+        &next_left_sk
     };
 
-    // sanity checks
-    let overlap_right = suf_of_x_is_pref_of_y(&current_sk.superkmer, &next_sk.superkmer);
-    assert_eq!(
-        overlap_right,
-        suf_of_x_is_pref_of_y(current_right_sk, next_left_sk)
-    );
+    let overlap_left = suf_of_x_is_pref_of_y(left_hk, &previous_right_sk);
+    let larger_left_sk = if left_hk.len() > previous_right_sk.len() {
+        left_hk
+    } else {
+        &previous_right_sk
+    };
+
     println!("{:?}", overlap_right);
-    println!("{:?}", (previous_sk, current_sk, next_sk));
-    println!("{:?}", (current_right_sk, next_left_sk));
-
+    println!("{:?}\n{:?}\n{:?}", previous_sk, current_sk, next_sk);
+    println!("{:?}", (right_hk, &next_left_sk));
+    // sanity checks
+    // overlaps are longer or equal than len(minimizers)-1
     assert!(overlap_right >= current_sk.minimizer.len() - 1);
-    // one sequence should be completelyt covered by the overlap
+    assert!(overlap_left >= current_sk.minimizer.len() - 1);
+    // one sequence should be completely covered by the overlap
     assert_eq!(
         overlap_right,
-        std::cmp::min(current_right_sk.len(), next_left_sk.len())
+        std::cmp::min(right_hk.len(), next_left_sk.len())
     );
-
-    let larger_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        current_right_sk
-    } else {
-        next_left_sk
-    };
-    assert!(larger_right_sk.contains(current_right_sk));
-
-    // sanity checks
-    let overlap_left = suf_of_x_is_pref_of_y(&previous_sk.superkmer, &current_sk.superkmer);
     assert_eq!(
         overlap_left,
-        suf_of_x_is_pref_of_y(current_left_sk, previous_right_sk)
+        std::cmp::min(left_hk.len(), previous_right_sk.len())
     );
-    assert!(overlap_left >= current_sk.minimizer.len() - 1);
-    // one sequence should be completelyt covered by the overlap
-    assert_eq!(
-        overlap_left,
-        std::cmp::min(current_left_sk.len(), previous_right_sk.len())
-    );
-    let larger_left_sk = if current_left_sk.len() > previous_right_sk.len() {
-        current_left_sk
-    } else {
-        previous_right_sk
-    };
-    assert!(larger_left_sk.contains(current_left_sk));
-    // }
+    // each overlap contains both sequences
+    assert!(larger_right_sk.contains(right_hk));
+    assert!(larger_right_sk.contains(&next_left_sk));
+    assert!(larger_left_sk.contains(left_hk));
+    assert!(larger_left_sk.contains(&previous_right_sk));
 
     (
-        (String::from(larger_right_sk), overlap_right),
         (String::from(larger_left_sk), overlap_left),
+        (String::from(larger_right_sk), overlap_right),
     )
 }
 
@@ -383,6 +425,12 @@ fn first_stage(
             };
             // now, current_sk.superkmer[0] is close to the left neighbour
 
+            // compute now if the previosu and/or next superkmer is solid
+            // (we do it now because `increase_count_superkmer(current_sk)`
+            // can increase their count as well if they are the same superkmer)
+            let previous_sk_is_solid = sk_count.get_count_superkmer(previous_sk) >= threshold;
+            let next_sk_is_solid = sk_count.get_count_superkmer(next_sk) >= threshold;
+
             // TODO stocker les counts pour ne pas les recalculer
             let current_count = sk_count.increase_count_superkmer(current_sk);
 
@@ -392,9 +440,10 @@ fn first_stage(
             if current_count == threshold {
                 let (left_extended_hk, right_extended_hk) =
                     get_left_and_rigth_extended_hk(previous_sk, current_sk, next_sk);
-                let (left_hk, right_hk) =
-                    get_left_and_rigth_from_hk(previous_sk, current_sk, next_sk);
+                let (left_hk, right_hk) = get_left_and_rigth_hk(previous_sk, current_sk, next_sk);
                 assert!(left_extended_hk.0.contains(&left_hk));
+                assert!(left_extended_hk.0.len() < k);
+                assert!(right_extended_hk.0.len() < k);
                 assert!(right_extended_hk.0.contains(&right_hk));
                 let canonical_extended_left_hk = get_canonical_kmer(&left_extended_hk.0);
                 let canonical_extended_right_hk = get_canonical_kmer(&right_extended_hk.0);
@@ -404,7 +453,12 @@ fn first_stage(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
-                let id_left_hk = if sk_count.get_count_superkmer(previous_sk) >= threshold {
+                // println!("{}", sk_count.get_count_superkmer(previous_sk));
+                let id_left_hk = if previous_sk_is_solid {
+                    println!(
+                        "sk_count contains_minimizer: {}",
+                        sk_count.contains_minimizer(&previous_sk.minimizer)
+                    );
                     if previous_sk.was_read_canonical == current_sk.was_read_canonical {
                         get_extended_hyperkmer_right_id(
                             &hk_count,
@@ -418,14 +472,14 @@ fn first_stage(
                             &hk_count,
                             &hyperkmers,
                             &previous_sk.minimizer,
-                            &canonical_extended_right_hk.1,
+                            &canonical_extended_left_hk.1,
                         )
                         .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
                     add_new_hyperkmer(&mut hyperkmers, &left_extended_hk.0)
                 };
-                let id_right_hk = if sk_count.get_count_superkmer(next_sk) >= threshold {
+                let id_right_hk = if next_sk_is_solid {
                     if current_sk.was_read_canonical == next_sk.was_read_canonical {
                         get_extended_hyperkmer_left_id(
                             &hk_count,
@@ -447,7 +501,7 @@ fn first_stage(
                     add_new_hyperkmer(&mut hyperkmers, &right_extended_hk.0)
                 };
 
-                // we have two ids (left and rigth) of extended hyperkmers containing our lefgt and
+                // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
 
                 let left_change_orientation =
@@ -636,8 +690,8 @@ fn main() {
         .collect();
     let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
 
-    let k = 20;
-    let m = 10;
+    let k = 31;
+    let m = 20;
     let threshold = 2;
 
     let (_sk_count, hk_count, hyperkmers, _truncated_hk, _discarded_minimizers) =
@@ -673,6 +727,50 @@ mod tests {
         assert_eq!(common_suffix_length("x", "y"), 0);
         assert_eq!(common_suffix_length("", ""), 0);
         assert_eq!(common_suffix_length("xyyyyyyyyyy", "xyy"), 2);
+    }
+
+    #[test]
+    fn test_get_left_and_rigth_extended_hk() {
+        // in the sequence CAGATGGTTCAACCCTTAAGTTAGCGCTTATGGGATCAC
+        //     previous sk :              CCTTAAGTTAGCGCTTATGGGATCAC (GTTAGCGCTT)
+        //     current sk :            ACCCTTAAGTTAGCGCTTATG (CCCTTAAGTT)
+        //        next sk : CAGATGGTTCAACCCTTAAGTTAGCGCTTA (AACCCTTAAG)
+
+        //    SuperKmerInfos { superkmer: "GTGATCCCATAAGCGCTAACTTAAGG", minimizer: "AAGCGCTAAC", was_read_canonical: false, start_of_minimizer_as_read: 16715, start_of_superkmer_as_read: 16709 }
+        //    SuperKmerInfos { superkmer: "CATAAGCGCTAACTTAAGGGT", minimizer: "AACTTAAGGG", was_read_canonical: false, start_of_minimizer_as_read: 16708, start_of_superkmer_as_read: 16707 }
+        //    SuperKmerInfos { superkmer: "CAGATGGTTCAACCCTTAAGTTAGCGCTTA", minimizer: "AACCCTTAAG", was_read_canonical: true, start_of_minimizer_as_read: 16706, start_of_superkmer_as_read: 16696 }
+        //    ("ACTTAAGGGT", "TAAGCGCTAACTTAAGGGT")
+        //    left extended hk: ("AGCGCTAACTTAAGG", 15)
+        //    right extended hk: ("TAAGCGCTAACTTAAGGGT", 10)
+        //    TAAGCGCTAACTTAAGGGTTGAACCATCTG
+        let previous_sk = SuperKmerInfos {
+            superkmer: "GTGATCCCATAAGCGCTAACTTAAGG".into(),
+            minimizer: "AAGCGCTAAC".into(),
+            was_read_canonical: false,
+            start_of_minimizer_as_read: 16715,
+            start_of_superkmer_as_read: 16709,
+        };
+        let current_sk = SuperKmerInfos {
+            superkmer: "CATAAGCGCTAACTTAAGGGT".into(),
+            minimizer: "AACTTAAGGG".into(),
+            was_read_canonical: false,
+            start_of_minimizer_as_read: 16708,
+            start_of_superkmer_as_read: 16707,
+        };
+        let next_sk = SuperKmerInfos {
+            superkmer: "CAGATGGTTCAACCCTTAAGTTAGCGCTTA".into(),
+            minimizer: "AACCCTTAAG".into(),
+            was_read_canonical: true,
+            start_of_minimizer_as_read: 16706,
+            start_of_superkmer_as_read: 16696,
+        };
+        let (l, r) = get_left_and_rigth_extended_hk(&previous_sk, &current_sk, &next_sk);
+        //   left: "TAAGCGCTAACTTAAGGGT"
+        //  right: "ACCCTTAAGTTAGCGCTTA"
+        assert_eq!(r.0, "TAAGCGCTAACTTAAGGGT");
+        assert_eq!(l.0, "CATAAGCGCTAACTTAAGG");
+        //    sk right: ACCCTTAAGTTAGCGCTTA / TAAGCGCTAACTTAAGGGT
+        //    sk left: CCTTAAGTTAGCGCTTATG / CATAAGCGCTAACTTAAGG
     }
 
     #[test]
