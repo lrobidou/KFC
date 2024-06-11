@@ -33,11 +33,7 @@ pub struct SuperKmerInfos {
 }
 
 impl SuperKmerInfos {
-    pub fn change_orientation(&self) -> Self {
-        // let end_of_superkmer = self.start_of_superkmer + self.superkmer.len() - 1;
-        // let relative_start_of_minimizer = self.start_of_minimizer - self.start_of_superkmer;
-        // let start_of_minimizer_in_rc =
-        // end_of_superkmer - relative_start_of_minimizer - self.minimizer.len() + 1;
+    pub fn revcomp_of_superkmer_sequence(&self) -> Self {
         Self {
             superkmer: reverse_complement(&self.superkmer),
             minimizer: self.minimizer.clone(),
@@ -151,7 +147,7 @@ pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Supe
         } else {
             // otherwise, push the superkmer and create a new one
             if !superkmerinfos.was_read_canonical {
-                superkmerinfos = superkmerinfos.change_orientation();
+                superkmerinfos = superkmerinfos.revcomp_of_superkmer_sequence();
             }
             superkmers.push(superkmerinfos);
             superkmerinfos = SuperKmerInfos {
@@ -165,7 +161,7 @@ pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Supe
     }
 
     if !superkmerinfos.was_read_canonical {
-        superkmerinfos = superkmerinfos.change_orientation();
+        superkmerinfos = superkmerinfos.revcomp_of_superkmer_sequence();
     }
     // Add the last superkmer
     superkmers.push(superkmerinfos);
