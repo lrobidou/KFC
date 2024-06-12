@@ -1,6 +1,4 @@
-use compute_left_and_right::{
-    get_left_and_rigth_extended_hk, get_left_and_rigth_extended_hk_dbg, get_left_and_rigth_hk,
-};
+use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_hk};
 use fastxgz::fasta_reads;
 use log::warn;
 use mashmap::MashMap;
@@ -271,7 +269,7 @@ fn first_stage(
             #[allow(clippy::comparison_chain)]
             if current_count == threshold {
                 let (left_extended_hk, right_extended_hk) =
-                    get_left_and_rigth_extended_hk_dbg(previous_sk, current_sk, next_sk);
+                    get_left_and_rigth_extended_hk(previous_sk, current_sk, next_sk);
                 let (left_hk, right_hk) = get_left_and_rigth_hk(previous_sk, current_sk, next_sk);
                 assert!(left_extended_hk.0.contains(&left_hk));
                 assert!(left_extended_hk.0.len() < k);
