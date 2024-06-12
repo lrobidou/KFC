@@ -10,23 +10,17 @@ type HashSuperKmer = u64;
 type Count = u16;
 // type SKCount = MashMap<Minimizer, (HashSuperKmer, Count)>;
 
-#[derive(Debug, Clone, Copy)]
-enum PosOfHyperkmerInExtHyperkmer {
-    Start,
-    End,
-}
-
 // canonical minimmizer -> (
-//     (id of left extended hk, hk len, StartingPos, orientation flag),
-//     (id of right extended hk, hk len, StartingPos, orientation flag),
+//     (id of left extended hk, start_pos, end_pos, orientation flag),
+//     (id of right extended hk, start_pos, end_pos, orientation flag),
 //     count
 // )
 // orientation flag: true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer
 type HKCount = MashMap<
     Minimizer,
     (
-        (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
-        (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+        (usize, usize, usize, bool),
+        (usize, usize, usize, bool),
         Count,
     ),
 >;
@@ -117,8 +111,8 @@ fn add_new_hyperkmer(hyperkmers: &mut Vec<String>, new_hyperkmer: &str) -> usize
 fn insert_new_entry_in_hyperkmer_count(
     hk_count: &mut HKCount,
     minimizer: &str,
-    id_left_hk: (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
-    id_right_hk: (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+    id_left_hk: (usize, usize, usize, bool),
+    id_right_hk: (usize, usize, usize, bool),
     count: Count,
 ) {
     hk_count.insert(String::from(minimizer), (id_left_hk, id_right_hk, count));
@@ -183,8 +177,8 @@ fn search_exact_hyperkmer_match(
     hyperkmers: &[String],
     left_hk: &str,
     right_hk: &str,
-    candidate_left_ext_hk_metadata: &(usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
-    candidate_right_ext_hk_metadata: &(usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+    candidate_left_ext_hk_metadata: &(usize, usize, usize, bool),
+    candidate_right_ext_hk_metadata: &(usize, usize, usize, bool),
 ) -> bool {
     // get sequences as they would appear if the current superkmer was canonical
     let candidate_left_ext_hk = get_rc_if_change_orientation(
@@ -197,28 +191,10 @@ fn search_exact_hyperkmer_match(
     );
 
     // extract candidate hyperkmers
-    let candidate_left_hyperkmer = {
-        match candidate_left_ext_hk_metadata.2 {
-            PosOfHyperkmerInExtHyperkmer::Start => {
-                &candidate_left_ext_hk[0..candidate_left_ext_hk_metadata.1]
-            }
-            PosOfHyperkmerInExtHyperkmer::End => {
-                let end = candidate_left_ext_hk.len();
-                &candidate_left_ext_hk[end - candidate_left_ext_hk_metadata.1..end]
-            }
-        }
-    };
-    let candidate_right_hyperkmer = {
-        match candidate_right_ext_hk_metadata.2 {
-            PosOfHyperkmerInExtHyperkmer::Start => {
-                &candidate_right_ext_hk[0..candidate_right_ext_hk_metadata.1]
-            }
-            PosOfHyperkmerInExtHyperkmer::End => {
-                let end = candidate_right_ext_hk.len();
-                &candidate_right_ext_hk[end - candidate_right_ext_hk_metadata.1..end]
-            }
-        }
-    };
+    let candidate_left_hyperkmer =
+        &candidate_left_ext_hk[candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
+    let candidate_right_hyperkmer = &candidate_right_ext_hk
+        [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
 
     let match_left = candidate_left_hyperkmer == left_hk;
     let match_right = candidate_right_hyperkmer == right_hk;
@@ -354,14 +330,14 @@ fn first_stage(
                     &current_sk.minimizer,
                     (
                         id_left_hk,
-                        left_extended_hk.2,
                         left_extended_hk.1,
+                        left_extended_hk.2,
                         left_change_orientation,
                     ),
                     (
                         id_right_hk,
-                        right_extended_hk.2,
                         right_extended_hk.1,
+                        right_extended_hk.2,
                         right_change_orientation,
                     ),
                     current_count,
@@ -407,74 +383,45 @@ fn first_stage(
 
                         let match_start_left = candidate_left_ext_hk.starts_with(&left_hk);
                         let match_end_left = candidate_left_ext_hk.ends_with(&left_hk);
+                        let match_left = match_start_left || match_end_left;
 
                         let match_start_right = candidate_right_ext_hk.starts_with(&right_hk);
                         let match_end_right = candidate_right_ext_hk.ends_with(&right_hk);
+                        let match_right = match_start_right || match_end_right;
 
-                        // TODO code duplication
-                        if match_start_left && match_start_right {
-                            let metadata_to_insert_left = (
-                                candidate_left_ext_hk_metadata.0,
-                                left_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::Start,
-                                candidate_left_ext_hk_metadata.3,
-                            );
-                            let metadata_to_insert_right = (
-                                candidate_right_ext_hk_metadata.0,
-                                right_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::Start,
-                                candidate_right_ext_hk_metadata.3,
-                            );
-                            new_left_and_right_metadata =
-                                Some((metadata_to_insert_left, metadata_to_insert_right));
-                            break;
-                        } else if match_end_left && match_start_right {
-                            let metadata_to_insert_left = (
-                                candidate_left_ext_hk_metadata.0,
-                                left_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::End,
-                                candidate_left_ext_hk_metadata.3,
-                            );
-                            let metadata_to_insert_right = (
-                                candidate_right_ext_hk_metadata.0,
-                                right_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::Start,
-                                candidate_right_ext_hk_metadata.3,
-                            );
-                            new_left_and_right_metadata =
-                                Some((metadata_to_insert_left, metadata_to_insert_right));
-                            break;
-                        } else if match_start_left && match_end_right {
-                            let metadata_to_insert_left = (
-                                candidate_left_ext_hk_metadata.0,
-                                left_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::Start,
-                                candidate_left_ext_hk_metadata.3,
-                            );
-                            let metadata_to_insert_right = (
-                                candidate_right_ext_hk_metadata.0,
-                                right_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::End,
-                                candidate_right_ext_hk_metadata.3,
-                            );
-                            new_left_and_right_metadata =
-                                Some((metadata_to_insert_left, metadata_to_insert_right));
-                            break;
-                        } else if match_end_left && match_end_right {
-                            let metadata_to_insert_left = (
-                                candidate_left_ext_hk_metadata.0,
-                                left_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::End,
-                                candidate_left_ext_hk_metadata.3,
-                            );
-                            let metadata_to_insert_right = (
-                                candidate_right_ext_hk_metadata.0,
-                                right_hk.len(),
-                                PosOfHyperkmerInExtHyperkmer::End,
-                                candidate_right_ext_hk_metadata.3,
-                            );
-                            new_left_and_right_metadata =
-                                Some((metadata_to_insert_left, metadata_to_insert_right));
+                        if match_left && match_right {
+                            let (start_left, end_left) = if match_start_left {
+                                (0, left_hk.len())
+                            } else {
+                                (
+                                    candidate_left_ext_hk.len() - left_hk.len(),
+                                    candidate_left_ext_hk.len(),
+                                )
+                            };
+
+                            let (start_right, end_right) = if match_start_right {
+                                (0, right_hk.len())
+                            } else {
+                                (
+                                    candidate_right_ext_hk.len() - right_hk.len(),
+                                    candidate_right_ext_hk.len(),
+                                )
+                            };
+
+                            new_left_and_right_metadata = Some((
+                                (
+                                    candidate_left_ext_hk_metadata.0,
+                                    start_left,
+                                    end_left,
+                                    candidate_left_ext_hk_metadata.3,
+                                ),
+                                (
+                                    candidate_right_ext_hk_metadata.0,
+                                    start_right,
+                                    end_right,
+                                    candidate_right_ext_hk_metadata.3,
+                                ),
+                            ));
                             break;
                         }
                     }
@@ -567,28 +514,10 @@ fn second_stage(
                 );
 
                 // extract candidate hyperkmers
-                let candidate_left_hyperkmer = {
-                    match candidate_left_ext_hk_metadata.2 {
-                        PosOfHyperkmerInExtHyperkmer::Start => {
-                            &candidate_left_ext_hk[0..candidate_left_ext_hk_metadata.1]
-                        }
-                        PosOfHyperkmerInExtHyperkmer::End => {
-                            let end = candidate_left_ext_hk.len();
-                            &candidate_left_ext_hk[end - candidate_left_ext_hk_metadata.1..end]
-                        }
-                    }
-                };
-                let candidate_right_hyperkmer = {
-                    match candidate_right_ext_hk_metadata.2 {
-                        PosOfHyperkmerInExtHyperkmer::Start => {
-                            &candidate_right_ext_hk[0..candidate_right_ext_hk_metadata.1]
-                        }
-                        PosOfHyperkmerInExtHyperkmer::End => {
-                            let end = candidate_right_ext_hk.len();
-                            &candidate_right_ext_hk[end - candidate_right_ext_hk_metadata.1..end]
-                        }
-                    }
-                };
+                let candidate_left_hyperkmer = &candidate_left_ext_hk
+                    [candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
+                let candidate_right_hyperkmer = &candidate_right_ext_hk
+                    [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
 
                 let len_current_match_left =
                     common_suffix_length(left_sk, candidate_left_hyperkmer);
@@ -598,37 +527,20 @@ fn second_stage(
 
                 if current_match_size > match_size {
                     match_size = current_match_size;
-                    // extract candidate hyperkmers
-                    let left_end = {
-                        match candidate_left_ext_hk_metadata.2 {
-                            PosOfHyperkmerInExtHyperkmer::Start => candidate_left_ext_hk_metadata.1,
-                            PosOfHyperkmerInExtHyperkmer::End => candidate_left_ext_hk.len(),
-                        }
-                    };
-                    let left_start = left_end - len_current_match_left;
-
-                    let right_start = {
-                        match candidate_right_ext_hk_metadata.2 {
-                            PosOfHyperkmerInExtHyperkmer::Start => 0,
-                            PosOfHyperkmerInExtHyperkmer::End => {
-                                let end = candidate_right_ext_hk.len();
-                                end - candidate_right_ext_hk_metadata.1
-                            }
-                        }
-                    };
-                    let right_end = right_start + len_current_match_right;
 
                     match_metadata = Some((
+                        // same suffix => same end, but different start
                         (
                             candidate_left_ext_hk_metadata.0,
-                            left_start,
-                            left_end,
+                            candidate_left_ext_hk_metadata.2 - len_current_match_left,
+                            candidate_left_ext_hk_metadata.2,
                             candidate_left_ext_hk_metadata.3,
                         ),
+                        // same preffix => same start, but different end
                         (
                             candidate_right_ext_hk_metadata.0,
-                            right_start,
-                            right_end,
+                            candidate_right_ext_hk_metadata.1,
+                            candidate_right_ext_hk_metadata.1 + len_current_match_right,
                             candidate_right_ext_hk_metadata.3,
                         ),
                     ));
@@ -817,18 +729,8 @@ mod tests {
                 hk_count.insert(
                     minimizer.clone(),
                     (
-                        (
-                            random_left,
-                            random_left_overlap,
-                            PosOfHyperkmerInExtHyperkmer::Start,
-                            true,
-                        ),
-                        (
-                            random_rigth,
-                            random_rigth_overlap,
-                            PosOfHyperkmerInExtHyperkmer::Start,
-                            true,
-                        ),
+                        (random_left, 0, random_left_overlap, true),
+                        (random_rigth, 0, random_rigth_overlap, true),
                         random_count,
                     ),
                 );
@@ -842,8 +744,8 @@ mod tests {
             hk_count.insert(
                 minimizer.clone(),
                 (
-                    (i, overlap, PosOfHyperkmerInExtHyperkmer::Start, true),
-                    (i + 1, overlap, PosOfHyperkmerInExtHyperkmer::Start, true),
+                    (i, 0, overlap, true),
+                    (i + 1, 0, overlap, true),
                     random_count,
                 ),
             );
@@ -861,18 +763,8 @@ mod tests {
                 hk_count.insert(
                     minimizer.clone(),
                     (
-                        (
-                            random_left,
-                            random_left_overlap,
-                            PosOfHyperkmerInExtHyperkmer::Start,
-                            true,
-                        ),
-                        (
-                            random_rigth,
-                            random_rigth_overlap,
-                            PosOfHyperkmerInExtHyperkmer::Start,
-                            true,
-                        ),
+                        (random_left, 0, random_left_overlap, true),
+                        (random_rigth, 0, random_rigth_overlap, true),
                         random_count,
                     ),
                 );

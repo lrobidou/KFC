@@ -1,6 +1,6 @@
 use crate::get_start_of_minimizer_in_superkmer;
 use crate::reverse_complement;
-use crate::PosOfHyperkmerInExtHyperkmer;
+// use crate::PosOfHyperkmerInExtHyperkmer;
 use crate::SuperKmerInfos;
 
 pub fn get_left_and_rigth_hk(
@@ -74,24 +74,12 @@ pub fn get_left_and_rigth_extended_hk(
     previous_sk: &SuperKmerInfos,
     current_sk: &SuperKmerInfos,
     next_sk: &SuperKmerInfos,
-) -> (
-    (String, PosOfHyperkmerInExtHyperkmer, usize),
-    (String, PosOfHyperkmerInExtHyperkmer, usize),
-) {
+) -> ((String, usize, usize), (String, usize, usize)) {
     // Caution: the next and previous superkmer are given as they appear in the read.
     // * but still in the order they would appear if the current superkmer was canonical *
     // this leads to conceptually having to reverse the left and right sequences' content
     // if the superkmer was not read in its canonical form
     let m = current_sk.minimizer.len();
-
-    // get the starting position of the minimizer in the superkmer
-    let get_start_of_minimizer = |sk: &SuperKmerInfos| {
-        if sk.was_read_canonical {
-            sk.start_of_minimizer_as_read - sk.start_of_superkmer_as_read
-        } else {
-            sk.superkmer.len() + sk.start_of_superkmer_as_read - sk.start_of_minimizer_as_read - m
-        }
-    };
 
     let start_of_minimizer_in_sk = get_start_of_minimizer_in_superkmer(current_sk);
     let end_of_left_hk = start_of_minimizer_in_sk + m - 1;
@@ -102,46 +90,46 @@ pub fn get_left_and_rigth_extended_hk(
     let current_right_sk = &current_sk.superkmer[start_of_right_hk..current_sk.superkmer.len()];
 
     let previous_right_sk = if previous_sk.was_read_canonical == current_sk.was_read_canonical {
-        // reverse left and right
         String::from(
             &previous_sk.superkmer
-                [get_start_of_minimizer(previous_sk) + 1..previous_sk.superkmer.len()],
+                [get_start_of_minimizer_in_superkmer(previous_sk) + 1..previous_sk.superkmer.len()],
         )
     } else {
-        reverse_complement(&previous_sk.superkmer[0..get_start_of_minimizer(previous_sk) + m - 1])
+        reverse_complement(
+            &previous_sk.superkmer[0..get_start_of_minimizer_in_superkmer(previous_sk) + m - 1],
+        )
     };
     let next_left_sk = if next_sk.was_read_canonical == current_sk.was_read_canonical {
-        // reverse left and right
-        String::from(&next_sk.superkmer[0..get_start_of_minimizer(next_sk) + m - 1])
+        String::from(&next_sk.superkmer[0..get_start_of_minimizer_in_superkmer(next_sk) + m - 1])
     } else {
         reverse_complement(
-            &next_sk.superkmer[get_start_of_minimizer(next_sk) + 1..next_sk.superkmer.len()],
+            &next_sk.superkmer
+                [get_start_of_minimizer_in_superkmer(next_sk) + 1..next_sk.superkmer.len()],
         )
     };
 
+    let len_match_left = std::cmp::min(current_left_sk.len(), previous_right_sk.len());
+    let len_match_right = std::cmp::min(current_right_sk.len(), next_left_sk.len());
+
     let extended_left_sk = if current_left_sk.len() > previous_right_sk.len() {
-        (current_left_sk.into(), PosOfHyperkmerInExtHyperkmer::End)
+        (
+            current_left_sk.into(),
+            current_left_sk.len() - len_match_left,
+            current_left_sk.len(),
+        )
+    } else {
+        (previous_right_sk.clone(), 0, len_match_left)
+    };
+
+    let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
+        (current_right_sk.into(), 0, len_match_right)
     } else {
         (
-            previous_right_sk.clone(),
-            PosOfHyperkmerInExtHyperkmer::Start,
+            next_left_sk.clone(),
+            next_left_sk.len() - len_match_right,
+            len_match_right,
         )
     };
-    let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        (current_right_sk.into(), PosOfHyperkmerInExtHyperkmer::Start)
-    } else {
-        (next_left_sk.clone(), PosOfHyperkmerInExtHyperkmer::End)
-    };
-    (
-        (
-            extended_left_sk.0,
-            extended_left_sk.1,
-            std::cmp::min(current_left_sk.len(), previous_right_sk.len()),
-        ),
-        (
-            extended_right_sk.0,
-            extended_right_sk.1,
-            std::cmp::min(current_right_sk.len(), next_left_sk.len()),
-        ),
-    )
+
+    (extended_left_sk, extended_right_sk)
 }

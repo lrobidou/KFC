@@ -1,12 +1,9 @@
 use crate::{
     get_rc_if_change_orientation, get_start_of_minimizer_in_superkmer,
-    superkmers::{compute_superkmers_linear, reverse_complement},
-    Count, PosOfHyperkmerInExtHyperkmer,
+    superkmers::compute_superkmers_linear, Count,
 };
 
-use super::{
-    common_prefix_length, common_suffix_length, get_rc_if_change_orientation_internal, HKCount,
-};
+use super::{common_prefix_length, common_suffix_length, HKCount};
 
 fn search_kmer(hk_count: &HKCount, hyperkmers: &[String], kmer: &str, k: usize, m: usize) -> Count {
     // TODO cost of doing k = kmer.len() ?
@@ -38,28 +35,11 @@ fn search_kmer(hk_count: &HKCount, hyperkmers: &[String], kmer: &str, k: usize, 
         );
 
         // extract candidate hyperkmers
-        let candidate_left_hyperkmer = {
-            match candidate_left_ext_hk_metadata.2 {
-                PosOfHyperkmerInExtHyperkmer::Start => {
-                    &candidate_left_ext_hk[0..candidate_left_ext_hk_metadata.1]
-                }
-                PosOfHyperkmerInExtHyperkmer::End => {
-                    let end = candidate_left_ext_hk.len();
-                    &candidate_left_ext_hk[end - candidate_left_ext_hk_metadata.1..end]
-                }
-            }
-        };
-        let candidate_right_hyperkmer = {
-            match candidate_right_ext_hk_metadata.2 {
-                PosOfHyperkmerInExtHyperkmer::Start => {
-                    &candidate_right_ext_hk[0..candidate_right_ext_hk_metadata.1]
-                }
-                PosOfHyperkmerInExtHyperkmer::End => {
-                    let end = candidate_right_ext_hk.len();
-                    &candidate_right_ext_hk[end - candidate_right_ext_hk_metadata.1..end]
-                }
-            }
-        };
+        let candidate_left_hyperkmer = &candidate_left_ext_hk
+            [candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
+        let candidate_right_hyperkmer = &candidate_right_ext_hk
+            [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
+
         println!("candidate_left_ext_hk = {:?}", candidate_left_ext_hk);
         println!("candidate_right_ext_hk = {:?}", candidate_right_ext_hk);
         println!("candidate_left_hyperkmer = {:?}", candidate_left_hyperkmer);
@@ -80,7 +60,7 @@ fn search_kmer(hk_count: &HKCount, hyperkmers: &[String], kmer: &str, k: usize, 
 
 #[cfg(test)]
 mod tests {
-    use crate::PosOfHyperkmerInExtHyperkmer;
+    // use crate::PosOfHyperkmerInExtHyperkmer;
 
     use super::*;
 
@@ -99,11 +79,7 @@ mod tests {
         hyperkmers.push(String::from("AAAAAAAAA_this_is_another_match"));
         hk.insert(
             minimizer.into(),
-            (
-                (0, 25, PosOfHyperkmerInExtHyperkmer::Start, false),
-                (1, 31, PosOfHyperkmerInExtHyperkmer::Start, false),
-                count,
-            ),
+            ((0, 0, 25, false), (1, 0, 31, false), count),
         );
         let search_result = search_kmer(&hk, &hyperkmers, kmer, kmer.len(), 10);
         assert!(search_result == count);
