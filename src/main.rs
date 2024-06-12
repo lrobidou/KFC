@@ -1,3 +1,6 @@
+use compute_left_and_right::{
+    get_left_and_rigth_extended_hk, get_left_and_rigth_extended_hk_dbg, get_left_and_rigth_hk,
+};
 use fastxgz::fasta_reads;
 use log::warn;
 use mashmap::MashMap;
@@ -8,11 +11,41 @@ type Minimizer = String; // TODO change to integer when done
 type HashSuperKmer = u64;
 type Count = u16;
 // type SKCount = MashMap<Minimizer, (HashSuperKmer, Count)>;
-// canonical minimmizer -> (id of left hk, orientation flag), ((index of right hyperkmer, orientation flag), count)
+
+#[derive(Debug, Clone, Copy)]
+enum PosOfHyperkmerInExtHyperkmer {
+    Start,
+    End,
+}
+
+// canonical minimmizer -> (
+//     (id of left extended hk, hk len, StartingPos, orientation flag),
+//     (id of right extended hk, hk len, StartingPos, orientation flag),
+//     count
+// )
 // orientation flag: true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer
-type HKCount = MashMap<Minimizer, ((usize, usize, bool), (usize, usize, bool), Count)>;
+type HKCount = MashMap<
+    Minimizer,
+    (
+        (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+        (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+        Count,
+    ),
+>;
+// same as HKCount
+// but position is now indicated by (id, start_pos, end_pos, orientation flag)
+// (i.e. no more len and StartingPos)
+type TruncatedHKCount = MashMap<
+    Minimizer,
+    (
+        (usize, usize, usize, bool),
+        (usize, usize, usize, bool),
+        Count,
+    ),
+>;
 
 mod brrr_minimizers;
+mod compute_left_and_right;
 mod search;
 mod superkmers;
 
@@ -33,14 +66,9 @@ fn get_extended_hyperkmer_left_id(
 ) -> Option<usize> {
     let (_change_orientation, canonical_extended_hyperkmer_left) =
         get_canonical_kmer(extended_hyperkmer_left);
-    println!(
-        "get_extended_hyperkmer_left_id, searching for {}",
-        canonical_extended_hyperkmer_left
-    );
     for (candidate_left_extended_hk, _candidate_right_extended_hk, _count) in
         hk_count.get_iter(minimizer)
     {
-        println!("candidate: {:?}", hyperkmers[candidate_left_extended_hk.0]);
         if canonical_extended_hyperkmer_left == hyperkmers[candidate_left_extended_hk.0] {
             return Some(candidate_left_extended_hk.0);
         }
@@ -48,7 +76,15 @@ fn get_extended_hyperkmer_left_id(
     None
 }
 
-fn get_left_part_of_canonical_superkmer(sk: &SuperKmerInfos) {}
+fn get_start_of_minimizer_in_superkmer(sk: &SuperKmerInfos) -> usize {
+    let m = sk.minimizer.len();
+    if sk.was_read_canonical {
+        sk.start_of_minimizer_as_read - sk.start_of_superkmer_as_read
+    } else {
+        sk.superkmer.len() + sk.start_of_superkmer_as_read - sk.start_of_minimizer_as_read - m
+    }
+}
+
 /// Searches for `extended_hyperkmer_right` in `hk_count[minimizer]`
 /// minimizer is assumed to be in canonical form
 fn get_extended_hyperkmer_right_id(
@@ -59,20 +95,9 @@ fn get_extended_hyperkmer_right_id(
 ) -> Option<usize> {
     let (_change_orientation, canonical_extended_hyperkmer_right) =
         get_canonical_kmer(extended_hyperkmer_right);
-    println!(
-        "get_extended_hyperkmer_right_id, searching for {}",
-        canonical_extended_hyperkmer_right
-    );
-    if !hk_count.contains_key(minimizer) {
-        println!("table does not have key {}", minimizer);
-    }
     for (_candidate_left_extended_hk, candidate_right_extended_hk, _count) in
         hk_count.get_iter(minimizer)
     {
-        println!(
-            "searching for ext hk {}, current ext hk is{}",
-            canonical_extended_hyperkmer_right, hyperkmers[candidate_right_extended_hk.0]
-        );
         if canonical_extended_hyperkmer_right == hyperkmers[candidate_right_extended_hk.0] {
             return Some(candidate_right_extended_hk.0);
         }
@@ -94,8 +119,8 @@ fn add_new_hyperkmer(hyperkmers: &mut Vec<String>, new_hyperkmer: &str) -> usize
 fn insert_new_entry_in_hyperkmer_count(
     hk_count: &mut HKCount,
     minimizer: &str,
-    id_left_hk: (usize, usize, bool),
-    id_right_hk: (usize, usize, bool),
+    id_left_hk: (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+    id_right_hk: (usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
     count: Count,
 ) {
     hk_count.insert(String::from(minimizer), (id_left_hk, id_right_hk, count));
@@ -134,20 +159,6 @@ fn common_prefix_length(x: &str, y: &str) -> usize {
     length
 }
 
-/// Would return 6 for ACTGGC**TGCGTAGC** **TGCGTAGC**TGCA
-/// Would return 6
-fn suf_of_x_is_pref_of_y(x: &str, y: &str) -> usize {
-    let max_overlap = x.len().min(y.len());
-
-    for i in (0..=max_overlap).rev() {
-        if x.ends_with(&y[..i]) {
-            return i;
-        }
-    }
-
-    0
-}
-
 // get the reverse complement of a sequence depending on the boolean parameter
 // genereic implementation over the revers complement function to make tests easier
 fn get_rc_if_change_orientation_internal<ReversComplementFunction>(
@@ -170,230 +181,51 @@ fn get_rc_if_change_orientation(seq: &str, change_orientation: bool) -> String {
     get_rc_if_change_orientation_internal(reverse_complement, seq, change_orientation)
 }
 
-fn get_left_and_rigth_hk(
-    previous_sk: &SuperKmerInfos,
-    current_sk: &SuperKmerInfos,
-    next_sk: &SuperKmerInfos,
-) -> (String, String) {
-    // Caution: the next and previous superkmer are given as they appear in the read.
-    // * but still in the order they would appear if the current superkmer was canonical *
-    // this leads to conceptually having to reverse the left and right sequences' content
-    // if the superkmer was not read in its canonical form
-    let m = current_sk.minimizer.len();
+fn search_exact_hyperkmer_match(
+    hyperkmers: &[String],
+    left_hk: &str,
+    right_hk: &str,
+    candidate_left_ext_hk_metadata: &(usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+    candidate_right_ext_hk_metadata: &(usize, usize, PosOfHyperkmerInExtHyperkmer, bool),
+) -> bool {
+    // get sequences as they would appear if the current superkmer was canonical
+    let candidate_left_ext_hk = get_rc_if_change_orientation(
+        &hyperkmers[candidate_left_ext_hk_metadata.0],
+        candidate_left_ext_hk_metadata.3,
+    );
+    let candidate_right_ext_hk = get_rc_if_change_orientation(
+        &hyperkmers[candidate_right_ext_hk_metadata.0],
+        candidate_right_ext_hk_metadata.3,
+    );
 
-    let (start_of_minimizer_in_sk, distance_to_left, distance_to_right) =
-        if current_sk.was_read_canonical {
-            assert!(current_sk.start_of_minimizer_as_read > previous_sk.start_of_minimizer_as_read);
-            assert!(current_sk.start_of_minimizer_as_read < next_sk.start_of_minimizer_as_read);
-
-            let start_of_minimizer_in_sk =
-                current_sk.start_of_minimizer_as_read - current_sk.start_of_superkmer_as_read;
-            let distance_to_left =
-                current_sk.start_of_minimizer_as_read - previous_sk.start_of_minimizer_as_read;
-            let distance_to_right =
-                next_sk.start_of_minimizer_as_read - current_sk.start_of_minimizer_as_read;
-            (
-                start_of_minimizer_in_sk,
-                distance_to_left,
-                distance_to_right,
-            )
-        } else {
-            // we work on the rc of the superkmer
-            // as distances are given as if the superkmer is canonical in the read, we must do some math
-            assert!(current_sk.start_of_minimizer_as_read < previous_sk.start_of_minimizer_as_read);
-            assert!(current_sk.start_of_minimizer_as_read > next_sk.start_of_minimizer_as_read);
-
-            let start_of_minimizer_in_sk = current_sk.superkmer.len()
-                - current_sk.start_of_minimizer_as_read
-                + current_sk.start_of_superkmer_as_read
-                - m;
-            let distance_to_left =
-                previous_sk.start_of_minimizer_as_read - current_sk.start_of_minimizer_as_read;
-            let distance_to_right =
-                current_sk.start_of_minimizer_as_read - next_sk.start_of_minimizer_as_read;
-            (
-                start_of_minimizer_in_sk,
-                distance_to_left,
-                distance_to_right,
-            )
-        };
-
-    let start_of_left_hk = start_of_minimizer_in_sk - distance_to_left + 1;
-    let end_of_left_hk = start_of_minimizer_in_sk + m - 1;
-    let start_of_right_hk = start_of_minimizer_in_sk + 1;
-    let end_of_right_hk = start_of_minimizer_in_sk + distance_to_right + m - 1;
-
-    // this is the sequence in between minimizers, including m-1 bases of the minimizers
-    let left_hk = &current_sk.superkmer[start_of_left_hk..end_of_left_hk];
-    let right_hk = &current_sk.superkmer[start_of_right_hk..end_of_right_hk];
-
-    (String::from(left_hk), String::from(right_hk))
-}
-
-/// return the left and right extended hyperkmers of the currrent superkmer
-/// extended hyperkmers are, in fact, part of superkmers with the length of inclusion of the hyperkmer in it
-/// returned sequences are not in canonical form, but are sequences as they would appear in the read
-/// if the current superkmer was in its canonical form in the read
-/// returned tuple is (left, right)
-/// left is (seq, i) st hyperkmer = seq[i:]
-/// right is (seq, i) st hyperkmer = seq[:-i]
-fn get_left_and_rigth_extended_hk(
-    previous_sk: &SuperKmerInfos,
-    current_sk: &SuperKmerInfos,
-    next_sk: &SuperKmerInfos,
-) -> ((String, usize), (String, usize)) {
-    // Caution: the next and previous superkmer are given as they appear in the read.
-    // * but still in the order they would appear if the current superkmer was canonical *
-    // this leads to conceptually having to reverse the left and right sequences' content
-    // if the superkmer was not read in its canonical form
-    let m = current_sk.minimizer.len();
-
-    // get the starting position of the minimizer in the superkmer
-    let get_start_of_minimizer = |sk: &SuperKmerInfos| {
-        if sk.was_read_canonical {
-            sk.start_of_minimizer_as_read - sk.start_of_superkmer_as_read
-        } else {
-            sk.superkmer.len() + sk.start_of_superkmer_as_read - sk.start_of_minimizer_as_read - m
+    // extract candidate hyperkmers
+    let candidate_left_hyperkmer = {
+        match candidate_left_ext_hk_metadata.2 {
+            PosOfHyperkmerInExtHyperkmer::Start => {
+                &candidate_left_ext_hk[0..candidate_left_ext_hk_metadata.1]
+            }
+            PosOfHyperkmerInExtHyperkmer::End => {
+                let end = candidate_left_ext_hk.len();
+                &candidate_left_ext_hk[end - candidate_left_ext_hk_metadata.1..end]
+            }
+        }
+    };
+    let candidate_right_hyperkmer = {
+        match candidate_right_ext_hk_metadata.2 {
+            PosOfHyperkmerInExtHyperkmer::Start => {
+                &candidate_right_ext_hk[0..candidate_right_ext_hk_metadata.1]
+            }
+            PosOfHyperkmerInExtHyperkmer::End => {
+                let end = candidate_right_ext_hk.len();
+                &candidate_right_ext_hk[end - candidate_right_ext_hk_metadata.1..end]
+            }
         }
     };
 
-    let (start_of_minimizer_in_sk, distance_to_left, distance_to_right) =
-        if current_sk.was_read_canonical {
-            assert!(current_sk.start_of_minimizer_as_read > previous_sk.start_of_minimizer_as_read);
-            assert!(current_sk.start_of_minimizer_as_read < next_sk.start_of_minimizer_as_read);
+    let match_left = candidate_left_hyperkmer == left_hk;
+    let match_right = candidate_right_hyperkmer == right_hk;
 
-            let start_of_minimizer_in_sk =
-                current_sk.start_of_minimizer_as_read - current_sk.start_of_superkmer_as_read;
-            let distance_to_left =
-                current_sk.start_of_minimizer_as_read - previous_sk.start_of_minimizer_as_read;
-            let distance_to_right =
-                next_sk.start_of_minimizer_as_read - current_sk.start_of_minimizer_as_read;
-            (
-                start_of_minimizer_in_sk,
-                distance_to_left,
-                distance_to_right,
-            )
-        } else {
-            // we work on the rc of the superkmer
-            // as distances are given as if the superkmer is canonical in the read, we must do some math
-            assert!(current_sk.start_of_minimizer_as_read < previous_sk.start_of_minimizer_as_read);
-            assert!(current_sk.start_of_minimizer_as_read > next_sk.start_of_minimizer_as_read);
-
-            let start_of_minimizer_in_sk = current_sk.superkmer.len()
-                + current_sk.start_of_superkmer_as_read
-                - current_sk.start_of_minimizer_as_read
-                - m;
-            let distance_to_left =
-                previous_sk.start_of_minimizer_as_read - current_sk.start_of_minimizer_as_read;
-            let distance_to_right =
-                current_sk.start_of_minimizer_as_read - next_sk.start_of_minimizer_as_read;
-            (
-                start_of_minimizer_in_sk,
-                distance_to_left,
-                distance_to_right,
-            )
-        };
-
-    let start_of_left_hk = start_of_minimizer_in_sk - distance_to_left + 1;
-    let end_of_left_hk = start_of_minimizer_in_sk + m - 1;
-    let start_of_right_hk = start_of_minimizer_in_sk + 1;
-    let end_of_right_hk = start_of_minimizer_in_sk + distance_to_right + m - 1;
-
-    // this is the sequence in between minimizers, including m-1 bases of the minimizers
-    let left_hk = &current_sk.superkmer[start_of_left_hk..end_of_left_hk];
-    let right_hk = &current_sk.superkmer[start_of_right_hk..end_of_right_hk];
-    // this is the left and rigth part of the superkmer
-    let current_left_sk = &current_sk.superkmer[0..end_of_left_hk];
-    let current_right_sk = &current_sk.superkmer[start_of_right_hk..current_sk.superkmer.len()];
-
-    let previous_right_sk = if previous_sk.was_read_canonical == current_sk.was_read_canonical {
-        // reverse left and right
-        String::from(
-            &previous_sk.superkmer
-                [get_start_of_minimizer(previous_sk) + 1..previous_sk.superkmer.len()],
-        )
-    } else {
-        reverse_complement(&previous_sk.superkmer[0..get_start_of_minimizer(previous_sk) + m - 1])
-    };
-    let next_left_sk = if next_sk.was_read_canonical == current_sk.was_read_canonical {
-        // reverse left and right
-        String::from(&next_sk.superkmer[0..get_start_of_minimizer(next_sk) + m - 1])
-    } else {
-        reverse_complement(
-            &next_sk.superkmer[get_start_of_minimizer(next_sk) + 1..next_sk.superkmer.len()],
-        )
-    };
-    // TODO remove checks
-    let extended_left_sk = if current_left_sk.len() > previous_right_sk.len() {
-        assert!(current_left_sk.contains(&previous_right_sk));
-        assert!(current_left_sk.ends_with(&previous_right_sk));
-        current_left_sk.into()
-    } else {
-        assert!(previous_right_sk.contains(current_left_sk));
-        assert!(previous_right_sk.starts_with(current_left_sk));
-        previous_right_sk.clone()
-    };
-    let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        assert!(current_right_sk.contains(&next_left_sk));
-        assert!(current_right_sk.starts_with(&next_left_sk));
-        current_right_sk.into()
-    } else {
-        assert!(next_left_sk.contains(current_right_sk));
-        assert!(next_left_sk.ends_with(current_right_sk));
-        next_left_sk.clone()
-    };
-    return (
-        (
-            extended_left_sk,
-            std::cmp::min(current_left_sk.len(), previous_right_sk.len()),
-        ),
-        (
-            extended_right_sk,
-            std::cmp::min(current_right_sk.len(), next_left_sk.len()),
-        ),
-    );
-    // now, let's compute left and right hyperkmers and check that the hyperkmers are in them
-
-    let overlap_right = common_suffix_length(right_hk, &next_left_sk);
-    let larger_right_sk = if right_hk.len() > next_left_sk.len() {
-        right_hk
-    } else {
-        &next_left_sk
-    };
-
-    let overlap_left = suf_of_x_is_pref_of_y(left_hk, &previous_right_sk);
-    let larger_left_sk = if left_hk.len() > previous_right_sk.len() {
-        left_hk
-    } else {
-        &previous_right_sk
-    };
-
-    println!("{:?}", overlap_right);
-    println!("{:?}\n{:?}\n{:?}", previous_sk, current_sk, next_sk);
-    println!("{:?}", (right_hk, &next_left_sk));
-    // sanity checks
-    // overlaps are longer or equal than len(minimizers)-1
-    assert!(overlap_right >= current_sk.minimizer.len() - 1);
-    assert!(overlap_left >= current_sk.minimizer.len() - 1);
-    // one sequence should be completely covered by the overlap
-    assert_eq!(
-        overlap_right,
-        std::cmp::min(right_hk.len(), next_left_sk.len())
-    );
-    assert_eq!(
-        overlap_left,
-        std::cmp::min(left_hk.len(), previous_right_sk.len())
-    );
-    // each overlap contains both sequences
-    assert!(larger_right_sk.contains(right_hk));
-    assert!(larger_right_sk.contains(&next_left_sk));
-    assert!(larger_left_sk.contains(left_hk));
-    assert!(larger_left_sk.contains(&previous_right_sk));
-
-    (
-        (String::from(larger_left_sk), overlap_left),
-        (String::from(larger_right_sk), overlap_right),
-    )
+    match_left && match_right
 }
 
 // TODO find a better name for the first stage function
@@ -425,8 +257,8 @@ fn first_stage(
             };
             // now, current_sk.superkmer[0] is close to the left neighbour
 
-            // compute now if the previosu and/or next superkmer is solid
-            // (we do it now because `increase_count_superkmer(current_sk)`
+            // compute now if the previous and/or next superkmer is solid
+            // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
             let previous_sk_is_solid = sk_count.get_count_superkmer(previous_sk) >= threshold;
             let next_sk_is_solid = sk_count.get_count_superkmer(next_sk) >= threshold;
@@ -439,7 +271,7 @@ fn first_stage(
             #[allow(clippy::comparison_chain)]
             if current_count == threshold {
                 let (left_extended_hk, right_extended_hk) =
-                    get_left_and_rigth_extended_hk(previous_sk, current_sk, next_sk);
+                    get_left_and_rigth_extended_hk_dbg(previous_sk, current_sk, next_sk);
                 let (left_hk, right_hk) = get_left_and_rigth_hk(previous_sk, current_sk, next_sk);
                 assert!(left_extended_hk.0.contains(&left_hk));
                 assert!(left_extended_hk.0.len() < k);
@@ -455,10 +287,6 @@ fn first_stage(
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
                 // println!("{}", sk_count.get_count_superkmer(previous_sk));
                 let id_left_hk = if previous_sk_is_solid {
-                    println!(
-                        "sk_count contains_minimizer: {}",
-                        sk_count.contains_minimizer(&previous_sk.minimizer)
-                    );
                     if previous_sk.was_read_canonical == current_sk.was_read_canonical {
                         get_extended_hyperkmer_right_id(
                             &hk_count,
@@ -504,42 +332,172 @@ fn first_stage(
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
 
-                let left_change_orientation =
-                    canonical_extended_left_hk.0 != current_sk.was_read_canonical;
-                let right_change_orientation =
-                    canonical_extended_right_hk.0 != current_sk.was_read_canonical;
+                let left_change_orientation = !canonical_extended_left_hk.0;
+                let right_change_orientation = !canonical_extended_right_hk.0;
+
+                let candidate_left_ext_hk = if left_change_orientation {
+                    reverse_complement(&hyperkmers[id_left_hk])
+                } else {
+                    hyperkmers[id_left_hk].clone()
+                };
+                let candidate_right_ext_hk = if right_change_orientation {
+                    reverse_complement(&hyperkmers[id_right_hk])
+                } else {
+                    hyperkmers[id_right_hk].clone()
+                };
+
+                assert!(candidate_left_ext_hk == left_extended_hk.0);
+                assert!(candidate_right_ext_hk == right_extended_hk.0);
+                assert!(hyperkmers[id_left_hk] == get_canonical_kmer(&left_extended_hk.0).1);
+                assert!(hyperkmers[id_right_hk] == get_canonical_kmer(&right_extended_hk.0).1);
 
                 insert_new_entry_in_hyperkmer_count(
                     &mut hk_count,
                     &current_sk.minimizer,
-                    (id_left_hk, left_extended_hk.1, left_change_orientation),
-                    (id_right_hk, right_extended_hk.1, right_change_orientation),
+                    (
+                        id_left_hk,
+                        left_extended_hk.2,
+                        left_extended_hk.1,
+                        left_change_orientation,
+                    ),
+                    (
+                        id_right_hk,
+                        right_extended_hk.2,
+                        right_extended_hk.1,
+                        right_change_orientation,
+                    ),
                     current_count,
                 );
             } else if current_count > threshold {
+                let (left_hk, right_hk) = get_left_and_rigth_hk(previous_sk, current_sk, next_sk);
                 let mut found = false;
-                for (candidate_left_hk, candidate_right_hk, count_hk) in
+                for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
                     hk_count.get_mut_iter(&current_sk.minimizer)
                 {
-                    let mut left_hk = hyperkmers[candidate_left_hk.0].clone();
-                    if candidate_left_hk.2 {
-                        left_hk = reverse_complement(&left_hk);
-                    }
-
-                    let mut right_hk = hyperkmers[candidate_right_hk.0].clone();
-                    if candidate_right_hk.2 {
-                        right_hk = reverse_complement(&right_hk);
-                    }
-
-                    if left_hk.ends_with(&left_hk) && right_hk.starts_with(&right_hk) {
+                    let is_exact_match = search_exact_hyperkmer_match(
+                        &hyperkmers,
+                        &left_hk,
+                        &right_hk,
+                        candidate_left_ext_hk_metadata,
+                        candidate_right_ext_hk_metadata,
+                    );
+                    if is_exact_match {
                         *count_hk += 1;
                         found = true;
                         break;
                     }
                 }
                 if !found {
-                    println!("error");
-                    panic!();
+                    let mut new_left_and_right_metadata = None;
+                    for (
+                        candidate_left_ext_hk_metadata,
+                        candidate_right_ext_hk_metadata,
+                        _count_hk,
+                    ) in hk_count.get_mut_iter(&current_sk.minimizer)
+                    {
+                        // get sequences as they would appear if the current superkmer was canonical
+                        let candidate_left_ext_hk = if candidate_left_ext_hk_metadata.3 {
+                            reverse_complement(&hyperkmers[candidate_left_ext_hk_metadata.0])
+                        } else {
+                            hyperkmers[candidate_left_ext_hk_metadata.0].clone()
+                        };
+                        let candidate_right_ext_hk = if candidate_right_ext_hk_metadata.3 {
+                            reverse_complement(&hyperkmers[candidate_right_ext_hk_metadata.0])
+                        } else {
+                            hyperkmers[candidate_right_ext_hk_metadata.0].clone()
+                        };
+
+                        let match_start_left = candidate_left_ext_hk.starts_with(&left_hk);
+                        let match_end_left = candidate_left_ext_hk.ends_with(&left_hk);
+
+                        let match_start_right = candidate_right_ext_hk.starts_with(&right_hk);
+                        let match_end_right = candidate_right_ext_hk.ends_with(&right_hk);
+
+                        // TODO code duplication
+                        if match_start_left && match_start_right {
+                            let metadata_to_insert_left = (
+                                candidate_left_ext_hk_metadata.0,
+                                left_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::Start,
+                                candidate_left_ext_hk_metadata.3,
+                            );
+                            let metadata_to_insert_right = (
+                                candidate_right_ext_hk_metadata.0,
+                                right_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::Start,
+                                candidate_right_ext_hk_metadata.3,
+                            );
+                            new_left_and_right_metadata =
+                                Some((metadata_to_insert_left, metadata_to_insert_right));
+                            break;
+                        } else if match_end_left && match_start_right {
+                            let metadata_to_insert_left = (
+                                candidate_left_ext_hk_metadata.0,
+                                left_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::End,
+                                candidate_left_ext_hk_metadata.3,
+                            );
+                            let metadata_to_insert_right = (
+                                candidate_right_ext_hk_metadata.0,
+                                right_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::Start,
+                                candidate_right_ext_hk_metadata.3,
+                            );
+                            new_left_and_right_metadata =
+                                Some((metadata_to_insert_left, metadata_to_insert_right));
+                            break;
+                        } else if match_start_left && match_end_right {
+                            let metadata_to_insert_left = (
+                                candidate_left_ext_hk_metadata.0,
+                                left_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::Start,
+                                candidate_left_ext_hk_metadata.3,
+                            );
+                            let metadata_to_insert_right = (
+                                candidate_right_ext_hk_metadata.0,
+                                right_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::End,
+                                candidate_right_ext_hk_metadata.3,
+                            );
+                            new_left_and_right_metadata =
+                                Some((metadata_to_insert_left, metadata_to_insert_right));
+                            break;
+                        } else if match_end_left && match_end_right {
+                            let metadata_to_insert_left = (
+                                candidate_left_ext_hk_metadata.0,
+                                left_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::End,
+                                candidate_left_ext_hk_metadata.3,
+                            );
+                            let metadata_to_insert_right = (
+                                candidate_right_ext_hk_metadata.0,
+                                right_hk.len(),
+                                PosOfHyperkmerInExtHyperkmer::End,
+                                candidate_right_ext_hk_metadata.3,
+                            );
+                            new_left_and_right_metadata =
+                                Some((metadata_to_insert_left, metadata_to_insert_right));
+                            break;
+                        }
+                    }
+                    // TODO error message here
+                    let (metadata_to_insert_left, metadata_to_insert_right) =
+                        new_left_and_right_metadata.unwrap();
+                    insert_new_entry_in_hyperkmer_count(
+                        &mut hk_count,
+                        &current_sk.minimizer,
+                        metadata_to_insert_left,
+                        metadata_to_insert_right,
+                        current_count,
+                    );
+                    // ensure the hyperkmer was correctly inserted
+                    assert!(search_exact_hyperkmer_match(
+                        &hyperkmers,
+                        &left_hk,
+                        &right_hk,
+                        &metadata_to_insert_left,
+                        &metadata_to_insert_right
+                    ));
                 }
             }
         }
@@ -556,11 +514,9 @@ fn second_stage(
     k: usize,
     m: usize,
     threshold: Count,
-) -> (
-    MashMap<std::string::String, (usize, usize)>,
-    HashMap<std::string::String, u16>,
-) {
-    let mut truncated_hk: MashMap<Minimizer, (usize, usize)> = MashMap::new();
+) -> (TruncatedHKCount, HashMap<Minimizer, Count>) {
+    let mut truncated_hk = TruncatedHKCount::new();
+    // let mut truncated_hk: MashMap<Minimizer, (usize, usize)> = MashMap::new();
     let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
 
     for sequence in sequences {
@@ -588,54 +544,101 @@ fn second_stage(
                 }
             }
 
-            let start_of_minimizer_in_sk =
-                superkmer.start_of_minimizer_as_read - superkmer.start_of_superkmer_as_read;
-            let left_hk_of_sk = &superkmer.superkmer[0..(start_of_minimizer_in_sk + m - 1)];
-            let right_hk_of_sk =
+            let start_of_minimizer_in_sk = get_start_of_minimizer_in_superkmer(superkmer);
+            let left_sk = &superkmer.superkmer[0..(start_of_minimizer_in_sk + m - 1)];
+            let right_sk =
                 &superkmer.superkmer[(start_of_minimizer_in_sk + 1)..superkmer.superkmer.len()];
 
-            let mut match_left = k - 1;
-            let mut match_right = k - 1;
-            let mut id_match_left = None;
-            let mut id_match_right = None;
+            let mut match_size = k - 1;
+            let mut match_metadata = None;
 
             // Search for the maximal preffix/suffix in hyperkmers.
             // Because we only have our left/right *partial* hyperkmer,
             // we do not know if they are in the same orientation as their "complete" canonical form.
             // Let's search for both orientation then.
-            for (id_left_hk, id_right_hk, _count) in hk_count.get_iter(minimizer) {
-                let len_current_match_left = std::cmp::max(
-                    common_suffix_length(left_hk_of_sk, &hyperkmers[id_left_hk.0]),
-                    common_suffix_length(
-                        &reverse_complement(left_hk_of_sk),
-                        &hyperkmers[id_left_hk.0],
-                    ),
+            for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
+                hk_count.get_iter(minimizer)
+            {
+                let candidate_left_ext_hk = get_rc_if_change_orientation(
+                    &hyperkmers[candidate_left_ext_hk_metadata.0],
+                    candidate_left_ext_hk_metadata.3,
+                );
+                let candidate_right_ext_hk = get_rc_if_change_orientation(
+                    &hyperkmers[candidate_right_ext_hk_metadata.0],
+                    candidate_right_ext_hk_metadata.3,
                 );
 
-                if len_current_match_left > match_left {
-                    match_left = len_current_match_left;
-                    id_match_left = Some(id_left_hk);
-                }
+                // extract candidate hyperkmers
+                let candidate_left_hyperkmer = {
+                    match candidate_left_ext_hk_metadata.2 {
+                        PosOfHyperkmerInExtHyperkmer::Start => {
+                            &candidate_left_ext_hk[0..candidate_left_ext_hk_metadata.1]
+                        }
+                        PosOfHyperkmerInExtHyperkmer::End => {
+                            let end = candidate_left_ext_hk.len();
+                            &candidate_left_ext_hk[end - candidate_left_ext_hk_metadata.1..end]
+                        }
+                    }
+                };
+                let candidate_right_hyperkmer = {
+                    match candidate_right_ext_hk_metadata.2 {
+                        PosOfHyperkmerInExtHyperkmer::Start => {
+                            &candidate_right_ext_hk[0..candidate_right_ext_hk_metadata.1]
+                        }
+                        PosOfHyperkmerInExtHyperkmer::End => {
+                            let end = candidate_right_ext_hk.len();
+                            &candidate_right_ext_hk[end - candidate_right_ext_hk_metadata.1..end]
+                        }
+                    }
+                };
 
-                let len_current_match_right = std::cmp::max(
-                    common_prefix_length(right_hk_of_sk, &hyperkmers[id_right_hk.0]),
-                    common_prefix_length(
-                        &reverse_complement(right_hk_of_sk),
-                        &hyperkmers[id_right_hk.0],
-                    ),
-                );
-                if len_current_match_right > match_right {
-                    match_right = len_current_match_right;
-                    id_match_right = Some(id_right_hk);
+                let len_current_match_left =
+                    common_suffix_length(left_sk, candidate_left_hyperkmer);
+                let len_current_match_right =
+                    common_prefix_length(right_sk, candidate_right_hyperkmer);
+                let current_match_size = len_current_match_left + len_current_match_right;
+
+                if current_match_size > match_size {
+                    match_size = current_match_size;
+                    // extract candidate hyperkmers
+                    let left_end = {
+                        match candidate_left_ext_hk_metadata.2 {
+                            PosOfHyperkmerInExtHyperkmer::Start => candidate_left_ext_hk_metadata.1,
+                            PosOfHyperkmerInExtHyperkmer::End => candidate_left_ext_hk.len(),
+                        }
+                    };
+                    let left_start = left_end - len_current_match_left;
+
+                    let right_start = {
+                        match candidate_right_ext_hk_metadata.2 {
+                            PosOfHyperkmerInExtHyperkmer::Start => 0,
+                            PosOfHyperkmerInExtHyperkmer::End => {
+                                let end = candidate_right_ext_hk.len();
+                                end - candidate_right_ext_hk_metadata.1
+                            }
+                        }
+                    };
+                    let right_end = right_start + len_current_match_right;
+
+                    match_metadata = Some((
+                        (
+                            candidate_left_ext_hk_metadata.0,
+                            left_start,
+                            left_end,
+                            candidate_left_ext_hk_metadata.3,
+                        ),
+                        (
+                            candidate_right_ext_hk_metadata.0,
+                            right_start,
+                            right_end,
+                            candidate_right_ext_hk_metadata.3,
+                        ),
+                    ));
                 }
             }
 
-            if let Some(id_match_left) = id_match_left {
-                truncated_hk.insert(minimizer.clone(), (id_match_left.0, match_left));
-            }
-
-            if let Some(id_match_right) = id_match_right {
-                truncated_hk.insert(minimizer.clone(), (id_match_right.0, match_left));
+            if let Some(metadata) = match_metadata {
+                truncated_hk.insert(minimizer.clone(), (metadata.0, metadata.1, 1));
             }
         }
     }
@@ -651,7 +654,7 @@ fn index_hyperkmers(
     SuperKmerCounts,
     HKCount,
     Vec<String>,
-    MashMap<String, (usize, usize)>,
+    TruncatedHKCount,
     HashMap<String, u16>,
 ) {
     let start_fisrt_step = Instant::now();
@@ -816,8 +819,18 @@ mod tests {
                 hk_count.insert(
                     minimizer.clone(),
                     (
-                        (random_left, random_left_overlap, true),
-                        (random_rigth, random_rigth_overlap, true),
+                        (
+                            random_left,
+                            random_left_overlap,
+                            PosOfHyperkmerInExtHyperkmer::Start,
+                            true,
+                        ),
+                        (
+                            random_rigth,
+                            random_rigth_overlap,
+                            PosOfHyperkmerInExtHyperkmer::Start,
+                            true,
+                        ),
                         random_count,
                     ),
                 );
@@ -830,7 +843,11 @@ mod tests {
             let overlap = minimizer.len();
             hk_count.insert(
                 minimizer.clone(),
-                ((i, overlap, true), (i + 1, overlap, true), random_count),
+                (
+                    (i, overlap, PosOfHyperkmerInExtHyperkmer::Start, true),
+                    (i + 1, overlap, PosOfHyperkmerInExtHyperkmer::Start, true),
+                    random_count,
+                ),
             );
         }
 
@@ -846,8 +863,18 @@ mod tests {
                 hk_count.insert(
                     minimizer.clone(),
                     (
-                        (random_left, random_left_overlap, true),
-                        (random_rigth, random_rigth_overlap, true),
+                        (
+                            random_left,
+                            random_left_overlap,
+                            PosOfHyperkmerInExtHyperkmer::Start,
+                            true,
+                        ),
+                        (
+                            random_rigth,
+                            random_rigth_overlap,
+                            PosOfHyperkmerInExtHyperkmer::Start,
+                            true,
+                        ),
                         random_count,
                     ),
                 );
@@ -895,8 +922,8 @@ mod tests {
         assert_eq!(hk_id, None);
     }
 
-    #[test]
-    fn test_suf_of_x_is_pref_of_y() {
-        assert_eq!(suf_of_x_is_pref_of_y("abcdefghij", "fghijyhy"), 5);
-    }
+    // #[test]
+    // fn test_suf_of_x_is_pref_of_y() {
+    //     assert_eq!(suf_of_x_is_pref_of_y("abcdefghij", "fghijyhy"), 5);
+    // }
 }

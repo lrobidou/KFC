@@ -26,6 +26,10 @@ impl SuperKmerCounts {
         0
     }
 
+    pub fn contains_minimizer(&self, key: &str) -> bool {
+        self.data.contains_key(key)
+    }
+
     /// Add 1 to the count of `superkmer` in `sk_count`.
     /// If `superkmer` is not in `sk_count`, add it.
     /// Returns the new count.
@@ -39,8 +43,7 @@ impl SuperKmerCounts {
             }
         }
         // superkmer not found, insert it, count is 1
-        &self
-            .data
+        self.data
             .insert(superkmer.minimizer.clone(), (superkmer_hash, 1));
         1
     }
