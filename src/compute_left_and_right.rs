@@ -47,21 +47,18 @@ pub fn get_left_and_rigth_extended_hk(
         )
     };
 
-    let len_match_left = std::cmp::min(current_left_sk.len(), previous_right_sk.len());
-    let len_match_right = std::cmp::min(current_right_sk.len(), next_left_sk.len());
-
     let extended_left_sk = if current_left_sk.len() > previous_right_sk.len() {
         (current_left_sk.into(), 0, current_left_sk.len())
     } else {
-        (previous_right_sk.clone(), 0, len_match_left)
+        (previous_right_sk.clone(), 0, current_left_sk.len())
     };
 
     let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        (current_right_sk.into(), 0, len_match_right)
+        (current_right_sk.into(), 0, current_right_sk.len())
     } else {
         (
             next_left_sk.clone(),
-            next_left_sk.len() - len_match_right,
+            next_left_sk.len() - current_right_sk.len(),
             next_left_sk.len(),
         )
     };
