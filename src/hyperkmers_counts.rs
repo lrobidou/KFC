@@ -108,8 +108,8 @@ impl HKCount {
         &self,
         hyperkmers: &[String],
         superkmer: &SuperKmerInfos,
-        left_hk: &str,
-        right_hk: &str,
+        left_sk: &str,
+        right_sk: &str,
     ) -> Option<(HKMetadata, HKMetadata)> {
         // let mut new_left_and_right_metadata = None;
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
@@ -125,29 +125,29 @@ impl HKCount {
                 candidate_right_ext_hk_metadata.3,
             );
 
-            let match_start_left = candidate_left_ext_hk.starts_with(left_hk);
-            let match_end_left = candidate_left_ext_hk.ends_with(left_hk);
+            let match_start_left = candidate_left_ext_hk.starts_with(left_sk);
+            let match_end_left = candidate_left_ext_hk.ends_with(left_sk);
             let match_left = match_start_left || match_end_left;
 
-            let match_start_right = candidate_right_ext_hk.starts_with(right_hk);
-            let match_end_right = candidate_right_ext_hk.ends_with(right_hk);
+            let match_start_right = candidate_right_ext_hk.starts_with(right_sk);
+            let match_end_right = candidate_right_ext_hk.ends_with(right_sk);
             let match_right = match_start_right || match_end_right;
 
             if match_left && match_right {
                 let (start_left, end_left) = if match_start_left {
-                    (0, left_hk.len())
+                    (0, left_sk.len())
                 } else {
                     (
-                        candidate_left_ext_hk.len() - left_hk.len(),
+                        candidate_left_ext_hk.len() - left_sk.len(),
                         candidate_left_ext_hk.len(),
                     )
                 };
 
                 let (start_right, end_right) = if match_start_right {
-                    (0, right_hk.len())
+                    (0, right_sk.len())
                 } else {
                     (
-                        candidate_right_ext_hk.len() - right_hk.len(),
+                        candidate_right_ext_hk.len() - right_sk.len(),
                         candidate_right_ext_hk.len(),
                     )
                 };
@@ -212,7 +212,10 @@ impl HKCount {
             let len_current_match_right = common_prefix_length(right_sk, candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
-            if current_match_size > match_size {
+            assert!(len_current_match_left >= minimizer.len() - 1);
+            assert!(len_current_match_right >= minimizer.len() - 1);
+
+            if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() > match_size {
                 match_size = current_match_size;
 
                 match_metadata = Some((
@@ -268,7 +271,7 @@ impl HKCount {
                 common_prefix_length(right_context, candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
-            if current_match_size >= k {
+            if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() >= k {
                 total_count += count
             }
         }
