@@ -1,8 +1,10 @@
 use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk};
 use fastxgz::fasta_reads;
 use log::warn;
-use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::time::Instant;
+use std::{collections::HashMap, path::Path};
 
 type Minimizer = String; // TODO change to integer when done
 type HashSuperKmer = u64;
@@ -283,7 +285,7 @@ fn first_stage(
                         &current_sk.minimizer,
                         metadata_to_insert_left,
                         metadata_to_insert_right,
-                        current_count,
+                        1,
                     );
                     // ensure the hyperkmer was correctly inserted
                     assert!(search_exact_hyperkmer_match(
@@ -383,6 +385,46 @@ fn index_hyperkmers(
     (sk_count, hk_count, hyperkmers, discarded_minimizers)
 }
 
+fn stats_hk(hyperkmers: &[String], k: usize) -> (usize, usize) {
+    for ext_hk in hyperkmers {
+        assert_eq!(ext_hk.len(), k - 1);
+    }
+    (hyperkmers.len(), hyperkmers.len() * (k - 1))
+}
+
+fn compare_to_kmc(
+    hk_count: &HKCount,
+    hyperkmers: &[String],
+    kmc_file: &Path,
+    k: usize,
+    m: usize,
+    threshold: Count,
+) {
+    println!("mass comparison using kmc");
+    let file = File::open(kmc_file).unwrap();
+    let reader = BufReader::new(file);
+
+    let (mut ok, mut ko) = (0, 0);
+    for line in reader.lines() {
+        let line = line.unwrap();
+        let mut split = line.split('\t');
+        let kmer = &split.next().unwrap();
+        let count = &split.next().unwrap();
+        let ground_truth_count: usize = count.parse().unwrap();
+
+        if ground_truth_count >= threshold as usize {
+            let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer, k, m);
+            if kfc_res as usize != ground_truth_count {
+                println!("error on {}, {} != {}", kmer, kfc_res, ground_truth_count);
+                ko += 1;
+            } else {
+                ok += 1;
+            }
+        }
+    }
+    println!("ok = {ok}\nko={ko}");
+}
+
 fn main() {
     let sequences: Vec<String> = fasta_reads("data/U00096.3.fasta")
         .unwrap()
@@ -392,18 +434,21 @@ fn main() {
 
     let k = 100;
     let m = 20;
-    let threshold = 2;
+    let threshold = 1;
 
     let (_sk_count, hk_count, hyperkmers, _discarded_minimizers) =
         index_hyperkmers(k, m, threshold, &sequences);
 
-    let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
+    // let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
 
-    let count = search::search_kmer(&hk_count, &hyperkmers, kmer_test, k, m);
-    println!(
-        "test with a kmer with a count 11 in KMC\nour count is {:?}",
-        count
-    );
+    // let count = search::search_kmer(&hk_count, &hyperkmers, kmer_test, k, m);
+    // println!(
+    //     "test with a kmer with a count 11 in KMC\nour count is {:?}",
+    //     count
+    // );
+
+    let kmc_file_path = Path::new("100mers.txt");
+    compare_to_kmc(&hk_count, &hyperkmers, kmc_file_path, k, m, threshold);
 }
 
 #[cfg(test)]
