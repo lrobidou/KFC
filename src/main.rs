@@ -14,10 +14,10 @@ mod brrr_minimizers;
 mod compute_left_and_right;
 mod hyperkmers_counts;
 mod search;
-mod superkmers;
+mod superkmers_computation;
 
 use hyperkmers_counts::HKCount;
-use superkmers::{
+use superkmers_computation::{
     compute_superkmers_linear, get_canonical_kmer, reverse_complement, SuperKmerInfos,
 };
 
@@ -426,6 +426,7 @@ fn compare_to_kmc(
 }
 
 fn main() {
+    simple_logger::SimpleLogger::new().env().init().unwrap();
     let sequences: Vec<String> = fasta_reads("data/U00096.3.fasta")
         .unwrap()
         .map(|rcstring| rcstring.to_string())

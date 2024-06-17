@@ -1,6 +1,6 @@
 use crate::{
     common_prefix_length, common_suffix_length, get_rc_if_change_orientation,
-    superkmers::{get_canonical_kmer, SuperKmerInfos},
+    superkmers_computation::{get_canonical_kmer, SuperKmerInfos},
     Count, Minimizer,
 };
 use mashmap::MashMap;

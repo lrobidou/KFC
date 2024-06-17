@@ -1,4 +1,6 @@
-use crate::{get_start_of_minimizer_in_superkmer, superkmers::compute_superkmers_linear, Count};
+use crate::{
+    get_start_of_minimizer_in_superkmer, superkmers_computation::compute_superkmers_linear, Count,
+};
 
 use super::HKCount;
 

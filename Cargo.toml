@@ -15,6 +15,9 @@ fastxgz = "0.3.0"
 ahash = "0.8.11"
 num-traits = "0.2.15"
 chrono = "0.4.38"
+minimizer-iter = "1.0.1"
+minimizer-queue = "1.2.2"
+simple_logger = "5.0.0"
 
 [dev-dependencies]
 rand = "0.8.5"
