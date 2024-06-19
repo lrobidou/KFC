@@ -3,8 +3,10 @@
 ## TODO:
 - [] using &str instead of String to prevent copies
 - [] using integers instead of `String` in the data structures
-- [] implement search
-- [] when the minimizer is even, and its own reverse complement, use the superkmer to break tie
+- [x] implement search
+- [] implement streaming search
+- [] when the minimizer is even, and its own reverse complement, how to break tie ? Using the superkmer ?
+- [] streaming of superkmer
 
 # Tests
 # data sources
