@@ -1,14 +1,15 @@
-use crate::{
-    common_prefix_length, common_suffix_length, get_rc_if_change_orientation,
-    superkmers_computation::{get_canonical_kmer, SuperKmerInfos},
-    Count, Minimizer,
-};
+use super::Superkmer;
+use crate::{superkmer::SubsequenceMetadata, Count, Minimizer};
 use mashmap::MashMap;
 
-// (id of extended hk in the hyperkmers vector, start_pos, end_pos, orientation flag),
-// orientation flag: true if the hyperkmer is in a DIFFERENT orientation
-// that the canonical minimizer it is associated with in the `HKCount` table
-type HKMetadata = (usize, usize, usize, bool);
+#[derive(Clone, Copy, Debug)]
+pub struct HKMetadata {
+    pub index: usize,
+    pub start: usize,
+    pub end: usize,
+    // true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer it is associated with in the `HKCount` table
+    pub change_orientation: bool,
+}
 
 pub struct HKCount {
     data: MashMap<Minimizer, (HKMetadata, HKMetadata, Count)>,
@@ -27,15 +28,14 @@ impl HKCount {
         &self,
         hyperkmers: &[String],
         minimizer: &str,
-        extended_hyperkmer_left: &str,
+        extended_hyperkmer_left: &SubsequenceMetadata,
     ) -> Option<usize> {
-        let (_change_orientation, canonical_extended_hyperkmer_left) =
-            get_canonical_kmer(extended_hyperkmer_left);
+        let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical_string();
         for (candidate_left_hk_metadata, _candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_left == hyperkmers[candidate_left_hk_metadata.0] {
-                return Some(candidate_left_hk_metadata.0);
+            if canonical_extended_hyperkmer_left == hyperkmers[candidate_left_hk_metadata.index] {
+                return Some(candidate_left_hk_metadata.index);
             }
         }
         None
@@ -47,15 +47,16 @@ impl HKCount {
         &self,
         hyperkmers: &[String],
         minimizer: &str,
-        extended_hyperkmer_right: &str,
+        extended_hyperkmer_right: &SubsequenceMetadata,
     ) -> Option<usize> {
-        let (_change_orientation, canonical_extended_hyperkmer_right) =
-            get_canonical_kmer(extended_hyperkmer_right);
+        let canonical_extended_hyperkmer_right = extended_hyperkmer_right.to_canonical();
         for (_candidate_left_hk_metadata, candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_right == hyperkmers[candidate_right_hk_metadata.0] {
-                return Some(candidate_right_hk_metadata.0);
+            if canonical_extended_hyperkmer_right
+                .equal_str(&hyperkmers[candidate_right_hk_metadata.index])
+            {
+                return Some(candidate_right_hk_metadata.index);
             }
         }
         None
@@ -66,14 +67,16 @@ impl HKCount {
     pub fn insert_new_entry_in_hyperkmer_count(
         &mut self,
         minimizer: &str,
-        id_left_hk: (usize, usize, usize, bool),
-        id_right_hk: (usize, usize, usize, bool),
+        left_metadata: &HKMetadata,
+        right_metadata: &HKMetadata,
         count: Count,
     ) {
-        assert!(id_left_hk.1 < id_left_hk.2);
-        assert!(id_right_hk.1 < id_right_hk.2);
-        self.data
-            .insert(String::from(minimizer), (id_left_hk, id_right_hk, count));
+        assert!(left_metadata.start < left_metadata.end);
+        assert!(right_metadata.start < right_metadata.end);
+        self.data.insert(
+            String::from(minimizer),
+            (*left_metadata, *right_metadata, count),
+        );
     }
 
     /// Search if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`
@@ -81,13 +84,15 @@ impl HKCount {
     /// Else, return false
     pub fn increase_count_if_exact_match(
         &self,
-        superkmer: &SuperKmerInfos,
+        superkmer: &Superkmer,
         hyperkmers: &[String],
-        left_hk: &str,
-        right_hk: &str,
+        left_hk: &SubsequenceMetadata,
+        right_hk: &SubsequenceMetadata,
     ) -> bool {
+        // TODO remove
+        let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
-            self.data.get_mut_iter(&superkmer.minimizer)
+            self.data.get_mut_iter(&minimizer)
         {
             let is_exact_match = search_exact_hyperkmer_match(
                 hyperkmers,
@@ -107,23 +112,24 @@ impl HKCount {
     pub fn search_for_inclusion(
         &self,
         hyperkmers: &[String],
-        superkmer: &SuperKmerInfos,
-        left_sk: &str,
-        right_sk: &str,
+        superkmer: &Superkmer,
+        left_sk: &SubsequenceMetadata,
+        right_sk: &SubsequenceMetadata,
     ) -> Option<(HKMetadata, HKMetadata)> {
-        // let mut new_left_and_right_metadata = None;
+        let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
-            self.data.get_mut_iter(&superkmer.minimizer)
+            self.data.get_mut_iter(&minimizer)
         {
             // get sequences as they would appear if the current superkmer was canonical
-            let candidate_left_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_left_ext_hk_metadata.0],
-                candidate_left_ext_hk_metadata.3,
-            );
-            let candidate_right_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_right_ext_hk_metadata.0],
-                candidate_right_ext_hk_metadata.3,
-            );
+            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_left_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+
+            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_right_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
             let match_start_left = candidate_left_ext_hk.starts_with(left_sk);
             let match_end_left = candidate_left_ext_hk.ends_with(left_sk);
@@ -153,18 +159,18 @@ impl HKCount {
                 };
 
                 return Some((
-                    (
-                        candidate_left_ext_hk_metadata.0,
-                        start_left,
-                        end_left,
-                        candidate_left_ext_hk_metadata.3,
-                    ),
-                    (
-                        candidate_right_ext_hk_metadata.0,
-                        start_right,
-                        end_right,
-                        candidate_right_ext_hk_metadata.3,
-                    ),
+                    HKMetadata {
+                        index: candidate_left_ext_hk_metadata.index,
+                        start: start_left,
+                        end: end_left,
+                        change_orientation: candidate_left_ext_hk_metadata.change_orientation,
+                    },
+                    HKMetadata {
+                        index: candidate_right_ext_hk_metadata.index,
+                        start: start_right,
+                        end: end_right,
+                        change_orientation: candidate_right_ext_hk_metadata.change_orientation,
+                    },
                 ));
             }
         }
@@ -184,8 +190,8 @@ impl HKCount {
         hyperkmers: &[String],
         k: usize,
         minimizer: &str,
-        left_sk: &str,
-        right_sk: &str,
+        left_sk: &SubsequenceMetadata,
+        right_sk: &SubsequenceMetadata,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let mut match_size = k - 1;
         let mut match_metadata = None;
@@ -193,23 +199,29 @@ impl HKCount {
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            let candidate_left_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_left_ext_hk_metadata.0],
-                candidate_left_ext_hk_metadata.3,
-            );
-            let candidate_right_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_right_ext_hk_metadata.0],
-                candidate_right_ext_hk_metadata.3,
-            );
+            // get sequences as they would appear if the current superkmer was canonical
+            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_left_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+
+            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_right_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
             // extract candidate hyperkmers
-            let candidate_left_hyperkmer = &candidate_left_ext_hk
-                [candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
-            let candidate_right_hyperkmer = &candidate_right_ext_hk
-                [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
+            let candidate_left_hyperkmer = &candidate_left_ext_hk.subsequence(
+                candidate_left_ext_hk_metadata.start,
+                candidate_left_ext_hk_metadata.end,
+            );
+            let candidate_right_hyperkmer = &candidate_right_ext_hk.subsequence(
+                candidate_right_ext_hk_metadata.start,
+                candidate_right_ext_hk_metadata.end,
+            );
 
-            let len_current_match_left = common_suffix_length(left_sk, candidate_left_hyperkmer);
-            let len_current_match_right = common_prefix_length(right_sk, candidate_right_hyperkmer);
+            let len_current_match_left = left_sk.common_suffix_length(candidate_left_hyperkmer);
+            let len_current_match_right = right_sk.common_prefix_length(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             assert!(len_current_match_left >= minimizer.len() - 1);
@@ -220,19 +232,19 @@ impl HKCount {
 
                 match_metadata = Some((
                     // same suffix => same end, but different start
-                    (
-                        candidate_left_ext_hk_metadata.0,
-                        candidate_left_ext_hk_metadata.2 - len_current_match_left,
-                        candidate_left_ext_hk_metadata.2,
-                        candidate_left_ext_hk_metadata.3,
-                    ),
-                    // same preffix => same start, but different end
-                    (
-                        candidate_right_ext_hk_metadata.0,
-                        candidate_right_ext_hk_metadata.1,
-                        candidate_right_ext_hk_metadata.1 + len_current_match_right,
-                        candidate_right_ext_hk_metadata.3,
-                    ),
+                    HKMetadata {
+                        index: candidate_left_ext_hk_metadata.index,
+                        start: candidate_left_ext_hk_metadata.end - len_current_match_left,
+                        end: candidate_left_ext_hk_metadata.end,
+                        change_orientation: candidate_left_ext_hk_metadata.change_orientation,
+                    },
+                    // same prefix => same start, but different end
+                    HKMetadata {
+                        index: candidate_right_ext_hk_metadata.index,
+                        start: candidate_right_ext_hk_metadata.start,
+                        end: candidate_right_ext_hk_metadata.start + len_current_match_right,
+                        change_orientation: candidate_right_ext_hk_metadata.change_orientation,
+                    },
                 ));
             }
         }
@@ -243,32 +255,38 @@ impl HKCount {
         &self,
         hyperkmers: &[String],
         minimizer: &str,
-        left_context: &str,
-        right_context: &str,
+        left_context: &SubsequenceMetadata,
+        right_context: &SubsequenceMetadata,
         k: usize,
     ) -> Count {
         let mut total_count = 0;
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count) in
             self.data.get_iter(minimizer)
         {
-            let candidate_left_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_left_ext_hk_metadata.0],
-                candidate_left_ext_hk_metadata.3,
-            );
-            let candidate_right_ext_hk = get_rc_if_change_orientation(
-                &hyperkmers[candidate_right_ext_hk_metadata.0],
-                candidate_right_ext_hk_metadata.3,
-            );
+            // get sequences as they would appear if the current superkmer was canonical
+            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_left_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+
+            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_right_ext_hk_metadata.index],
+            )
+            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
             // extract candidate hyperkmers
-            let candidate_left_hyperkmer = &candidate_left_ext_hk
-                [candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
-            let candidate_right_hyperkmer = &candidate_right_ext_hk
-                [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
+            let candidate_left_hyperkmer = &candidate_left_ext_hk.subsequence(
+                candidate_left_ext_hk_metadata.start,
+                candidate_left_ext_hk_metadata.end,
+            );
+            let candidate_right_hyperkmer = &candidate_right_ext_hk.subsequence(
+                candidate_right_ext_hk_metadata.start,
+                candidate_right_ext_hk_metadata.end,
+            );
             let len_current_match_left =
-                common_suffix_length(left_context, candidate_left_hyperkmer);
+                left_context.common_suffix_length(candidate_left_hyperkmer);
             let len_current_match_right =
-                common_prefix_length(right_context, candidate_right_hyperkmer);
+                right_context.common_prefix_length(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() >= k {
@@ -279,31 +297,36 @@ impl HKCount {
     }
 }
 
-fn search_exact_hyperkmer_match(
+pub fn search_exact_hyperkmer_match(
     hyperkmers: &[String],
-    left_hk: &str,
-    right_hk: &str,
-    candidate_left_ext_hk_metadata: &(usize, usize, usize, bool),
-    candidate_right_ext_hk_metadata: &(usize, usize, usize, bool),
+    left_hk: &SubsequenceMetadata,
+    right_hk: &SubsequenceMetadata,
+    candidate_left_ext_hk_metadata: &HKMetadata,
+    candidate_right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
     // get sequences as they would appear if the current superkmer was canonical
-    let candidate_left_ext_hk = get_rc_if_change_orientation(
-        &hyperkmers[candidate_left_ext_hk_metadata.0],
-        candidate_left_ext_hk_metadata.3,
-    );
-    let candidate_right_ext_hk = get_rc_if_change_orientation(
-        &hyperkmers[candidate_right_ext_hk_metadata.0],
-        candidate_right_ext_hk_metadata.3,
-    );
-
-    // extract candidate hyperkmers
+    // TODO this repetition of `candidate_left_hyperkmer` confuses me, how can I get rid of it ?
     let candidate_left_hyperkmer =
-        &candidate_left_ext_hk[candidate_left_ext_hk_metadata.1..candidate_left_ext_hk_metadata.2];
-    let candidate_right_hyperkmer = &candidate_right_ext_hk
-        [candidate_right_ext_hk_metadata.1..candidate_right_ext_hk_metadata.2];
+        SubsequenceMetadata::whole_string(&hyperkmers[candidate_left_ext_hk_metadata.index]);
+    let candidate_left_hyperkmer = candidate_left_hyperkmer
+        .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+    let candidate_left_hyperkmer = candidate_left_hyperkmer.subsequence(
+        candidate_left_ext_hk_metadata.start,
+        candidate_left_ext_hk_metadata.end,
+    );
 
-    let match_left = candidate_left_hyperkmer == left_hk;
-    let match_right = candidate_right_hyperkmer == right_hk;
+    let candidate_right_hyperkmer =
+        SubsequenceMetadata::whole_string(&hyperkmers[candidate_right_ext_hk_metadata.index]);
+    let candidate_right_hyperkmer = candidate_right_hyperkmer
+        .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
+    let candidate_right_hyperkmer = candidate_right_hyperkmer.subsequence(
+        candidate_right_ext_hk_metadata.start,
+        candidate_right_ext_hk_metadata.end,
+    );
+
+    // TODO copy here
+    let match_left = candidate_left_hyperkmer.equal_str(&left_hk.to_string());
+    let match_right = candidate_right_hyperkmer.equal_str(&right_hk.to_string());
 
     match_left && match_right
 }

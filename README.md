@@ -3,6 +3,8 @@
 ## TODO:
 - [] using &str instead of String to prevent copies
 - [] using integers instead of `String` in the data structures
+- [] implement search
+- [] when the minimizer is even, and its own reverse complement, use the superkmer to break tie
 
 # Tests
 # data sources

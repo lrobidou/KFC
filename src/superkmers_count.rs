@@ -1,6 +1,5 @@
-use crate::{Count, HashSuperKmer, Minimizer, SuperKmerInfos};
+use crate::{Count, HashSuperKmer, Minimizer, Superkmer};
 use mashmap::MashMap;
-use xxhash_rust::const_xxh3::xxh3_64;
 
 pub struct SuperKmerCounts {
     data: MashMap<Minimizer, (HashSuperKmer, Count)>,
@@ -15,9 +14,9 @@ impl SuperKmerCounts {
     /// Retrieve the count of `superkmer` in `sk_count`.
     /// the superkmer and its minimizer should be canonical.
     /// Returns 0 if the superkmer is not found.
-    pub fn get_count_superkmer(&self, superkmer: &SuperKmerInfos) -> Count {
-        let superkmer_hash = xxh3_64(superkmer.superkmer.as_bytes());
-        for (hash, count) in self.data.get_mut_iter(&superkmer.minimizer) {
+    pub fn get_count_superkmer(&self, superkmer: &Superkmer) -> Count {
+        let superkmer_hash = superkmer.hash_superkmer();
+        for (hash, count) in self.data.get_mut_iter(&superkmer.get_minimizer()) {
             if *hash == superkmer_hash {
                 return *count;
             }
@@ -29,9 +28,11 @@ impl SuperKmerCounts {
     /// Add 1 to the count of `superkmer` in `sk_count`.
     /// If `superkmer` is not in `sk_count`, add it.
     /// Returns the new count.
-    pub fn increase_count_superkmer(&mut self, superkmer: &SuperKmerInfos) -> Count {
-        let superkmer_hash = xxh3_64(superkmer.superkmer.as_bytes());
-        for (super_kmer_hash, super_kmer_count) in self.data.get_mut_iter(&superkmer.minimizer) {
+    pub fn increase_count_superkmer(&mut self, superkmer: &Superkmer) -> Count {
+        let superkmer_hash = superkmer.hash_superkmer();
+        for (super_kmer_hash, super_kmer_count) in
+            self.data.get_mut_iter(&superkmer.get_minimizer())
+        {
             if *super_kmer_hash == superkmer_hash {
                 let new_count = super_kmer_count.saturating_add(1);
                 *super_kmer_count = new_count;
@@ -40,7 +41,7 @@ impl SuperKmerCounts {
         }
         // superkmer not found, insert it, count is 1
         self.data
-            .insert(superkmer.minimizer.clone(), (superkmer_hash, 1));
+            .insert(superkmer.get_minimizer().clone(), (superkmer_hash, 1));
         1
     }
 }
@@ -51,34 +52,17 @@ mod tests {
 
     #[test]
     fn test_get_count_superkmer() {
-        let sk0 = SuperKmerInfos {
-            superkmer: "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGG".into(),
-            minimizer: "AATCGTCATCCGAAACGTCA".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 7,
-            start_of_superkmer_as_read: 0,
-        };
-        let sk1 = SuperKmerInfos {
-            superkmer: "GACGTTTCGGATGACGATTGTACGTGACGGTG".into(),
-            minimizer: "ACAATCGTCATCCGAAACGT".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 9,
-            start_of_superkmer_as_read: 8,
-        };
-        let sk2 = SuperKmerInfos {
-            superkmer: "CGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATG".into(),
-            minimizer: "ACCGTCACGTACAATCGTCA".into(),
-            was_read_canonical: false,
-            start_of_minimizer_as_read: 19,
-            start_of_superkmer_as_read: 10,
-        };
-        let sk3 = SuperKmerInfos {
-            superkmer: "GACGATTGTACGTGACGGTGCGTCCGGATGAC".into(),
-            minimizer: "ACGATTGTACGTGACGGTGC".into(),
-            was_read_canonical: true,
-            start_of_minimizer_as_read: 21,
-            start_of_superkmer_as_read: 20,
-        };
+        let m = 10;
+        // read: ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC
+        //       ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGG                 (AATCGTCATCCGAAACGTCA, 7)
+        //               GACGTTTCGGATGACGATTGTACGTGACGGTG               (ACAATCGTCATCCGAAACGT, 9)
+        //                 CGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATG     (ACCGTCACGTACAATCGTCA, 19)
+        //                           GACGATTGTACGTGACGGTGCGTCCGGATGAC   (ACGATTGTACGTGACGGTGC, 21)
+        let read = "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC";
+        let sk0 = Superkmer::new(read, 7, 7 + m, 0, 38, false);
+        let sk1 = Superkmer::new(read, 9, 9 + m, 9, 9 + 32, false);
+        let sk2 = Superkmer::new(read, 19, 19 + m, 10, 10 + 40, false);
+        let sk3 = Superkmer::new(read, 21, 21 + m, 20, 20 + 32, true);
 
         let mut sk_count = SuperKmerCounts::new();
 
