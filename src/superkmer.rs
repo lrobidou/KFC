@@ -1,6 +1,10 @@
 use super::superkmers_computation::is_canonical;
+use std::iter::Map;
+use std::iter::Rev;
+use std::slice::Iter;
 use xxhash_rust::const_xxh3::xxh3_64;
-pub fn reverse_complement<'a>(seq: &'a str) -> String {
+
+pub fn reverse_complement(seq: &str) -> String {
     seq.as_bytes()
         .iter()
         .rev()
@@ -15,9 +19,7 @@ pub fn reverse_complement<'a>(seq: &'a str) -> String {
 }
 
 // TODO is there no copy here ? What is the cost of moving references ?
-pub fn reverse_complement_no_copy<'a>(
-    seq: &'a str,
-) -> std::iter::Map<std::iter::Rev<std::slice::Iter<'_, u8>>, fn(&u8) -> u8> {
+pub fn reverse_complement_no_copy(seq: &str) -> Map<Rev<Iter<'_, u8>>, fn(&u8) -> u8> {
     seq.as_bytes().iter().rev().map(|base| match base {
         b'A' => b'T',
         b'T' => b'A',
@@ -155,8 +157,6 @@ impl<'a> SubsequenceMetadata<'a> {
     /// Self::whole_string(self.to_string()[start..end])
     /// ```
     pub fn subsequence(&self, start: usize, end: usize) -> SubsequenceMetadata {
-        // println!("taking a subsequence of {}", self.to_string());
-        // println!("{:?}", (start, end));
         if self.same_orientation {
             Self {
                 read: self.read,
@@ -233,8 +233,8 @@ fn iter_suffix_len(
     x: &mut impl DoubleEndedIterator<Item = u8>,
     y: &mut impl DoubleEndedIterator<Item = u8>,
 ) -> usize {
-    let mut x = x.rev().into_iter();
-    let mut y = y.rev().into_iter();
+    let mut x = x.rev();
+    let mut y = y.rev();
     let mut length = 0;
     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
         if xc == yc {

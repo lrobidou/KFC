@@ -1,5 +1,5 @@
 use crate::{
-    compute_left_and_right::get_left_and_rigth_of_sk, superkmer::SubsequenceMetadata,
+    compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear, Count,
 };
 

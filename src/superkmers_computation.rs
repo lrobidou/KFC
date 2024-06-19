@@ -1,6 +1,6 @@
 use super::superkmer::Superkmer;
 use std::cmp::Ordering;
-use std::iter::{Map, Rev};
+use std::iter::{Copied, Map, Rev};
 use std::slice::Iter;
 
 use crate::brrr_minimizers::MinimizerQueue;
@@ -17,8 +17,8 @@ pub fn reverse_complement<'a>(seq: &'a str) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8)
     })
 }
 
-pub fn same_orientation<'a>(seq: &'a str) -> Map<Iter<'a, u8>, fn(&'a u8) -> u8> {
-    seq.as_bytes().iter().map(|base| *base)
+pub fn same_orientation(seq: &str) -> Copied<Iter<'_, u8>> {
+    seq.as_bytes().iter().copied()
 }
 
 pub fn is_canonical(seq: &str) -> bool {
@@ -36,7 +36,7 @@ pub fn is_canonical(seq: &str) -> bool {
 }
 
 pub enum SequenceOrientation<'a> {
-    Same(Map<Iter<'a, u8>, fn(&'a u8) -> u8>),
+    Same(Copied<Iter<'a, u8>>),
     Reverse(Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8>),
 }
 
@@ -63,9 +63,9 @@ impl<'a> OrientedSequence<'a> {
 
     pub fn get_oriented_sequence(&self) -> SequenceOrientation {
         if self.is_same_orientation {
-            SequenceOrientation::Same(same_orientation(&self.sequence))
+            SequenceOrientation::Same(same_orientation(self.sequence))
         } else {
-            SequenceOrientation::Reverse(reverse_complement(&self.sequence))
+            SequenceOrientation::Reverse(reverse_complement(self.sequence))
         }
     }
 }
@@ -99,57 +99,6 @@ impl<'a> Ord for OrientedSequence<'a> {
     }
 }
 
-// // Get the canonical form of a k-mer
-// pub fn get_canonical_kmer(kmer: &str) -> (bool, String) {
-//     let rev_comp = reverse_complement(kmer);
-//     if kmer < &rev_comp {
-//         (true, kmer.to_string())
-//     } else {
-//         (false, rev_comp.to_string())
-//     }
-// }
-
-// OPTIMIZE we don't need so many infos here (the superkmer content itself can be deduced from the original sequence)
-// #[derive(Debug, PartialEq)]
-// pub struct SuperKmerInfos<'a> {
-//     pub seq: &'a str,                    // TODO make private at some point
-//     pub superkmer: OrientedSequence<'a>, // as it would be if the minimizer was canonical in the read
-//     pub minimizer: MinimizerInfos<'a>,
-//     pub start_of_superkmer_as_read: usize,
-//     // TODO add m
-// }
-// use xxhash_rust::const_xxh3::xxh3_64;
-
-// impl<'a> SuperKmerInfos<'a> {
-//     // TODO chage to better hash function
-//     pub fn hash_superkmer(&self) -> u64 {
-//         let bytes: Vec<u8> = match self.superkmer.get_oriented_sequence() {
-//             SequenceOrientation::Same(bytes_iter) => bytes_iter.collect(),
-
-//             SequenceOrientation::Reverse(bytes_iter) => bytes_iter.collect(),
-//         };
-//         xxh3_64(&bytes)
-//     }
-
-//     // TODO remove, provide a 2 bits encoding instead
-//     pub fn get_minimizer_as_string(&self) -> String {
-//         match self.minimizer.mmer.get_oriented_sequence() {
-//             SequenceOrientation::Same(x) => x.into_iter().map(|byte| byte as char).collect(),
-//             SequenceOrientation::Reverse(x) => x.into_iter().map(|byte| byte as char).collect(),
-//         }
-//     }
-// }
-// impl<'a> SuperKmerInfos<'a> {
-//     pub fn revcomp_of_superkmer_sequence(&self) -> Self {
-//         Self {
-//             seq: self.seq,
-//             superkmer: self.superkmer,
-//             minimizer: self.minimizer,
-//             start_of_superkmer_as_read: self.start_of_superkmer_as_read,
-//         }
-//     }
-// }
-
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 struct MinimizerInfos<'a> {
     pub mmer: OrientedSequence<'a>,
@@ -158,7 +107,7 @@ struct MinimizerInfos<'a> {
 
 impl<'a> PartialOrd for MinimizerInfos<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.mmer.partial_cmp(&other.mmer)
+        Some(self.cmp(other))
     }
 }
 

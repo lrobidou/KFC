@@ -290,7 +290,7 @@ impl HKCount {
             let current_match_size = len_current_match_left + len_current_match_right;
 
             if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() >= k {
-                total_count += count
+                total_count += count;
             }
         }
         total_count

@@ -112,7 +112,7 @@ fn first_stage(
                     get_left_and_rigth_extended_hk(previous_sk, current_sk, next_sk, k);
 
                 // let canonical_extended_left_hk = left_extended_hk.0.to_canonical();
-                let canonical_extended_right_hk = right_extended_hk.0.to_canonical();
+                // let canonical_extended_right_hk = right_extended_hk.0.to_canonical();
 
                 // left_hk and right_hk are the left and right hyperkmer
                 // as we would see them if the minimizer was in canonical form in the read
@@ -351,7 +351,7 @@ fn compare_to_kmc(
         if ground_truth_count >= threshold as usize {
             let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer, k, m);
             if kfc_res as usize != ground_truth_count {
-                println!("error on {}, {} != {}", kmer, kfc_res, ground_truth_count);
+                println!("error on {kmer}, {kfc_res} != {ground_truth_count}");
                 ko += 1;
             } else {
                 ok += 1;
@@ -367,7 +367,7 @@ fn dump_hk(lines: &[String]) {
 
     // Iterate over the vector and write each line to the file
     for line in lines {
-        writeln!(file, "{}", line).unwrap();
+        writeln!(file, "{line}").unwrap();
     }
 }
 
