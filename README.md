@@ -1,7 +1,7 @@
 # KFC
 
 ## TODO:
-- [] using &str instead of String to prevent copies
+- [x] using &str instead of String to prevent copies
 - [] using integers instead of `String` in the data structures
 - [x] implement search
 - [] implement streaming search

@@ -118,7 +118,6 @@ impl<'a> Ord for MinimizerInfos<'a> {
 }
 
 // Function to compute superkmers
-// OPTIMIZE: this is on O(k*sequence.len()). A solution in O(sequence.len()) is possible
 pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Superkmer> {
     let mut superkmers = Vec::with_capacity(sequence.len());
     if sequence.len() < k {
@@ -152,8 +151,7 @@ pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Supe
 
     let mut current_minimizer = minimizers[0];
     let mut start_of_superkmer_as_read = 0;
-    let mut end_of_superkmer_as_read = k; // TODO k ?
-                                          // println!("{:?}", minimizers);
+    let mut end_of_superkmer_as_read = k;
     for (i, candidate_minimizer) in minimizers
         .iter()
         .enumerate()

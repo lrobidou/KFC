@@ -91,10 +91,14 @@ impl<'a> SubsequenceMetadata<'a> {
         self.end - self.start
     }
 
-    // TODO there is a copy here
     pub fn is_canonical(&self) -> bool {
-        let subsequence = self.to_string();
-        is_canonical(&subsequence)
+        let subsequence = &self.read[self.start..self.end];
+        let is_original_subsequence_canonical = is_canonical(subsequence);
+        if self.same_orientation {
+            is_original_subsequence_canonical
+        } else {
+            !is_original_subsequence_canonical
+        }
     }
 
     pub fn to_canonical(&self) -> Self {
@@ -112,7 +116,6 @@ impl<'a> SubsequenceMetadata<'a> {
         }
     }
 
-    // TODO remove
     pub fn to_string(&self) -> String {
         let subsequence = &self.read[self.start..self.end];
         if self.same_orientation {
@@ -122,7 +125,6 @@ impl<'a> SubsequenceMetadata<'a> {
         }
     }
 
-    // TODO remove
     pub fn to_canonical_string(&self) -> String {
         let subsequence = &self.read[self.start..self.end];
         if is_canonical(subsequence) {
@@ -132,23 +134,33 @@ impl<'a> SubsequenceMetadata<'a> {
         }
     }
 
-    // TODO remove copy made by `reverse_complement`
-    pub fn equal_str(&self, other: &str) -> bool {
-        self.to_string() == other
+    // // TODO remove copy made by `reverse_complement`
+    // pub fn equal_str(&self, other: &str) -> bool {
+    //     self.to_string() == other
+    // }
+
+    pub fn equal(&self, other: &SubsequenceMetadata) -> bool {
+        if self.len() != other.len() {
+            false
+        } else {
+            self.common_prefix_length(other) == other.len()
+        }
     }
 
-    // TODO remove copy here
     pub fn ends_with(&self, other: &SubsequenceMetadata) -> bool {
-        let x = self.to_string();
-        let y = other.to_string();
-        x.ends_with(&y)
+        if self.len() < other.len() {
+            false
+        } else {
+            self.common_suffix_length(other) == other.len()
+        }
     }
 
-    // TODO remove copy here
     pub fn starts_with(&self, other: &SubsequenceMetadata) -> bool {
-        let x = self.to_string();
-        let y = other.to_string();
-        x.starts_with(&y)
+        if self.len() < other.len() {
+            false
+        } else {
+            self.common_prefix_length(other) == other.len()
+        }
     }
 
     /// Extract a subsequence
@@ -278,6 +290,8 @@ impl<'a> Superkmer<'a> {
             },
         }
     }
+
+    // TODO no String anymore
     pub fn hash_superkmer(&self) -> u64 {
         xxh3_64(self.superkmer.to_string().as_bytes())
     }

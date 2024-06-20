@@ -60,8 +60,8 @@ fn search_exact_ext_hyperkmer_match(
     let candidate_left_hk = extract_hyperkmer(hyperkmers, left_metadata);
     let candidate_right_hk = extract_hyperkmer(hyperkmers, right_metadata);
 
-    let match_left = candidate_left_hk.equal_str(&left_hk.to_string());
-    let match_right = candidate_right_hk.equal_str(&right_hk.to_string());
+    let match_left = candidate_left_hk.equal(&left_hk);
+    let match_right = candidate_right_hk.equal(&right_hk);
 
     match_left && match_right
 }
@@ -179,10 +179,12 @@ fn first_stage(
                     SubsequenceMetadata::whole_string(&hyperkmers[id_right_hk])
                         .change_orientation_if(right_change_orientation);
 
-                assert!(candidate_left_ext_hk.equal_str(&left_extended_hk.0.to_string()));
-                assert!(candidate_right_ext_hk.equal_str(&right_extended_hk.0.to_string()));
-                assert!(hyperkmers[id_left_hk] == left_extended_hk.0.to_canonical_string());
-                assert!(hyperkmers[id_right_hk] == right_extended_hk.0.to_canonical_string());
+                assert!(candidate_left_ext_hk.equal(&left_extended_hk.0));
+                assert!(candidate_right_ext_hk.equal(&right_extended_hk.0));
+                assert!(SubsequenceMetadata::whole_string(&hyperkmers[id_left_hk])
+                    .equal(&left_extended_hk.0.to_canonical()));
+                assert!(SubsequenceMetadata::whole_string(&hyperkmers[id_right_hk])
+                    .equal(&right_extended_hk.0.to_canonical()));
 
                 hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),

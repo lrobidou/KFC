@@ -30,11 +30,13 @@ impl HKCount {
         minimizer: &str,
         extended_hyperkmer_left: &SubsequenceMetadata,
     ) -> Option<usize> {
-        let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical_string();
+        let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
         for (candidate_left_hk_metadata, _candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_left == hyperkmers[candidate_left_hk_metadata.index] {
+            if canonical_extended_hyperkmer_left.equal(&SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_left_hk_metadata.index],
+            )) {
                 return Some(candidate_left_hk_metadata.index);
             }
         }
@@ -53,9 +55,9 @@ impl HKCount {
         for (_candidate_left_hk_metadata, candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_right
-                .equal_str(&hyperkmers[candidate_right_hk_metadata.index])
-            {
+            if canonical_extended_hyperkmer_right.equal(&SubsequenceMetadata::whole_string(
+                &hyperkmers[candidate_right_hk_metadata.index],
+            )) {
                 return Some(candidate_right_hk_metadata.index);
             }
         }
@@ -325,8 +327,8 @@ pub fn search_exact_hyperkmer_match(
     );
 
     // TODO copy here
-    let match_left = candidate_left_hyperkmer.equal_str(&left_hk.to_string());
-    let match_right = candidate_right_hyperkmer.equal_str(&right_hk.to_string());
+    let match_left = candidate_left_hyperkmer.equal(&left_hk);
+    let match_right = candidate_right_hyperkmer.equal(&right_hk);
 
     match_left && match_right
 }
