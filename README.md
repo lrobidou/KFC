@@ -2,11 +2,11 @@
 
 ## TODO:
 - [x] using &str instead of String to prevent copies
-- [] using integers instead of `String` in the data structures
+- [] using Vec<u64> instead of `String` in the data structures
 - [x] implement search
 - [] implement streaming search
 - [] when the minimizer is even, and its own reverse complement, how to break tie ? Using the superkmer ?
-- [] streaming of superkmer
+- [x] streaming of superkmer
 
 # Tests
 # data sources
