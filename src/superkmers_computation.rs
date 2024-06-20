@@ -4,7 +4,6 @@ use std::iter::{Copied, Map, Rev};
 use std::slice::Iter;
 
 use crate::brrr_minimizers::MinimizerQueue;
-use crate::superkmer;
 // use crate::superkmer::SubsequenceMetadata;
 
 // Get the reverse complement of a DNA sequence
@@ -229,6 +228,8 @@ impl<'a> Iterator for SuperkmerIterator<'a> {
             Some(ref minimizer) => minimizer,
             None => return None,
         };
+        // TODO discuss style
+        // let Some(current_minimizer) = self.current_minimizer else { return None };
 
         for candidate_minimizer in self.minimizer_iter.by_ref() {
             self.i += 1;
@@ -286,24 +287,26 @@ pub fn compute_superkmers_linear_streaming(
     }
 }
 
-// Function to compute superkmers
-pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Superkmer> {
-    let superkmers = Vec::with_capacity(sequence.len());
-    if sequence.len() < k {
-        return superkmers;
-    }
+// // Function to compute superkmers
+// pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Superkmer> {
+//     let superkmers = Vec::with_capacity(sequence.len());
+//     if sequence.len() < k {
+//         return superkmers;
+//     }
 
-    let mmers = MmerIterator::new(sequence, m);
-    let minimizer_iter = MinimizerIterator::new(mmers, k, m);
-    // let minimizers: Vec<MinimizerInfos> = minimizer_iter.collect();
-    let superkmer_iter = SuperkmerIterator::new(sequence, minimizer_iter, k, m);
-    let superkmers = superkmer_iter.collect();
+//     let mmers = MmerIterator::new(sequence, m);
+//     let minimizer_iter = MinimizerIterator::new(mmers, k, m);
+//     // let minimizers: Vec<MinimizerInfos> = minimizer_iter.collect();
+//     let superkmer_iter = SuperkmerIterator::new(sequence, minimizer_iter, k, m);
+//     let superkmers = superkmer_iter.collect();
 
-    superkmers
-}
+//     superkmers
+// }
 
 #[cfg(test)]
 mod tests {
+    // use crate::superkmer;
+
     use super::*;
 
     #[test]
@@ -358,9 +361,12 @@ mod tests {
     #[test]
     fn test_compute_superkmers() {
         let seq = "AGCAGCTAGCATTTTTGCAGT";
+        let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 16, 5)
+            .unwrap()
+            .collect();
         assert_eq!(
             // ACTGCAAAAATGCTAGCTGCT
-            compute_superkmers_linear(seq, 16, 5),
+            superkmers,
             vec![Superkmer::new(seq, 11, 11 + 5, 0, seq.len(), false)]
         );
     }
@@ -369,8 +375,11 @@ mod tests {
     fn test_compute_superkmers2() {
         // same minimizer further away (AAAAA)
         let seq = "AGCAGCTAGCATTTTTGCAGAAAAACC";
+        let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 16, 5)
+            .unwrap()
+            .collect();
         assert_eq!(
-            compute_superkmers_linear(seq, 16, 5),
+            superkmers,
             // AGCAGCTAGCATTTTTGCAGAAAA"
             //          CATTTTTGCAGAAAAACC
             vec![
@@ -391,7 +400,10 @@ mod tests {
 
     #[test]
     fn test_compute_superkmers_sequence_too_short() {
-        assert_eq!(compute_superkmers_linear("AGCAGCTAGCATTTT", 16, 5), vec![]);
+        // there are no superkmers for sequence < k
+        if let Some(_x) = compute_superkmers_linear_streaming("AGCAGCTAGCATTTT", 16, 5) {
+            panic!()
+        }
     }
 
     // #[test]

@@ -171,7 +171,7 @@ impl<'a> SubsequenceMetadata<'a> {
         if self.same_orientation {
             two_bits::encode_2bits(subsequence.bytes(), self.len())
         } else {
-            two_bits::encode_2bits(reverse_complement_no_copy(&subsequence), self.len())
+            two_bits::encode_2bits(reverse_complement_no_copy(subsequence), self.len())
         }
     }
 

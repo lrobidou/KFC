@@ -1,8 +1,8 @@
-pub fn char_to_u64(c: &u8) -> u64 {
-    (*c as u64 >> 1) & 3
+pub fn char_to_u64(c: u8) -> u64 {
+    (u64::from(c) >> 1) & 3
 }
 
-pub fn u64_to_char(c: &u8) -> u8 {
+pub fn u64_to_char(c: u8) -> u8 {
     match c {
         0 => b'A',
         1 => b'C',
@@ -14,10 +14,10 @@ pub fn u64_to_char(c: &u8) -> u8 {
 // TODO copy
 pub fn encode_2bits(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u64> {
     let add_one = (len % 32) != 0;
-    let mut result: Vec<u64> = vec![0; (len / 32) + add_one as usize];
+    let mut result: Vec<u64> = vec![0; (len / 32) + usize::from(add_one)];
     for (i, ascii_letter) in bytes.into_iter().enumerate() {
         let shift = (31 - i % 32) * 2;
-        result[i / 32] += char_to_u64(&ascii_letter) << shift;
+        result[i / 32] += char_to_u64(ascii_letter) << shift;
     }
     result
 }
@@ -28,13 +28,13 @@ pub fn decode_2bits(bytes: impl Iterator<Item = u64>, len: usize) -> Vec<u8> {
     for (i, byte) in bytes.enumerate() {
         if i < len / 32 {
             for j in 0..32 {
-                let bits = byte >> (62 - 2 * j) & 0b00000011;
-                result.push(u64_to_char(&(bits as u8)));
+                let bits = byte >> (62 - 2 * j) & 0b0000_0011;
+                result.push(u64_to_char(bits as u8));
             }
         } else {
             for j in 0..(len % 32) {
-                let bits = byte >> (62 - 2 * j) & 0b00000011;
-                result.push(u64_to_char(&(bits as u8)));
+                let bits = byte >> (62 - 2 * j) & 0b0000_0011;
+                result.push(u64_to_char(bits as u8));
             }
         }
     }
@@ -51,10 +51,10 @@ mod tests {
         let c = b'C';
         let t = b'T';
         let g = b'G';
-        assert_eq!(char_to_u64(&a), 0);
-        assert_eq!(char_to_u64(&c), 1);
-        assert_eq!(char_to_u64(&t), 2);
-        assert_eq!(char_to_u64(&g), 3);
+        assert_eq!(char_to_u64(a), 0);
+        assert_eq!(char_to_u64(c), 1);
+        assert_eq!(char_to_u64(t), 2);
+        assert_eq!(char_to_u64(g), 3);
     }
 
     #[test]

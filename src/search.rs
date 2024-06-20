@@ -1,6 +1,6 @@
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
-    superkmers_computation::compute_superkmers_linear, Count,
+    superkmers_computation::compute_superkmers_linear_streaming, Count,
 };
 
 use super::HKCount;
@@ -12,8 +12,8 @@ pub fn search_kmer(
     k: usize,
     m: usize,
 ) -> Count {
-    let sks = compute_superkmers_linear(kmer, k, m);
-    let superkmer = &sks[0]; // there can be only one
+    let mut sks = compute_superkmers_linear_streaming(kmer, k, m).unwrap();
+    let superkmer = &sks.next().unwrap(); // there can be only one
     let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
 
     hk_count.count_occurence_kmer(

@@ -22,7 +22,7 @@ mod two_bits;
 use superkmer::{SubsequenceMetadata, Superkmer};
 
 use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
-use superkmers_computation::{compute_superkmers_linear, compute_superkmers_linear_streaming};
+use superkmers_computation::compute_superkmers_linear_streaming;
 
 mod superkmers_count;
 
@@ -372,11 +372,11 @@ fn compare_to_kmc(
 
         if ground_truth_count >= threshold as usize {
             let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer, k, m);
-            if kfc_res as usize != ground_truth_count {
+            if kfc_res as usize == ground_truth_count {
+                ok += 1;
+            } else {
                 println!("error on {kmer}, {kfc_res} != {ground_truth_count}");
                 ko += 1;
-            } else {
-                ok += 1;
             }
         }
     }

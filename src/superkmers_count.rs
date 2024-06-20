@@ -41,7 +41,7 @@ impl SuperKmerCounts {
         }
         // superkmer not found, insert it, count is 1
         self.data
-            .insert(superkmer.get_minimizer().clone(), (superkmer_hash, 1));
+            .insert(superkmer.get_minimizer(), (superkmer_hash, 1));
         1
     }
 }

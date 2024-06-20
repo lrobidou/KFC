@@ -327,8 +327,8 @@ pub fn search_exact_hyperkmer_match(
     );
 
     // TODO copy here
-    let match_left = candidate_left_hyperkmer.equal(&left_hk);
-    let match_right = candidate_right_hyperkmer.equal(&right_hk);
+    let match_left = candidate_left_hyperkmer.equal(left_hk);
+    let match_right = candidate_right_hyperkmer.equal(right_hk);
 
     match_left && match_right
 }
