@@ -1,4 +1,7 @@
+use crate::Minimizer;
+
 use super::superkmers_computation::is_canonical;
+use super::two_bits;
 use std::iter::Map;
 use std::iter::Rev;
 use std::slice::Iter;
@@ -163,6 +166,15 @@ impl<'a> SubsequenceMetadata<'a> {
         }
     }
 
+    pub fn encode_2bits(&self) -> Vec<u64> {
+        let subsequence = &self.read[self.start..self.end];
+        if self.same_orientation {
+            two_bits::encode_2bits(subsequence.bytes(), self.len())
+        } else {
+            two_bits::encode_2bits(reverse_complement_no_copy(&subsequence), self.len())
+        }
+    }
+
     /// Extract a subsequence
     /// Equivalent to:
     /// ```
@@ -297,8 +309,10 @@ impl<'a> Superkmer<'a> {
     }
 
     // TODO not String anymore
-    pub fn get_minimizer(&self) -> String {
-        self.minimizer.to_string()
+    pub fn get_minimizer(&self) -> Minimizer {
+        let encoding = self.minimizer.encode_2bits();
+        assert!(encoding.len() == 1);
+        encoding[0]
     }
 
     pub fn m(&self) -> usize {

@@ -27,7 +27,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_left_id(
         &self,
         hyperkmers: &[String],
-        minimizer: &str,
+        minimizer: &Minimizer,
         extended_hyperkmer_left: &SubsequenceMetadata,
     ) -> Option<usize> {
         let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
@@ -48,7 +48,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_right_id(
         &self,
         hyperkmers: &[String],
-        minimizer: &str,
+        minimizer: &Minimizer,
         extended_hyperkmer_right: &SubsequenceMetadata,
     ) -> Option<usize> {
         let canonical_extended_hyperkmer_right = extended_hyperkmer_right.to_canonical();
@@ -68,17 +68,15 @@ impl HKCount {
     /// Minimizer should already be in canonical form.
     pub fn insert_new_entry_in_hyperkmer_count(
         &mut self,
-        minimizer: &str,
+        minimizer: &Minimizer,
         left_metadata: &HKMetadata,
         right_metadata: &HKMetadata,
         count: Count,
     ) {
         assert!(left_metadata.start < left_metadata.end);
         assert!(right_metadata.start < right_metadata.end);
-        self.data.insert(
-            String::from(minimizer),
-            (*left_metadata, *right_metadata, count),
-        );
+        self.data
+            .insert(*minimizer, (*left_metadata, *right_metadata, count));
     }
 
     /// Search if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`
@@ -180,7 +178,7 @@ impl HKCount {
     }
 
     /// Return true if the minimizer is present, false otherwise
-    pub fn contains_minimizer(&self, minimizer: &str) -> bool {
+    pub fn contains_minimizer(&self, minimizer: &Minimizer) -> bool {
         self.data.contains_key(minimizer)
     }
 
@@ -191,7 +189,8 @@ impl HKCount {
         &self,
         hyperkmers: &[String],
         k: usize,
-        minimizer: &str,
+        m: usize,
+        minimizer: &Minimizer,
         left_sk: &SubsequenceMetadata,
         right_sk: &SubsequenceMetadata,
     ) -> Option<(HKMetadata, HKMetadata)> {
@@ -226,10 +225,10 @@ impl HKCount {
             let len_current_match_right = right_sk.common_prefix_length(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
-            assert!(len_current_match_left >= minimizer.len() - 1);
-            assert!(len_current_match_right >= minimizer.len() - 1);
+            assert!(len_current_match_left >= m - 1);
+            assert!(len_current_match_right >= m - 1);
 
-            if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() > match_size {
+            if current_match_size - 2 * (m - 1) + m > match_size {
                 match_size = current_match_size;
 
                 match_metadata = Some((
@@ -256,10 +255,11 @@ impl HKCount {
     pub fn count_occurence_kmer(
         &self,
         hyperkmers: &[String],
-        minimizer: &str,
+        minimizer: &Minimizer,
         left_context: &SubsequenceMetadata,
         right_context: &SubsequenceMetadata,
         k: usize,
+        m: usize,
     ) -> Count {
         let mut total_count = 0;
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count) in
@@ -291,7 +291,7 @@ impl HKCount {
                 right_context.common_prefix_length(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
-            if current_match_size - 2 * (minimizer.len() - 1) + minimizer.len() >= k {
+            if current_match_size - 2 * (m - 1) + m >= k {
                 total_count += count;
             }
         }

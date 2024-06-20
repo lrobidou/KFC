@@ -22,12 +22,13 @@ pub fn search_kmer(
         &left_sk,
         &right_sk,
         k,
+        m,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::hyperkmers_counts::HKMetadata;
+    use crate::{hyperkmers_counts::HKMetadata, two_bits::encode_2bits};
 
     use super::*;
 
@@ -36,6 +37,7 @@ mod tests {
         let kmer = "this_is_a_match_AAAAAAAAAA_this_is_another_match";
         let mut hk: HKCount = HKCount::new();
         let minimizer = "AAAAAAAAAA";
+        let minimizer = encode_2bits(minimizer.bytes(), minimizer.len())[0];
         let mut hyperkmers = Vec::new();
         let count = 34;
 
@@ -45,7 +47,7 @@ mod tests {
         hyperkmers.push(String::from("this_is_a_match_AAAAAAAAA"));
         hyperkmers.push(String::from("AAAAAAAAA_this_is_another_match"));
         hk.insert_new_entry_in_hyperkmer_count(
-            minimizer,
+            &minimizer,
             &HKMetadata {
                 index: 0,
                 start: 0,
