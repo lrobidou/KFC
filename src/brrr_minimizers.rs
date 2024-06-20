@@ -2,14 +2,14 @@
 // use core::hash::Hash;
 use std::collections::VecDeque;
 
-pub struct MinimizerQueue<'a, T> {
-    deq: VecDeque<(&'a T, u8)>,
+pub struct MinimizerQueue<T> {
+    deq: VecDeque<(T, u8)>,
     // hash_builder: RandomState,
     w: usize,
     pos: u8,
 }
 
-impl<'a, T: Ord> MinimizerQueue<'a, T> {
+impl<T: Ord + Copy> MinimizerQueue<T> {
     pub fn new(w: usize) -> Self {
         Self {
             deq: VecDeque::with_capacity(w),
@@ -19,13 +19,13 @@ impl<'a, T: Ord> MinimizerQueue<'a, T> {
         }
     }
 
-    pub fn get_min(&self) -> &'a T {
+    pub fn get_min(&self) -> T {
         debug_assert!(!self.deq.is_empty(), "MinimizerQueue is empty");
         self.deq[0].0
     }
 
     // CAUTION: in BRR, we actually get the max
-    pub fn insert(&mut self, element: &'a T) {
+    pub fn insert(&mut self, element: T) {
         if !self.deq.is_empty() && self.deq[0].1 == self.pos {
             self.deq.pop_front();
         }

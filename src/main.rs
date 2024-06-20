@@ -1,13 +1,13 @@
 use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk};
 use fastxgz::fasta_reads;
+use itertools::Itertools;
 use log::warn;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use std::{collections::HashMap, path::Path};
-mod two_bits;
 
-type Minimizer = String; // TODO change to integer when done
+type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
 
@@ -17,29 +17,30 @@ mod hyperkmers_counts;
 mod search;
 mod superkmer;
 mod superkmers_computation;
+mod two_bits;
 
 use superkmer::{SubsequenceMetadata, Superkmer};
 
 use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
-use superkmers_computation::compute_superkmers_linear;
+use superkmers_computation::{compute_superkmers_linear, compute_superkmers_linear_streaming};
 
 mod superkmers_count;
 
 use superkmers_count::SuperKmerCounts;
 
-fn extract_hyperkmer<'a>(
-    hyperkmers: &'a [String],
-    metadata: &HKMetadata,
-) -> SubsequenceMetadata<'a> {
-    let hyperkmer: &str = &hyperkmers[metadata.index];
+// fn extract_hyperkmer<'a>(
+//     hyperkmers: &'a [String],
+//     metadata: &HKMetadata,
+// ) -> SubsequenceMetadata<'a> {
+//     let hyperkmer: &str = &hyperkmers[metadata.index];
 
-    SubsequenceMetadata::new(
-        hyperkmer,
-        metadata.start,
-        metadata.end,
-        !metadata.change_orientation,
-    )
-}
+//     SubsequenceMetadata::new(
+//         hyperkmer,
+//         metadata.start,
+//         metadata.end,
+//         !metadata.change_orientation,
+//     )
+// }
 
 /// Adds `new_hyperkmer` in `hyperkmers` and return its index
 /// `new_hyperkmer` does not have to be in canonical form
@@ -50,22 +51,22 @@ fn add_new_hyperkmer(hyperkmers: &mut Vec<String>, new_hyperkmer: &SubsequenceMe
     id_hyperkmer
 }
 
-fn search_exact_ext_hyperkmer_match(
-    hyperkmers: &[String],
-    left_hk: &SubsequenceMetadata,
-    right_hk: &SubsequenceMetadata,
-    left_metadata: &HKMetadata,
-    right_metadata: &HKMetadata,
-) -> bool {
-    // get sequences as they would appear if the current superkmer was canonical
-    let candidate_left_hk = extract_hyperkmer(hyperkmers, left_metadata);
-    let candidate_right_hk = extract_hyperkmer(hyperkmers, right_metadata);
+// fn search_exact_ext_hyperkmer_match(
+//     hyperkmers: &[String],
+//     left_hk: &SubsequenceMetadata,
+//     right_hk: &SubsequenceMetadata,
+//     left_metadata: &HKMetadata,
+//     right_metadata: &HKMetadata,
+// ) -> bool {
+//     // get sequences as they would appear if the current superkmer was canonical
+//     let candidate_left_hk = extract_hyperkmer(hyperkmers, left_metadata);
+//     let candidate_right_hk = extract_hyperkmer(hyperkmers, right_metadata);
 
-    let match_left = candidate_left_hk.equal(&left_hk);
-    let match_right = candidate_right_hk.equal(&right_hk);
+//     let match_left = candidate_left_hk.equal(&left_hk);
+//     let match_right = candidate_right_hk.equal(&right_hk);
 
-    match_left && match_right
-}
+//     match_left && match_right
+// }
 
 // TODO find a better name for the first stage function
 fn first_stage(
@@ -80,14 +81,19 @@ fn first_stage(
 
     for sequence in sequences {
         let start_superkmers = Instant::now();
-        let superkmers = compute_superkmers_linear(sequence, k, m);
+        // let superkmers = compute_superkmers_linear(sequence, k, m);
+        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
+            Some(superkmers_iter) => superkmers_iter,
+            None => continue,
+        };
+
         println!(
             "super kmers computed in {} milliseconds",
             start_superkmers.elapsed().as_millis()
         );
 
-        for triplet in superkmers.windows(3) {
-            let (previous_sk, current_sk, next_sk) = (&triplet[0], &triplet[1], &triplet[2]);
+        for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
+            // let (previous_sk, current_sk, next_sk) = (&triplet[0], &triplet[1], &triplet[2]);
 
             let (previous_sk, next_sk) = if current_sk.is_canonical_in_the_read() {
                 (previous_sk, next_sk)
@@ -99,18 +105,18 @@ fn first_stage(
             // compute now if the previous and/or next superkmer is solid
             // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
-            let previous_sk_is_solid = sk_count.get_count_superkmer(previous_sk) >= threshold;
-            let next_sk_is_solid = sk_count.get_count_superkmer(next_sk) >= threshold;
+            let previous_sk_is_solid = sk_count.get_count_superkmer(&previous_sk) >= threshold;
+            let next_sk_is_solid = sk_count.get_count_superkmer(&next_sk) >= threshold;
 
             // TODO est-il possible de stocker les counts pour ne pas les recalculer ?
-            let current_count = sk_count.increase_count_superkmer(current_sk);
+            let current_count = sk_count.increase_count_superkmer(&current_sk);
 
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
             // so I tell clippy to shup up
             #[allow(clippy::comparison_chain)]
             if current_count == threshold {
                 let (left_extended_hk, right_extended_hk) =
-                    get_left_and_rigth_extended_hk(previous_sk, current_sk, next_sk, k);
+                    get_left_and_rigth_extended_hk(&previous_sk, &current_sk, &next_sk, k);
 
                 // let canonical_extended_left_hk = left_extended_hk.0.to_canonical();
                 // let canonical_extended_right_hk = right_extended_hk.0.to_canonical();
@@ -204,17 +210,21 @@ fn first_stage(
                     current_count,
                 );
             } else if current_count > threshold {
-                let (left_sk, right_sk) = get_left_and_rigth_of_sk(current_sk);
+                let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let found = hk_count.increase_count_if_exact_match(
-                    current_sk,
+                    &current_sk,
                     &hyperkmers,
                     &left_sk,
                     &right_sk,
                 );
                 if !found {
                     // if no exact match, then we must at least have an approximate match
-                    let new_left_and_right_metadata =
-                        hk_count.search_for_inclusion(&hyperkmers, current_sk, &left_sk, &right_sk);
+                    let new_left_and_right_metadata = hk_count.search_for_inclusion(
+                        &hyperkmers,
+                        &current_sk,
+                        &left_sk,
+                        &right_sk,
+                    );
                     // TODO error message here
                     let (metadata_to_insert_left, metadata_to_insert_right) =
                         new_left_and_right_metadata.unwrap();
@@ -252,9 +262,13 @@ fn second_stage(
     let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
 
     for sequence in sequences {
-        let superkmers = compute_superkmers_linear(sequence, k, m);
-        for superkmer in &superkmers {
-            if sk_count.get_count_superkmer(superkmer) >= threshold {
+        // let superkmers = compute_superkmers_linear(sequence, k, m);
+        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
+            Some(superkmers_iter) => superkmers_iter,
+            None => continue,
+        };
+        for superkmer in superkmers {
+            if sk_count.get_count_superkmer(&superkmer) >= threshold {
                 continue;
             }
 
@@ -263,7 +277,7 @@ fn second_stage(
             if !hk_count.contains_minimizer(minimizer) {
                 // increase count, set to 1 if it was 0
                 let count = discarded_minimizers
-                    .entry(minimizer.clone())
+                    .entry(*minimizer)
                     .and_modify(|counter| {
                         *counter = counter.saturating_add(1);
                     })
@@ -278,9 +292,9 @@ fn second_stage(
                 }
             }
 
-            let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
+            let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
             let match_metadata = hk_count
-                .search_for_maximal_inclusion(hyperkmers, k, minimizer, &left_sk, &right_sk);
+                .search_for_maximal_inclusion(hyperkmers, k, m, minimizer, &left_sk, &right_sk);
 
             if let Some(metadata) = match_metadata {
                 hk_count.insert_new_entry_in_hyperkmer_count(
@@ -300,7 +314,12 @@ fn index_hyperkmers(
     m: usize,
     threshold: Count,
     sequences: &Vec<&str>,
-) -> (SuperKmerCounts, HKCount, Vec<String>, HashMap<String, u16>) {
+) -> (
+    SuperKmerCounts,
+    HKCount,
+    Vec<String>,
+    HashMap<Minimizer, u16>,
+) {
     let start_fisrt_step = Instant::now();
     let (mut sk_count, mut hk_count, hyperkmers) = first_stage(sequences, k, m, threshold);
     println!(

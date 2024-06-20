@@ -4,6 +4,7 @@ use std::iter::{Copied, Map, Rev};
 use std::slice::Iter;
 
 use crate::brrr_minimizers::MinimizerQueue;
+use crate::superkmer;
 // use crate::superkmer::SubsequenceMetadata;
 
 // Get the reverse complement of a DNA sequence
@@ -25,10 +26,10 @@ pub fn is_canonical(seq: &str) -> bool {
     let mut orientation_1 = same_orientation(seq);
     let mut orientation_2 = reverse_complement(seq);
     while let (Some(xc), Some(yc)) = (orientation_1.next(), orientation_2.next()) {
-        if xc < yc {
-            return true;
-        } else if xc > yc {
-            return false;
+        match xc.cmp(&yc) {
+            Ordering::Less => return true,
+            Ordering::Greater => return false,
+            Ordering::Equal => {}
         }
     }
     // in case of palindrome, prefer saying the sequence is canonical
@@ -72,10 +73,10 @@ impl<'a> OrientedSequence<'a> {
 
 fn compare(x: &mut impl Iterator<Item = u8>, y: &mut impl Iterator<Item = u8>) -> Ordering {
     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
-        if xc < yc {
-            return Ordering::Less;
-        } else if xc > yc {
-            return Ordering::Greater;
+        match xc.cmp(&yc) {
+            Ordering::Less => return Ordering::Less,
+            Ordering::Greater => return Ordering::Greater,
+            Ordering::Equal => {}
         }
     }
     Ordering::Equal
@@ -99,6 +100,80 @@ impl<'a> Ord for OrientedSequence<'a> {
     }
 }
 
+struct MmerIterator<'a> {
+    sequence: &'a str,
+    m: usize,
+    position: usize,
+}
+
+impl<'a> MmerIterator<'a> {
+    fn new(sequence: &'a str, m: usize) -> Self {
+        Self {
+            sequence,
+            m,
+            position: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for MmerIterator<'a> {
+    type Item = MinimizerInfos<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position + self.m <= self.sequence.len() {
+            let mmer_seq = &self.sequence[self.position..self.position + self.m];
+            let mmer = OrientedSequence::new(mmer_seq, is_canonical(mmer_seq));
+            let info = MinimizerInfos {
+                mmer,
+                position: self.position,
+            };
+            self.position += 1;
+            Some(info)
+        } else {
+            None
+        }
+    }
+}
+
+struct MinimizerIterator<'a> {
+    mmer_iter: MmerIterator<'a>,
+    previous_was_none: bool,
+    queue: MinimizerQueue<MinimizerInfos<'a>>,
+}
+
+impl<'a> MinimizerIterator<'a> {
+    fn new(mut mmer_iter: MmerIterator<'a>, k: usize, m: usize) -> Self {
+        let w = k - m + 1;
+        let previous_was_none = false;
+        let mut queue = MinimizerQueue::new(w);
+        for mmer in mmer_iter.by_ref().take(w) {
+            queue.insert(mmer);
+        }
+        Self {
+            mmer_iter,
+            previous_was_none,
+            queue,
+        }
+    }
+}
+
+impl<'a> Iterator for MinimizerIterator<'a> {
+    type Item = MinimizerInfos<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(mmer_info) = self.mmer_iter.next() {
+            let minimizer = self.queue.get_min();
+            self.queue.insert(mmer_info);
+            Some(minimizer)
+        } else if !self.previous_was_none {
+            self.previous_was_none = true;
+            Some(self.queue.get_min())
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 struct MinimizerInfos<'a> {
     pub mmer: OrientedSequence<'a>,
@@ -117,74 +192,112 @@ impl<'a> Ord for MinimizerInfos<'a> {
     }
 }
 
+pub struct SuperkmerIterator<'a> {
+    sequence: &'a str,
+    minimizer_iter: std::iter::Peekable<MinimizerIterator<'a>>,
+    k: usize,
+    m: usize,
+    current_minimizer: Option<MinimizerInfos<'a>>,
+    start_of_superkmer_as_read: usize,
+    end_of_superkmer_as_read: usize,
+    i: usize,
+}
+
+impl<'a> SuperkmerIterator<'a> {
+    fn new(sequence: &'a str, minimizer_iter: MinimizerIterator<'a>, k: usize, m: usize) -> Self {
+        let mut minimizer_iter = minimizer_iter.peekable();
+        let current_minimizer = minimizer_iter.next();
+
+        Self {
+            sequence,
+            minimizer_iter,
+            k,
+            m,
+            current_minimizer,
+            start_of_superkmer_as_read: 0,
+            end_of_superkmer_as_read: k,
+            i: 1,
+        }
+    }
+}
+
+impl<'a> Iterator for SuperkmerIterator<'a> {
+    type Item = Superkmer<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current_minimizer = match self.current_minimizer {
+            Some(ref minimizer) => minimizer,
+            None => return None,
+        };
+
+        for candidate_minimizer in self.minimizer_iter.by_ref() {
+            self.i += 1;
+
+            if current_minimizer.position == candidate_minimizer.position {
+                self.end_of_superkmer_as_read += 1;
+            } else {
+                let superkmer = Superkmer::new(
+                    self.sequence,
+                    current_minimizer.position,
+                    current_minimizer.position + self.m,
+                    self.start_of_superkmer_as_read,
+                    self.end_of_superkmer_as_read,
+                    current_minimizer.mmer.is_same_orientation(),
+                );
+
+                self.start_of_superkmer_as_read = self.i - 1;
+                self.end_of_superkmer_as_read = self.i - 1 + self.k;
+                self.current_minimizer = Some(candidate_minimizer);
+
+                return Some(superkmer);
+            }
+        }
+
+        if self.start_of_superkmer_as_read < self.sequence.len() {
+            let superkmer = Superkmer::new(
+                self.sequence,
+                current_minimizer.position,
+                current_minimizer.position + self.m,
+                self.start_of_superkmer_as_read,
+                self.end_of_superkmer_as_read,
+                current_minimizer.mmer.is_same_orientation(),
+            );
+            self.start_of_superkmer_as_read = self.sequence.len(); // ensure no more superkmers are returned
+            return Some(superkmer);
+        }
+
+        None
+    }
+}
+
+pub fn compute_superkmers_linear_streaming(
+    sequence: &str,
+    k: usize,
+    m: usize,
+) -> Option<SuperkmerIterator> {
+    if sequence.len() < k {
+        None
+    } else {
+        let mmers = MmerIterator::new(sequence, m);
+        let minimizer_iter = MinimizerIterator::new(mmers, k, m);
+        // let minimizers: Vec<MinimizerInfos> = minimizer_iter.collect();
+        let superkmer_iter = SuperkmerIterator::new(sequence, minimizer_iter, k, m);
+        Some(superkmer_iter)
+    }
+}
+
 // Function to compute superkmers
 pub fn compute_superkmers_linear(sequence: &str, k: usize, m: usize) -> Vec<Superkmer> {
-    let mut superkmers = Vec::with_capacity(sequence.len());
+    let superkmers = Vec::with_capacity(sequence.len());
     if sequence.len() < k {
         return superkmers;
     }
 
-    let w = k - m + 1;
-
-    let mut mmers = Vec::with_capacity(sequence.len());
-    for position in 0..sequence.len() - m + 1 {
-        let mmer = OrientedSequence::new(
-            &sequence[position..m + position],
-            is_canonical(&sequence[position..m + position]),
-        );
-        mmers.push(MinimizerInfos { mmer, position });
-    }
-
-    let mut queue = MinimizerQueue::<_>::new(w);
-    let mut minimizers: Vec<MinimizerInfos> = vec![];
-
-    for (i, input) in mmers.iter().enumerate() {
-        if i < w {
-            queue.insert(input);
-        } else {
-            minimizers.push(*queue.get_min());
-
-            queue.insert(input);
-        }
-    }
-    minimizers.push(*queue.get_min());
-
-    let mut current_minimizer = minimizers[0];
-    let mut start_of_superkmer_as_read = 0;
-    let mut end_of_superkmer_as_read = k;
-    for (i, candidate_minimizer) in minimizers
-        .iter()
-        .enumerate()
-        .take((sequence.len() - k) + 1)
-        .skip(1)
-    {
-        // does the minimizer of this kmer have the same same position as the minimizer of the previous kmer?
-        if current_minimizer.position == candidate_minimizer.position {
-            end_of_superkmer_as_read += 1; // extend superkmer and keep other data untouched
-        } else {
-            superkmers.push(Superkmer::new(
-                sequence,
-                current_minimizer.position,
-                current_minimizer.position + m,
-                start_of_superkmer_as_read,
-                end_of_superkmer_as_read,
-                current_minimizer.mmer.is_same_orientation(),
-            ));
-            start_of_superkmer_as_read = i;
-            end_of_superkmer_as_read = i + k;
-            current_minimizer = *candidate_minimizer;
-        }
-    }
-
-    // Add the last superkmer
-    superkmers.push(Superkmer::new(
-        sequence,
-        current_minimizer.position,
-        current_minimizer.position + m,
-        start_of_superkmer_as_read,
-        end_of_superkmer_as_read,
-        current_minimizer.mmer.is_same_orientation(),
-    ));
+    let mmers = MmerIterator::new(sequence, m);
+    let minimizer_iter = MinimizerIterator::new(mmers, k, m);
+    // let minimizers: Vec<MinimizerInfos> = minimizer_iter.collect();
+    let superkmer_iter = SuperkmerIterator::new(sequence, minimizer_iter, k, m);
+    let superkmers = superkmer_iter.collect();
 
     superkmers
 }
