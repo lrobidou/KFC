@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use std::{collections::HashMap, path::Path};
+mod two_bits;
 
 type Minimizer = String; // TODO change to integer when done
 type HashSuperKmer = u64;
