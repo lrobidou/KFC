@@ -7,8 +7,8 @@ use crate::brrr_minimizers::MinimizerQueue;
 // use crate::superkmer::SubsequenceMetadata;
 
 // Get the reverse complement of a DNA sequence
-pub fn reverse_complement<'a>(seq: &'a str) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8> {
-    seq.as_bytes().iter().rev().map(|base| match base {
+pub fn reverse_complement<'a>(seq: &'a [u8]) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8> {
+    seq.iter().rev().map(|base| match base {
         b'A' => b'T',
         b'T' => b'A',
         b'C' => b'G',
@@ -17,11 +17,11 @@ pub fn reverse_complement<'a>(seq: &'a str) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8)
     })
 }
 
-pub fn same_orientation(seq: &str) -> Copied<Iter<'_, u8>> {
-    seq.as_bytes().iter().copied()
+pub fn same_orientation(seq: &[u8]) -> Copied<Iter<'_, u8>> {
+    seq.iter().copied()
 }
 
-pub fn is_canonical(seq: &str) -> bool {
+pub fn is_canonical(seq: &[u8]) -> bool {
     let mut orientation_1 = same_orientation(seq);
     let mut orientation_2 = reverse_complement(seq);
     while let (Some(xc), Some(yc)) = (orientation_1.next(), orientation_2.next()) {
@@ -45,12 +45,12 @@ pub enum SequenceOrientation<'a> {
 // TODO Clone is cheap, isn't it ?
 #[derive(PartialEq, Eq, Clone, Debug, Copy)]
 pub struct OrientedSequence<'a> {
-    pub sequence: &'a str,
+    pub sequence: &'a [u8],
     pub is_same_orientation: bool,
 }
 
 impl<'a> OrientedSequence<'a> {
-    pub fn new(sequence: &'a str, should_be_stored_in_the_same_orientation: bool) -> Self {
+    pub fn new(sequence: &'a [u8], should_be_stored_in_the_same_orientation: bool) -> Self {
         Self {
             sequence,
             is_same_orientation: should_be_stored_in_the_same_orientation,
@@ -81,12 +81,6 @@ fn compare(x: &mut impl Iterator<Item = u8>, y: &mut impl Iterator<Item = u8>) -
     Ordering::Equal
 }
 
-impl<'a> PartialOrd for OrientedSequence<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl<'a> Ord for OrientedSequence<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         use SequenceOrientation as SO;
@@ -99,14 +93,20 @@ impl<'a> Ord for OrientedSequence<'a> {
     }
 }
 
+impl<'a> PartialOrd for OrientedSequence<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 struct MmerIterator<'a> {
-    sequence: &'a str,
+    sequence: &'a [u8],
     m: usize,
     position: usize,
 }
 
 impl<'a> MmerIterator<'a> {
-    fn new(sequence: &'a str, m: usize) -> Self {
+    fn new(sequence: &'a [u8], m: usize) -> Self {
         Self {
             sequence,
             m,
@@ -192,7 +192,7 @@ impl<'a> Ord for MinimizerInfos<'a> {
 }
 
 pub struct SuperkmerIterator<'a> {
-    sequence: &'a str,
+    sequence: &'a [u8],
     minimizer_iter: std::iter::Peekable<MinimizerIterator<'a>>,
     k: usize,
     m: usize,
@@ -203,7 +203,7 @@ pub struct SuperkmerIterator<'a> {
 }
 
 impl<'a> SuperkmerIterator<'a> {
-    fn new(sequence: &'a str, minimizer_iter: MinimizerIterator<'a>, k: usize, m: usize) -> Self {
+    fn new(sequence: &'a [u8], minimizer_iter: MinimizerIterator<'a>, k: usize, m: usize) -> Self {
         let mut minimizer_iter = minimizer_iter.peekable();
         let current_minimizer = minimizer_iter.next();
 
@@ -272,7 +272,7 @@ impl<'a> Iterator for SuperkmerIterator<'a> {
 }
 
 pub fn compute_superkmers_linear_streaming(
-    sequence: &str,
+    sequence: &[u8],
     k: usize,
     m: usize,
 ) -> Option<SuperkmerIterator> {
@@ -311,19 +311,19 @@ mod tests {
 
     #[test]
     fn test_reverse_complement() {
-        let revcomp: Vec<u8> = reverse_complement("ACTGTGCAGTGCA").collect();
+        let revcomp: Vec<u8> = reverse_complement("ACTGTGCAGTGCA".as_bytes()).collect();
         assert_eq!(revcomp, b"TGCACTGCACAGT");
     }
 
     #[test]
     fn test_reverse_complement_n() {
-        let revcomp: Vec<u8> = reverse_complement("ACTGTGCAGTNNGNCA").collect();
+        let revcomp: Vec<u8> = reverse_complement("ACTGTGCAGTNNGNCA".as_bytes()).collect();
         assert_eq!(revcomp, b"TGNCNNACTGCACAGT");
     }
 
     #[test]
     fn test_get_canonical_kmer() {
-        let kmer = "ACTGCGATGACGCAGATAGCAGATAGC";
+        let kmer = "ACTGCGATGACGCAGATAGCAGATAGC".as_bytes();
         let canonical = OrientedSequence::new(kmer, is_canonical(kmer));
 
         assert!(canonical.is_same_orientation());
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_get_canonical_kmer2() {
-        let kmer = "GCTATCTGCTATCTGCGTCATCGCAGT";
+        let kmer = "GCTATCTGCTATCTGCGTCATCGCAGT".as_bytes();
         let canonical = OrientedSequence::new(kmer, is_canonical(kmer));
         assert!(!canonical.is_same_orientation());
         match canonical.get_oriented_sequence() {
@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_compute_superkmers() {
-        let seq = "AGCAGCTAGCATTTTTGCAGT";
+        let seq = "AGCAGCTAGCATTTTTGCAGT".as_bytes();
         let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 16, 5)
             .unwrap()
             .collect();
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_compute_superkmers2() {
         // same minimizer further away (AAAAA)
-        let seq = "AGCAGCTAGCATTTTTGCAGAAAAACC";
+        let seq = "AGCAGCTAGCATTTTTGCAGAAAAACC".as_bytes();
         let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 16, 5)
             .unwrap()
             .collect();
@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn test_compute_superkmers_sequence_too_short() {
         // there are no superkmers for sequence < k
-        if let Some(_x) = compute_superkmers_linear_streaming("AGCAGCTAGCATTTT", 16, 5) {
+        if let Some(_x) = compute_superkmers_linear_streaming("AGCAGCTAGCATTTT".as_bytes(), 16, 5) {
             panic!()
         }
     }

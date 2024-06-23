@@ -1,4 +1,4 @@
-use crate::superkmer::SubsequenceMetadata;
+use crate::superkmer::{NoBitPacked, SubsequenceMetadata};
 use crate::Superkmer;
 
 /// return the left and right extended hyperkmers of the currrent superkmer
@@ -12,10 +12,10 @@ pub fn get_left_and_rigth_extended_hk<'a>(
     previous_sk: &Superkmer<'a>,
     current_sk: &Superkmer<'a>,
     next_sk: &Superkmer<'a>,
-    k: usize, // TODO use for checks
+    k: usize,
 ) -> (
-    (SubsequenceMetadata<'a>, usize, usize),
-    (SubsequenceMetadata<'a>, usize, usize),
+    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize),
+    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize),
 ) {
     // Caution: the next and previous superkmer are given as they appear in the read.
     // * but still in the order they would appear if the current superkmer was canonical *
@@ -40,7 +40,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             next_right_sk.change_orientation()
         };
 
-    let extended_left_sk: (SubsequenceMetadata<'a>, usize, usize) =
+    let extended_left_sk: (SubsequenceMetadata<'a, NoBitPacked>, usize, usize) =
         if current_left_sk.len() > previous_right_sk.len() {
             (current_left_sk, 0, current_left_sk.len())
         } else {
@@ -57,15 +57,18 @@ pub fn get_left_and_rigth_extended_hk<'a>(
         )
     };
 
-    assert!(extended_left_sk.0.len() == k - 1);
-    assert!(extended_right_sk.0.len() == k - 1);
+    debug_assert!(extended_left_sk.0.len() == k - 1);
+    debug_assert!(extended_right_sk.0.len() == k - 1);
     (extended_left_sk, extended_right_sk)
 }
 
 // left and right part of the canonical superkmer
 pub fn get_left_and_rigth_of_sk<'a>(
     superkmer: &Superkmer<'a>,
-) -> (SubsequenceMetadata<'a>, SubsequenceMetadata<'a>) {
+) -> (
+    SubsequenceMetadata<'a, NoBitPacked>,
+    SubsequenceMetadata<'a, NoBitPacked>,
+) {
     let left = SubsequenceMetadata::new(
         superkmer.read,
         superkmer.superkmer.start(),

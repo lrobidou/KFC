@@ -58,7 +58,7 @@ mod tests {
         //               GACGTTTCGGATGACGATTGTACGTGACGGTG               (ACAATCGTCATCCGAAACGT, 9)
         //                 CGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATG     (ACCGTCACGTACAATCGTCA, 19)
         //                           GACGATTGTACGTGACGGTGCGTCCGGATGAC   (ACGATTGTACGTGACGGTGC, 21)
-        let read = "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC";
+        let read = "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC".as_bytes();
         let sk0 = Superkmer::new(read, 7, 7 + m, 0, 38, false);
         let sk1 = Superkmer::new(read, 9, 9 + m, 9, 9 + 32, false);
         let sk2 = Superkmer::new(read, 19, 19 + m, 10, 10 + 40, false);

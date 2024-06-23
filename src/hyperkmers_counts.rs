@@ -1,5 +1,9 @@
 use super::Superkmer;
-use crate::{superkmer::SubsequenceMetadata, Count, Minimizer};
+use crate::{
+    extended_hyperkmers::ExtendedHyperkmers,
+    superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
+    Count, Minimizer,
+};
 use mashmap::MashMap;
 
 #[derive(Clone, Copy, Debug)]
@@ -26,17 +30,17 @@ impl HKCount {
     /// minimizer is assumed to be in canonical form
     pub fn get_extended_hyperkmer_left_id(
         &self,
-        hyperkmers: &[String],
+        hyperkmers: &ExtendedHyperkmers,
         minimizer: &Minimizer,
-        extended_hyperkmer_left: &SubsequenceMetadata,
+        extended_hyperkmer_left: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<usize> {
         let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
         for (candidate_left_hk_metadata, _candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_left.equal(&SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_left_hk_metadata.index],
-            )) {
+            if canonical_extended_hyperkmer_left.equal_bitpacked(
+                &hyperkmers.get_hyperkmer_from_id(candidate_left_hk_metadata.index),
+            ) {
                 return Some(candidate_left_hk_metadata.index);
             }
         }
@@ -47,17 +51,17 @@ impl HKCount {
     /// minimizer is assumed to be in canonical form
     pub fn get_extended_hyperkmer_right_id(
         &self,
-        hyperkmers: &[String],
+        hyperkmers: &ExtendedHyperkmers,
         minimizer: &Minimizer,
-        extended_hyperkmer_right: &SubsequenceMetadata,
+        extended_hyperkmer_right: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<usize> {
         let canonical_extended_hyperkmer_right = extended_hyperkmer_right.to_canonical();
         for (_candidate_left_hk_metadata, candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
-            if canonical_extended_hyperkmer_right.equal(&SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_right_hk_metadata.index],
-            )) {
+            if canonical_extended_hyperkmer_right.equal_bitpacked(
+                &hyperkmers.get_hyperkmer_from_id(candidate_right_hk_metadata.index),
+            ) {
                 return Some(candidate_right_hk_metadata.index);
             }
         }
@@ -85,9 +89,9 @@ impl HKCount {
     pub fn increase_count_if_exact_match(
         &self,
         superkmer: &Superkmer,
-        hyperkmers: &[String],
-        left_hk: &SubsequenceMetadata,
-        right_hk: &SubsequenceMetadata,
+        hyperkmers: &ExtendedHyperkmers,
+        left_hk: &SubsequenceMetadata<NoBitPacked>,
+        right_hk: &SubsequenceMetadata<NoBitPacked>,
     ) -> bool {
         // TODO remove
         let minimizer = superkmer.get_minimizer();
@@ -111,32 +115,30 @@ impl HKCount {
 
     pub fn search_for_inclusion(
         &self,
-        hyperkmers: &[String],
+        hyperkmers: &ExtendedHyperkmers,
         superkmer: &Superkmer,
-        left_sk: &SubsequenceMetadata,
-        right_sk: &SubsequenceMetadata,
+        left_sk: &SubsequenceMetadata<NoBitPacked>,
+        right_sk: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
             self.data.get_mut_iter(&minimizer)
         {
             // get sequences as they would appear if the current superkmer was canonical
-            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_left_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+            let candidate_left_ext_hk: SubsequenceMetadata<BitPacked> = hyperkmers
+                .get_hyperkmer_from_id(candidate_left_ext_hk_metadata.index)
+                .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
 
-            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_right_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
+            let candidate_right_ext_hk: SubsequenceMetadata<BitPacked> = hyperkmers
+                .get_hyperkmer_from_id(candidate_right_ext_hk_metadata.index)
+                .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
-            let match_start_left = candidate_left_ext_hk.starts_with(left_sk);
-            let match_end_left = candidate_left_ext_hk.ends_with(left_sk);
+            let match_start_left = candidate_left_ext_hk.starts_with_nobitpacked(left_sk);
+            let match_end_left = candidate_left_ext_hk.ends_with_nobitpacked(left_sk);
             let match_left = match_start_left || match_end_left;
 
-            let match_start_right = candidate_right_ext_hk.starts_with(right_sk);
-            let match_end_right = candidate_right_ext_hk.ends_with(right_sk);
+            let match_start_right = candidate_right_ext_hk.starts_with_nobitpacked(right_sk);
+            let match_end_right = candidate_right_ext_hk.ends_with_nobitpacked(right_sk);
             let match_right = match_start_right || match_end_right;
 
             if match_left && match_right {
@@ -187,12 +189,12 @@ impl HKCount {
     /// Returns the metadata associated with this inclusion
     pub fn search_for_maximal_inclusion(
         &self,
-        hyperkmers: &[String],
+        hyperkmers: &ExtendedHyperkmers,
         k: usize,
         m: usize,
         minimizer: &Minimizer,
-        left_sk: &SubsequenceMetadata,
-        right_sk: &SubsequenceMetadata,
+        left_sk: &SubsequenceMetadata<NoBitPacked>,
+        right_sk: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let mut match_size = k - 1;
         let mut match_metadata = None;
@@ -201,15 +203,13 @@ impl HKCount {
             self.data.get_iter(minimizer)
         {
             // get sequences as they would appear if the current superkmer was canonical
-            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_left_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+            let candidate_left_ext_hk = hyperkmers
+                .get_hyperkmer_from_id(candidate_left_ext_hk_metadata.index)
+                .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
 
-            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_right_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
+            let candidate_right_ext_hk = hyperkmers
+                .get_hyperkmer_from_id(candidate_right_ext_hk_metadata.index)
+                .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
             // extract candidate hyperkmers
             let candidate_left_hyperkmer = &candidate_left_ext_hk.subsequence(
@@ -221,8 +221,10 @@ impl HKCount {
                 candidate_right_ext_hk_metadata.end,
             );
 
-            let len_current_match_left = left_sk.common_suffix_length(candidate_left_hyperkmer);
-            let len_current_match_right = right_sk.common_prefix_length(candidate_right_hyperkmer);
+            let len_current_match_left =
+                left_sk.common_suffix_length_with_bitpacked(candidate_left_hyperkmer);
+            let len_current_match_right =
+                right_sk.common_prefix_length_with_bitpacked(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             assert!(len_current_match_left >= m - 1);
@@ -254,10 +256,10 @@ impl HKCount {
 
     pub fn count_occurence_kmer(
         &self,
-        hyperkmers: &[String],
+        hyperkmers: &ExtendedHyperkmers,
         minimizer: &Minimizer,
-        left_context: &SubsequenceMetadata,
-        right_context: &SubsequenceMetadata,
+        left_context: &SubsequenceMetadata<NoBitPacked>,
+        right_context: &SubsequenceMetadata<NoBitPacked>,
         k: usize,
         m: usize,
     ) -> Count {
@@ -266,15 +268,13 @@ impl HKCount {
             self.data.get_iter(minimizer)
         {
             // get sequences as they would appear if the current superkmer was canonical
-            let candidate_left_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_left_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
+            let candidate_left_ext_hk = hyperkmers
+                .get_hyperkmer_from_id(candidate_left_ext_hk_metadata.index)
+                .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
 
-            let candidate_right_ext_hk = SubsequenceMetadata::whole_string(
-                &hyperkmers[candidate_right_ext_hk_metadata.index],
-            )
-            .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
+            let candidate_right_ext_hk = hyperkmers
+                .get_hyperkmer_from_id(candidate_right_ext_hk_metadata.index)
+                .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
 
             // extract candidate hyperkmers
             let candidate_left_hyperkmer = &candidate_left_ext_hk.subsequence(
@@ -286,9 +286,9 @@ impl HKCount {
                 candidate_right_ext_hk_metadata.end,
             );
             let len_current_match_left =
-                left_context.common_suffix_length(candidate_left_hyperkmer);
+                left_context.common_suffix_length_with_bitpacked(candidate_left_hyperkmer);
             let len_current_match_right =
-                right_context.common_prefix_length(candidate_right_hyperkmer);
+                right_context.common_prefix_length_with_bitpacked(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             if current_match_size - 2 * (m - 1) + m >= k {
@@ -300,16 +300,16 @@ impl HKCount {
 }
 
 pub fn search_exact_hyperkmer_match(
-    hyperkmers: &[String],
-    left_hk: &SubsequenceMetadata,
-    right_hk: &SubsequenceMetadata,
+    hyperkmers: &ExtendedHyperkmers,
+    left_hk: &SubsequenceMetadata<NoBitPacked>,
+    right_hk: &SubsequenceMetadata<NoBitPacked>,
     candidate_left_ext_hk_metadata: &HKMetadata,
     candidate_right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
     // get sequences as they would appear if the current superkmer was canonical
     // TODO this repetition of `candidate_left_hyperkmer` confuses me, how can I get rid of it ?
     let candidate_left_hyperkmer =
-        SubsequenceMetadata::whole_string(&hyperkmers[candidate_left_ext_hk_metadata.index]);
+        hyperkmers.get_hyperkmer_from_id(candidate_left_ext_hk_metadata.index);
     let candidate_left_hyperkmer = candidate_left_hyperkmer
         .change_orientation_if(candidate_left_ext_hk_metadata.change_orientation);
     let candidate_left_hyperkmer = candidate_left_hyperkmer.subsequence(
@@ -318,7 +318,7 @@ pub fn search_exact_hyperkmer_match(
     );
 
     let candidate_right_hyperkmer =
-        SubsequenceMetadata::whole_string(&hyperkmers[candidate_right_ext_hk_metadata.index]);
+        hyperkmers.get_hyperkmer_from_id(candidate_right_ext_hk_metadata.index);
     let candidate_right_hyperkmer = candidate_right_hyperkmer
         .change_orientation_if(candidate_right_ext_hk_metadata.change_orientation);
     let candidate_right_hyperkmer = candidate_right_hyperkmer.subsequence(
@@ -327,8 +327,8 @@ pub fn search_exact_hyperkmer_match(
     );
 
     // TODO copy here
-    let match_left = candidate_left_hyperkmer.equal(left_hk);
-    let match_right = candidate_right_hyperkmer.equal(right_hk);
+    let match_left = left_hk.equal_bitpacked(&candidate_left_hyperkmer);
+    let match_right = right_hk.equal_bitpacked(&candidate_right_hyperkmer);
 
     match_left && match_right
 }

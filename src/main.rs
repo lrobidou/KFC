@@ -6,20 +6,25 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 use std::{collections::HashMap, path::Path};
+// use two_bits::decode_2bits;
 
 type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
 
 mod brrr_minimizers;
+mod cheap_vec;
 mod compute_left_and_right;
+mod extended_hyperkmers;
 mod hyperkmers_counts;
 mod search;
 mod superkmer;
 mod superkmers_computation;
 mod two_bits;
 
-use superkmer::{SubsequenceMetadata, Superkmer};
+// use cheap_vec::SimpleVec;
+use extended_hyperkmers::ExtendedHyperkmers;
+use superkmer::Superkmer;
 
 use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 use superkmers_computation::compute_superkmers_linear_streaming;
@@ -41,15 +46,6 @@ use superkmers_count::SuperKmerCounts;
 //         !metadata.change_orientation,
 //     )
 // }
-
-/// Adds `new_hyperkmer` in `hyperkmers` and return its index
-/// `new_hyperkmer` does not have to be in canonical form
-fn add_new_hyperkmer(hyperkmers: &mut Vec<String>, new_hyperkmer: &SubsequenceMetadata) -> usize {
-    let id_hyperkmer = hyperkmers.len();
-    let new_hyperkmer_seq = new_hyperkmer.to_canonical_string();
-    hyperkmers.push(new_hyperkmer_seq);
-    id_hyperkmer
-}
 
 // fn search_exact_ext_hyperkmer_match(
 //     hyperkmers: &[String],
@@ -74,12 +70,13 @@ fn first_stage(
     k: usize,
     m: usize,
     threshold: Count,
-) -> (SuperKmerCounts, HKCount, Vec<String>) {
+) -> (SuperKmerCounts, HKCount, ExtendedHyperkmers) {
     let mut sk_count = SuperKmerCounts::new();
-    let mut hk_count: HKCount = HKCount::new();
-    let mut hyperkmers: Vec<String> = Vec::new();
+    let mut hk_count = HKCount::new();
+    let mut hyperkmers = ExtendedHyperkmers::new(k);
 
     for sequence in sequences {
+        let sequence = &sequence.as_bytes();
         let start_superkmers = Instant::now();
         // let superkmers = compute_superkmers_linear(sequence, k, m);
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
@@ -149,7 +146,7 @@ fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
-                    add_new_hyperkmer(&mut hyperkmers, &left_extended_hk.0)
+                    hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0)
                 };
                 let id_right_hk = if next_sk_is_solid {
                     if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
@@ -170,7 +167,7 @@ fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
-                    add_new_hyperkmer(&mut hyperkmers, &right_extended_hk.0)
+                    hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0)
                 };
 
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
@@ -179,20 +176,23 @@ fn first_stage(
                 let left_change_orientation = !left_extended_hk.0.is_canonical();
                 let right_change_orientation = !right_extended_hk.0.is_canonical();
 
-                let candidate_left_ext_hk =
-                    SubsequenceMetadata::whole_string(&hyperkmers[id_left_hk])
-                        .change_orientation_if(left_change_orientation);
-                let candidate_right_ext_hk =
-                    SubsequenceMetadata::whole_string(&hyperkmers[id_right_hk])
-                        .change_orientation_if(right_change_orientation);
+                let candidate_left_ext_hk = &hyperkmers
+                    .get_hyperkmer_from_id(id_left_hk)
+                    .change_orientation_if(left_change_orientation);
+                let candidate_right_ext_hk = &hyperkmers
+                    .get_hyperkmer_from_id(id_right_hk)
+                    .change_orientation_if(right_change_orientation);
 
-                assert!(candidate_left_ext_hk.equal(&left_extended_hk.0));
-                assert!(candidate_right_ext_hk.equal(&right_extended_hk.0));
-                assert!(SubsequenceMetadata::whole_string(&hyperkmers[id_left_hk])
-                    .equal(&left_extended_hk.0.to_canonical()));
-                assert!(SubsequenceMetadata::whole_string(&hyperkmers[id_right_hk])
-                    .equal(&right_extended_hk.0.to_canonical()));
-
+                debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
+                debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
+                debug_assert!(left_extended_hk
+                    .0
+                    .to_canonical()
+                    .equal_bitpacked(&hyperkmers.get_hyperkmer_from_id(id_left_hk)));
+                debug_assert!(right_extended_hk
+                    .0
+                    .to_canonical()
+                    .equal_bitpacked(&hyperkmers.get_hyperkmer_from_id(id_right_hk)));
                 hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),
                     &HKMetadata {
@@ -210,6 +210,7 @@ fn first_stage(
                     current_count,
                 );
             } else if current_count > threshold {
+                // TODO regarder les debut et fin de seq pour un match rapide
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let found = hk_count.increase_count_if_exact_match(
                     &current_sk,
@@ -235,7 +236,7 @@ fn first_stage(
                         1,
                     );
                     // ensure the hyperkmer was correctly inserted
-                    assert!(search_exact_hyperkmer_match(
+                    debug_assert!(search_exact_hyperkmer_match(
                         &hyperkmers,
                         &left_sk,
                         &right_sk,
@@ -246,15 +247,15 @@ fn first_stage(
             }
         }
     }
-    (sk_count, hk_count, hyperkmers)
+    (sk_count, hk_count, hyperkmers) // TODO renommer extended_hyperkmers
 }
 
 // TODO find a better name for the second stage function
 fn second_stage(
     sk_count: &mut SuperKmerCounts,
     hk_count: &mut HKCount,
-    hyperkmers: &[String],
-    sequences: &Vec<&str>,
+    hyperkmers: &ExtendedHyperkmers,
+    sequences: &Vec<&str>, // TODO iterateur
     k: usize,
     m: usize,
     threshold: Count,
@@ -262,6 +263,7 @@ fn second_stage(
     let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
 
     for sequence in sequences {
+        let sequence = sequence.as_bytes();
         // let superkmers = compute_superkmers_linear(sequence, k, m);
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
@@ -296,6 +298,7 @@ fn second_stage(
             let match_metadata = hk_count
                 .search_for_maximal_inclusion(hyperkmers, k, m, minimizer, &left_sk, &right_sk);
 
+            // TODO duplication possible
             if let Some(metadata) = match_metadata {
                 hk_count.insert_new_entry_in_hyperkmer_count(
                     minimizer,
@@ -317,7 +320,7 @@ fn index_hyperkmers(
 ) -> (
     SuperKmerCounts,
     HKCount,
-    Vec<String>,
+    ExtendedHyperkmers,
     HashMap<Minimizer, u16>,
 ) {
     let start_fisrt_step = Instant::now();
@@ -352,7 +355,7 @@ fn stats_hk(hyperkmers: &[String], k: usize) -> (usize, usize) {
 
 fn compare_to_kmc(
     hk_count: &HKCount,
-    hyperkmers: &[String],
+    hyperkmers: &ExtendedHyperkmers,
     kmc_file: &Path,
     k: usize,
     m: usize,
@@ -371,7 +374,7 @@ fn compare_to_kmc(
         let ground_truth_count: usize = count.parse().unwrap();
 
         if ground_truth_count >= threshold as usize {
-            let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer, k, m);
+            let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer.as_bytes(), k, m);
             if kfc_res as usize == ground_truth_count {
                 ok += 1;
             } else {
@@ -383,12 +386,15 @@ fn compare_to_kmc(
     println!("ok = {ok}\nko={ko}");
 }
 
-fn dump_hk(lines: &[String]) {
+fn dump_hk(ext_hyperkmers: &ExtendedHyperkmers) {
     use std::io::Write;
     let mut file = File::create("hk.txt").unwrap();
 
     // Iterate over the vector and write each line to the file
-    for line in lines {
+    for i in 0..ext_hyperkmers.len() {
+        let ext_hk = ext_hyperkmers.get_hyperkmer_from_id(i);
+        let line = ext_hk.to_string();
+        // let line = String::from_utf8(line).unwrap();
         writeln!(file, "{line}").unwrap();
     }
 }
