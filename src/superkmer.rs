@@ -6,8 +6,6 @@ use super::two_bits;
 use itertools::Itertools;
 use std::iter::Map;
 use std::iter::Rev;
-use std::marker::PhantomData;
-use std::slice::Iter;
 use xxhash_rust::const_xxh3::xxh3_64;
 
 pub fn reverse_complement(seq: &[u8]) -> String {
@@ -24,20 +22,24 @@ pub fn reverse_complement(seq: &[u8]) -> String {
 }
 
 // TODO is there no copy here ? What is the cost of moving references ?
-pub fn reverse_complement_no_copy(seq: &[u8]) -> Map<Rev<Iter<'_, u8>>, fn(&u8) -> u8> {
+pub fn reverse_complement_no_copy(
+    seq: impl DoubleEndedIterator<Item = u8>,
+) -> Map<Rev<impl DoubleEndedIterator<Item = u8>>, fn(u8) -> u8> {
     // TODO match -> tableau
-    seq.iter().rev().map(|base| match base {
+    seq.rev().map(|base| match base {
         b'A' => b'T',
         b'T' => b'A',
         b'C' => b'G',
         b'G' => b'C',
-        _ => *base,
+        _ => base,
     })
 }
 
 // states of SubsequenceMetadata
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BitPacked;
+pub struct BitPacked {
+    total_base_in_sequence: usize,
+}
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NoBitPacked;
 
@@ -49,7 +51,7 @@ pub struct SubsequenceMetadata<'a, Packing> {
     start: usize,
     end: usize,
     same_orientation: bool,
-    _marker_packing: PhantomData<&'a Packing>,
+    packing: Packing,
 }
 
 impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
@@ -58,10 +60,10 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         assert!(end <= read.len());
         Self {
             read,
-            start,
-            end,
+            start, // in base
+            end,   // in base
             same_orientation,
-            _marker_packing: PhantomData,
+            packing: NoBitPacked {},
         }
     }
 
@@ -86,7 +88,7 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
                 start: self.start,
                 end: self.end,
                 same_orientation: !self.same_orientation,
-                _marker_packing: self._marker_packing,
+                packing: self.packing,
             }
         }
     }
@@ -100,7 +102,6 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         }
     }
 
-    // // TODO remove copy made by `reverse_complement`
     // pub fn equal_str(&self, other: &str) -> bool {
     //     self.to_string() == other
     // }
@@ -134,11 +135,13 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         if self.same_orientation {
             two_bits::encode_2bits_u64(subsequence.iter().copied(), self.len())
         } else {
-            two_bits::encode_2bits_u64(reverse_complement_no_copy(subsequence), self.len())
+            two_bits::encode_2bits_u64(
+                reverse_complement_no_copy(subsequence.iter().copied()),
+                self.len(),
+            )
         }
     }
 
-    // TODO copy
     pub fn dump_as_2bits(&self, slice: &mut [u8]) {
         let subsequence = &self.read[self.start..self.end];
         if self.same_orientation {
@@ -148,7 +151,10 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
                 *ret = src;
             }
         } else {
-            let iter = two_bits::encode_2bits(reverse_complement_no_copy(subsequence), self.len());
+            let iter = two_bits::encode_2bits(
+                reverse_complement_no_copy(subsequence.iter().copied()),
+                self.len(),
+            );
             for (ret, src) in slice.iter_mut().zip(iter) {
                 *ret = src;
             }
@@ -203,26 +209,24 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     ) -> usize {
         if self.same_orientation && other.same_orientation {
             let mut x = self.read[self.start..self.end].iter().copied();
-            let mut y = decode_2bits(other.read.iter().copied(), other.start, other.end);
+            let mut y = other.decode_2bits();
             iter_prefix_len(&mut x, &mut y)
         } else if self.same_orientation && !other.same_orientation {
             let mut x = self.read[self.start..self.end].iter().copied();
-            // TODO copy
-            let other_iterator =
-                decode_2bits(other.read.iter().copied(), other.start, other.end).collect_vec();
-            let mut y = reverse_complement_no_copy(&other_iterator);
+            let other_iterator = other.decode_2bits();
+            let mut y = reverse_complement_no_copy(other_iterator);
             iter_prefix_len(&mut x, &mut y)
         } else if !self.same_orientation && other.same_orientation {
-            let mut x = reverse_complement_no_copy(&self.read[self.start..self.end]);
-            let mut y = decode_2bits(other.read.iter().copied(), other.start, other.end);
+            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let mut x = reverse_complement_no_copy(self_iterator);
+            let mut y = other.decode_2bits();
             iter_prefix_len(&mut x, &mut y)
         } else {
             // !self.same_orientation && !other.same_orientation
-            let mut x = reverse_complement_no_copy(&self.read[self.start..self.end]);
-            // TODO copy
-            let other_iterator =
-                decode_2bits(other.read.iter().copied(), other.start, other.end).collect_vec();
-            let mut y = reverse_complement_no_copy(&other_iterator);
+            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let mut x = reverse_complement_no_copy(self_iterator);
+            let other_iterator = other.decode_2bits();
+            let mut y = reverse_complement_no_copy(other_iterator);
             iter_prefix_len(&mut x, &mut y)
         }
     }
@@ -233,26 +237,24 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     ) -> usize {
         if self.same_orientation && other.same_orientation {
             let mut x = self.read[self.start..self.end].iter().copied();
-            let y = decode_2bits(other.read.iter().copied(), other.start, other.end).collect_vec();
-            iter_suffix_len(&mut x, &mut y.into_iter())
+            let mut y = other.decode_2bits();
+            iter_suffix_len(&mut x, &mut y)
         } else if self.same_orientation && !other.same_orientation {
             let mut x = self.read[self.start..self.end].iter().copied();
-            // TODO copy
-            let other_iterator =
-                decode_2bits(other.read.iter().copied(), other.start, other.end).collect_vec();
-            let mut y = reverse_complement_no_copy(&other_iterator);
+            let other_iterator = other.decode_2bits();
+            let mut y = reverse_complement_no_copy(other_iterator);
             iter_suffix_len(&mut x, &mut y)
         } else if !self.same_orientation && other.same_orientation {
-            let mut x = reverse_complement_no_copy(&self.read[self.start..self.end]);
-            let y = decode_2bits(other.read.iter().copied(), other.start, other.end);
-            iter_suffix_len(&mut x, &mut y.collect_vec().into_iter())
+            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let mut x = reverse_complement_no_copy(self_iterator);
+            let mut y = other.decode_2bits();
+            iter_suffix_len(&mut x, &mut y)
         } else {
             // !self.same_orientation && !other.same_orientation
-            let mut x = reverse_complement_no_copy(&self.read[self.start..self.end]);
-            // TODO copy
-            let other_iterator =
-                decode_2bits(other.read.iter().copied(), other.start, other.end).collect_vec();
-            let mut y = reverse_complement_no_copy(&other_iterator);
+            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let mut x = reverse_complement_no_copy(self_iterator);
+            let other_iterator = other.decode_2bits();
+            let mut y = reverse_complement_no_copy(other_iterator);
             iter_suffix_len(&mut x, &mut y)
         }
     }
@@ -286,7 +288,9 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
             start: 0,
             end: nb_bases,
             same_orientation: true,
-            _marker_packing: PhantomData,
+            packing: BitPacked {
+                total_base_in_sequence: nb_bases,
+            },
         }
     }
 
@@ -305,11 +309,50 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
             other.common_prefix_length_with_bitpacked(self) == other.len()
         }
     }
+
+    pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + 'a {
+        #[cfg(debug_assertions)]
+        {
+            // test to check that the reverse is working
+            // TODO more check for the reverse decoding
+            let truth = decode_2bits(
+                self.read.iter().cloned(),
+                self.start,
+                self.end,
+                self.packing.total_base_in_sequence,
+            )
+            .collect_vec();
+            let what_i_made = decode_2bits(
+                self.read.iter().cloned(),
+                self.start,
+                self.end,
+                self.packing.total_base_in_sequence,
+            )
+            .rev()
+            .collect_vec()
+            .iter()
+            .rev()
+            .copied()
+            .collect_vec();
+            assert_eq!(truth, what_i_made);
+        }
+        decode_2bits(
+            self.read.iter().cloned(),
+            self.start,
+            self.end,
+            self.packing.total_base_in_sequence,
+        )
+    }
 }
 
 impl<'a> std::fmt::Display for SubsequenceMetadata<'a, BitPacked> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let iter = decode_2bits(self.read.iter().copied(), self.start, self.end);
+        let iter = decode_2bits(
+            self.read.iter().copied(),
+            self.start,
+            self.end,
+            self.packing.total_base_in_sequence,
+        );
         let s = String::from_utf8(iter.collect_vec()).expect("Invalid string");
         write!(f, "{}", s)
     }
@@ -325,7 +368,7 @@ where
             start: self.start,
             end: self.end,
             same_orientation: !self.same_orientation,
-            _marker_packing: self._marker_packing,
+            packing: self.packing,
         }
     }
 
@@ -336,7 +379,7 @@ where
                 start: self.start,
                 end: self.end,
                 same_orientation: !self.same_orientation,
-                _marker_packing: self._marker_packing,
+                packing: self.packing,
             }
         } else {
             *self
@@ -365,7 +408,7 @@ where
                 start: self.start + start,
                 end: self.start + end,
                 same_orientation: self.same_orientation,
-                _marker_packing: self._marker_packing,
+                packing: self.packing,
             }
         } else {
             Self {
@@ -373,7 +416,7 @@ where
                 start: self.end - end,
                 end: self.end - start,
                 same_orientation: self.same_orientation,
-                _marker_packing: self._marker_packing,
+                packing: self.packing,
             }
         }
     }

@@ -147,59 +147,126 @@ where
 
 //     result
 // }
-pub fn decode_2bits<I>(mut bytes: I, start: usize, end: usize) -> impl Iterator<Item = u8>
+
+pub fn decode_2bits<I>(
+    mut bytes: I,
+    start: usize,
+    end: usize,
+    nb_base_in_iterator: usize,
+) -> impl DoubleEndedIterator<Item = u8>
 where
-    I: Iterator<Item = u8>,
+    I: DoubleEndedIterator<Item = u8>,
 {
-    // Calculate how many full bytes to skip
+    debug_assert!(end <= nb_base_in_iterator);
+    // Calculate how many full bytes to skip at the start
     let full_bytes_to_skip = start / 4;
     for _ in 0..full_bytes_to_skip {
         bytes.next();
     }
 
+    let nb_base_in_last_byte = nb_base_in_iterator % 4;
+    let nb_full_bases = nb_base_in_iterator - nb_base_in_last_byte;
+    // TODO relire
+    let full_bytes_to_skip_at_the_end = if end > nb_full_bases {
+        assert!(end < nb_full_bases + 4);
+        0
+    } else if end == nb_full_bases {
+        if nb_base_in_last_byte != 0 {
+            1
+        } else {
+            0
+        }
+    } else {
+        let to_keep = (end + 3) & !3; // equivalent to `let to_keep = 4 * ((end / 4) + (end % 4 != 0) as usize);`
+        let skip = nb_full_bases - to_keep;
+        skip / 4 + 1
+    };
+
+    for _ in 0..full_bytes_to_skip_at_the_end {
+        bytes.next_back();
+    }
+
     Decode2Bits {
         bytes,
-        index: start,
-        end,
+        forward_index: start,
         byte: 0,
         byte_ready: false,
+        end_byte: None,
+        backward_index: end,
+        end_byte_ready: false,
     }
 }
 
 pub struct Decode2Bits<I>
 where
-    I: Iterator<Item = u8>,
+    I: DoubleEndedIterator<Item = u8>,
 {
     bytes: I,
-    index: usize,
-    end: usize,
+    forward_index: usize,
     byte: u8,
     byte_ready: bool,
+    end_byte: Option<u8>,
+    backward_index: usize,
+    end_byte_ready: bool,
 }
 
 impl<I> Iterator for Decode2Bits<I>
 where
-    I: Iterator<Item = u8>,
+    I: DoubleEndedIterator<Item = u8>,
 {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.end {
+        if self.forward_index >= self.backward_index {
             return None;
         }
 
         if !self.byte_ready {
+            // print!("no bytes ready");
             self.byte = self.bytes.next()?;
             self.byte_ready = true;
+        } else {
+            // print!(".");
         }
 
-        let shift = 6 - 2 * (self.index % 4);
+        let shift = 6 - 2 * (self.forward_index % 4);
         let bits = (self.byte >> shift) & 0b0000_0011;
         let result = u8_to_char(bits);
 
-        self.index += 1;
-        if self.index % 4 == 0 {
+        self.forward_index += 1;
+        if self.forward_index % 4 == 0 {
             self.byte_ready = false;
+        }
+
+        Some(result)
+    }
+}
+
+impl<I> DoubleEndedIterator for Decode2Bits<I>
+where
+    I: DoubleEndedIterator<Item = u8>,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        // println!("backward index: {}", self.backward_index);
+        if self.backward_index <= self.forward_index {
+            return None;
+        }
+
+        if !self.end_byte_ready {
+            // println!("pulling a byte");
+            self.end_byte = self.bytes.next_back();
+            self.end_byte_ready = true;
+        } else {
+            // print!(".");
+        }
+
+        let shift = 6 - 2 * ((self.backward_index - 1) % 4);
+        let bits = (self.end_byte? >> shift) & 0b0000_0011;
+        let result = u8_to_char(bits);
+
+        self.backward_index -= 1;
+        if self.backward_index % 4 == 0 {
+            self.end_byte_ready = false;
         }
 
         Some(result)
@@ -252,7 +319,7 @@ mod tests {
         // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
         let seq: [u8; 2] = [0b00011110, 0b11010011];
         assert_eq!(
-            decode_2bits(seq.into_iter(), 0, 8).collect_vec(),
+            decode_2bits(seq.into_iter(), 0, 8, 8).collect_vec(),
             "ACGTGCAG".as_bytes()
         );
     }
@@ -262,17 +329,43 @@ mod tests {
         // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
         let seq: [u8; 2] = [0b00011110, 0b11010011];
         assert_eq!(
-            decode_2bits(seq.into_iter(), 3, 8).collect_vec(),
+            decode_2bits(seq.into_iter(), 3, 8, 8).collect_vec(),
             "TGCAG".as_bytes()
         );
     }
 
     #[test]
-    fn test_back_and_forth() {
+    fn test_encode_decode() {
         let seq = "ACGTGCAGTAGCATACGACGACATATTAGACAGACATAGACGACTAGACATAGGACATCAGACTATGACGGCAGCATAGCTATTACTCTCTGTGATATACAGTGCATGACTAGTACGACTCAGCATAGCATACGACTAAGCAGCATACGACATCAGACTACGACTACAGCGCGCATTATATTTGCGCTAGCTCCATGAATATAT";
         assert_eq!(
-            decode_2bits(encode_2bits(seq.bytes(), seq.len()), 0, seq.len()).collect_vec(),
+            decode_2bits(
+                encode_2bits(seq.bytes(), seq.len())
+                    .collect_vec()
+                    .into_iter(),
+                0,
+                seq.len(),
+                seq.len()
+            )
+            .collect_vec(),
             seq.as_bytes()
         );
+    }
+
+    #[test]
+    fn test_decode_reverse() {
+        let seq = "ACGTTGCAG";
+        let encode = encode_2bits(seq.bytes(), seq.len()).collect_vec();
+
+        let decode =
+            decode_2bits(encode.clone().into_iter(), 0, seq.len(), seq.len()).collect_vec();
+        let decode_rev = decode_2bits(encode.into_iter(), 0, seq.len(), seq.len())
+            .rev()
+            .collect_vec()
+            .iter()
+            .rev()
+            .copied()
+            .collect_vec();
+
+        assert_eq!(decode, decode_rev);
     }
 }
