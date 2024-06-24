@@ -30,7 +30,7 @@ pub fn search_kmer(
 #[cfg(test)]
 mod tests {
     use crate::{
-        hyperkmers_counts::HKMetadata, superkmer::SubsequenceMetadata, two_bits::encode_2bits_u64,
+        hyperkmers_counts::HKMetadata, superkmer::SubsequenceMetadata, two_bits::encode_minimizer,
     };
 
     use super::*;
@@ -40,8 +40,8 @@ mod tests {
         let kmer = "TGATGAGTACGTAGCGAAAAAAAAAAGGGTACGTGCATGCAGTGACGG";
         let mut hk: HKCount = HKCount::new();
         let minimizer = "AAAAAAAAAA";
-        let minimizer = encode_2bits_u64(minimizer.bytes(), minimizer.len())[0];
-        let mut hyperkmers = ExtendedHyperkmers::new(kmer.len());
+        let minimizer = encode_minimizer(minimizer.bytes());
+        let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
         let count = 34;
 
         let search_result = search_kmer(&hk, &hyperkmers, kmer.as_bytes(), kmer.len(), 10);

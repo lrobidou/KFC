@@ -72,12 +72,12 @@ pub fn get_left_and_rigth_of_sk<'a>(
     let left = SubsequenceMetadata::new(
         superkmer.read,
         superkmer.superkmer.start(),
-        superkmer.minimizer.end() - 1,
+        superkmer.end_of_minimizer() - 1,
         superkmer.is_canonical_in_the_read(),
     );
     let right = SubsequenceMetadata::new(
         superkmer.read,
-        superkmer.minimizer.start() + 1,
+        superkmer.start_of_minimizer() + 1,
         superkmer.superkmer.end(),
         superkmer.is_canonical_in_the_read(),
     );

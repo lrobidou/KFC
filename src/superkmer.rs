@@ -130,17 +130,17 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     //     }
     // }
 
-    pub fn encode_2bits_u64(&self) -> Vec<u64> {
-        let subsequence = &self.read[self.start..self.end];
-        if self.same_orientation {
-            two_bits::encode_2bits_u64(subsequence.iter().copied(), self.len())
-        } else {
-            two_bits::encode_2bits_u64(
-                reverse_complement_no_copy(subsequence.iter().copied()),
-                self.len(),
-            )
-        }
-    }
+    // pub fn encode_as_minimizer(&self) -> Vec<u64> {
+    //     let subsequence = &self.read[self.start..self.end];
+    //     if self.same_orientation {
+    //         two_bits::encode_minimizer(subsequence.iter().copied())
+    //     } else {
+    //         two_bits::encode_2bits_u64(
+    //             reverse_complement_no_copy(subsequence.iter().copied()),
+    //             self.len(),
+    //         )
+    //     }
+    // }
 
     pub fn dump_as_2bits(&self, slice: &mut [u8]) {
         let subsequence = &self.read[self.start..self.end];
@@ -454,7 +454,9 @@ fn iter_suffix_len(
 
 pub struct Superkmer<'a> {
     pub read: &'a [u8],
-    pub minimizer: SubsequenceMetadata<'a, NoBitPacked>,
+    pub minimizer: u64,
+    start_mini: usize,
+    end_mini: usize,
     pub superkmer: SubsequenceMetadata<'a, NoBitPacked>,
 }
 
@@ -467,14 +469,20 @@ impl<'a> Superkmer<'a> {
         end_sk: usize,
         same_orientation: bool,
     ) -> Self {
+        let minizer_subsequence = &read[start_mini..end_mini];
+        let minimizer = if same_orientation {
+            two_bits::encode_minimizer(minizer_subsequence.iter().copied())
+        } else {
+            two_bits::encode_minimizer(reverse_complement_no_copy(
+                minizer_subsequence.iter().copied(),
+            ))
+        };
+
         Self {
             read,
-            minimizer: SubsequenceMetadata::<NoBitPacked>::new(
-                read,
-                start_mini,
-                end_mini,
-                same_orientation,
-            ),
+            minimizer,
+            start_mini,
+            end_mini,
             superkmer: SubsequenceMetadata::<NoBitPacked>::new(
                 read,
                 start_sk,
@@ -491,9 +499,15 @@ impl<'a> Superkmer<'a> {
 
     // TODO un peu dégeu, stocker l'encodage
     pub fn get_minimizer(&self) -> Minimizer {
-        let encoding = self.minimizer.encode_2bits_u64();
-        assert!(encoding.len() == 1);
-        encoding[0]
+        self.minimizer
+    }
+
+    pub fn start_of_minimizer(&self) -> usize {
+        self.start_mini
+    }
+
+    pub fn end_of_minimizer(&self) -> usize {
+        self.end_mini
     }
 
     // pub fn m(&self) -> usize {
@@ -501,7 +515,7 @@ impl<'a> Superkmer<'a> {
     // }
 
     pub fn is_canonical_in_the_read(&self) -> bool {
-        self.minimizer.same_orientation
+        self.superkmer.same_orientation
     }
 
     // pub fn print(&self) -> String {

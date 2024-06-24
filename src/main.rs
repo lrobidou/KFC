@@ -73,7 +73,7 @@ fn first_stage(
 ) -> (SuperKmerCounts, HKCount, ExtendedHyperkmers) {
     let mut sk_count = SuperKmerCounts::new();
     let mut hk_count = HKCount::new();
-    let mut hyperkmers = ExtendedHyperkmers::new(k);
+    let mut hyperkmers = ExtendedHyperkmers::new(k, 7);
 
     for sequence in sequences {
         let sequence = &sequence.as_bytes();

@@ -26,14 +26,26 @@ pub fn u8_to_char(c: u8) -> u8 {
     }
 }
 
-// TODO copy
-pub fn encode_2bits_u64(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u64> {
-    let add_one = (len % 32) != 0;
-    let mut result: Vec<u64> = vec![0; (len / 32) + usize::from(add_one)];
-    for (i, ascii_letter) in bytes.into_iter().enumerate() {
-        let shift = (31 - i % 32) * 2;
-        result[i / 32] += char_to_u64(ascii_letter) << shift;
+// // TODO copy
+// pub fn encode_2bits_u64(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u64> {
+//     let add_one = (len % 32) != 0;
+//     let mut result: Vec<u64> = vec![0; (len / 32) + usize::from(add_one)];
+//     for (i, ascii_letter) in bytes.into_iter().enumerate() {
+//         let shift = (31 - i % 32) * 2;
+//         result[i / 32] += char_to_u64(ascii_letter) << shift;
+//     }
+//     result
+// }
+
+pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
+    let mut nb_base = 0;
+    let mut result = 0;
+    for ascii_letter in bytes.into_iter() {
+        nb_base += 1;
+        result <<= 2;
+        result += char_to_u64(ascii_letter);
     }
+    assert!(nb_base <= 64);
     result
 }
 
