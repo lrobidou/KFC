@@ -4,10 +4,10 @@ use std::iter::{Copied, Map, Rev};
 use std::slice::Iter;
 
 use crate::brrr_minimizers::MinimizerQueue;
-// use crate::superkmer::SubsequenceMetadata;
 
 // Get the reverse complement of a DNA sequence
-pub fn reverse_complement<'a>(seq: &'a [u8]) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8> {
+// TODO tab
+fn reverse_complement<'a>(seq: &'a [u8]) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8> {
     seq.iter().rev().map(|base| match base {
         b'A' => b'T',
         b'T' => b'A',

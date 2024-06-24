@@ -1,7 +1,6 @@
-use crate::{
-    cheap_vec::SimpleVec,
-    superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
-};
+use crate::superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata};
+
+use super::cheap_vec::SimpleVec;
 
 pub struct ExtendedHyperkmers {
     k: usize,

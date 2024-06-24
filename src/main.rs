@@ -13,7 +13,7 @@ type HashSuperKmer = u64;
 type Count = u16;
 
 mod brrr_minimizers;
-mod cheap_vec;
+// mod cheap_vec;
 mod compute_left_and_right;
 mod extended_hyperkmers;
 mod hyperkmers_counts;
@@ -123,8 +123,6 @@ fn first_stage(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
-
-                // OPTIMIZE the checks `previous_sk.was_read_canonical == current_sk.was_read_canonical` should be "avoidable" now
                 let id_left_hk = if previous_sk_is_solid {
                     if previous_sk.is_canonical_in_the_read()
                         == current_sk.is_canonical_in_the_read()
@@ -226,9 +224,11 @@ fn first_stage(
                         &left_sk,
                         &right_sk,
                     );
-                    // TODO error message here
+
+                    // If we are here, the superkmer is solid. Therefore, it must have been inserted.
                     let (metadata_to_insert_left, metadata_to_insert_right) =
-                        new_left_and_right_metadata.unwrap();
+                        new_left_and_right_metadata
+                            .expect("Hash collision on superkmers. Please change your seed.");
                     hk_count.insert_new_entry_in_hyperkmer_count(
                         &current_sk.get_minimizer(),
                         &metadata_to_insert_left,
@@ -422,7 +422,7 @@ fn main() {
     //     count
     // );
     dump_hk(&hyperkmers);
-    let kmc_file_path = Path::new("100mers.txt");
+    let kmc_file_path = Path::new("data/100mers.txt");
     compare_to_kmc(&hk_count, &hyperkmers, kmc_file_path, k, m, threshold);
 }
 

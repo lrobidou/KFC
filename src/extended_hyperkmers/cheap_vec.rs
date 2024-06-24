@@ -1,8 +1,6 @@
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 
-// TODO hide this monstruosity so no one can use it
-
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
 pub struct SimpleVec {
