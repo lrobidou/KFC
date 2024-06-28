@@ -17,6 +17,7 @@ mod brrr_minimizers;
 mod compute_left_and_right;
 mod extended_hyperkmers;
 mod hyperkmers_counts;
+mod minimizer_iter;
 mod search;
 mod superkmer;
 mod superkmers_computation;
