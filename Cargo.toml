@@ -21,3 +21,12 @@ itertools = "0.13.0"
 
 [dev-dependencies]
 rand = "0.8.5"
+
+[profile.dev]
+opt-level = 1
+lto = "thin"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"
