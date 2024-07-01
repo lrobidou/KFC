@@ -1,11 +1,13 @@
+use clap::{Args, Parser, Subcommand};
 use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk};
 use fastxgz::fasta_reads;
 use itertools::Itertools;
 use log::warn;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::time::Instant;
-use std::{collections::HashMap, path::Path};
 // use two_bits::decode_2bits;
 
 type Minimizer = u64;
@@ -33,6 +35,41 @@ use superkmers_computation::compute_superkmers_linear_streaming;
 mod superkmers_count;
 
 use superkmers_count::SuperKmerCounts;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Build an index counting the k-mers of a FASTA/Q file
+    Build(BuildArgs),
+}
+
+#[derive(Args, Debug)]
+struct BuildArgs {
+    /// K-mer size
+    #[arg(short)]
+    k: usize,
+    /// Minimizer size
+    #[arg(short, default_value_t = 20)]
+    m: usize,
+    /// Solidity threshold
+    #[arg(short, long, default_value_t = 1)]
+    threshold: Count,
+    /// Input file (FASTA/Q, possibly gzipped)
+    #[arg(short, long)]
+    input: String,
+    /// Output file (no dump by default)
+    #[arg(short, long)]
+    output: Option<String>,
+    /// Check against the results of KMC
+    #[arg(long)]
+    check_kmc: Option<String>,
+}
 
 // fn extract_hyperkmer<'a>(
 //     hyperkmers: &'a [String],
@@ -78,17 +115,17 @@ fn first_stage(
 
     for sequence in sequences {
         let sequence = &sequence.as_bytes();
-        let start_superkmers = Instant::now();
+        // let start_superkmers = Instant::now();
         // let superkmers = compute_superkmers_linear(sequence, k, m);
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };
 
-        println!(
-            "super kmers computed in {} milliseconds",
-            start_superkmers.elapsed().as_millis()
-        );
+        // println!(
+        //     "super kmers computed in {} milliseconds",
+        //     start_superkmers.elapsed().as_millis()
+        // );
 
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
             // let (previous_sk, current_sk, next_sk) = (&triplet[0], &triplet[1], &triplet[2]);
@@ -354,10 +391,10 @@ fn stats_hk(hyperkmers: &[String], k: usize) -> (usize, usize) {
     (hyperkmers.len(), hyperkmers.len() * (k - 1))
 }
 
-fn compare_to_kmc(
+fn compare_to_kmc<P: AsRef<Path>>(
     hk_count: &HKCount,
     hyperkmers: &ExtendedHyperkmers,
-    kmc_file: &Path,
+    kmc_file: P,
     k: usize,
     m: usize,
     threshold: Count,
@@ -387,9 +424,9 @@ fn compare_to_kmc(
     println!("ok = {ok}\nko={ko}");
 }
 
-fn dump_hk(ext_hyperkmers: &ExtendedHyperkmers) {
+fn dump_hk<P: AsRef<Path>>(ext_hyperkmers: &ExtendedHyperkmers, output_file: P) {
     use std::io::Write;
-    let mut file = File::create("hk.txt").unwrap();
+    let mut file = File::create(output_file).unwrap();
 
     // Iterate over the vector and write each line to the file
     for i in 0..ext_hyperkmers.len() {
@@ -401,30 +438,40 @@ fn dump_hk(ext_hyperkmers: &ExtendedHyperkmers) {
 }
 
 fn main() {
+    let args = Cli::parse();
     simple_logger::SimpleLogger::new().env().init().unwrap();
-    let sequences: Vec<String> = fasta_reads("data/U00096.3.fasta")
-        .unwrap()
-        .map(|rcstring| rcstring.to_string())
-        .collect();
-    let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
+    match args.command {
+        Command::Build(args) => {
+            let sequences: Vec<String> = fasta_reads(args.input)
+                .unwrap()
+                .map(|rcstring| rcstring.to_string())
+                .collect();
+            let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
 
-    let k = 100;
-    let m = 20;
-    let threshold = 1;
+            let k = args.k;
+            let m = args.m;
+            let threshold = args.threshold;
 
-    let (_sk_count, hk_count, hyperkmers, _discarded_minimizers) =
-        index_hyperkmers(k, m, threshold, &sequences);
+            let (_sk_count, hk_count, hyperkmers, _discarded_minimizers) =
+                index_hyperkmers(k, m, threshold, &sequences);
 
-    // let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
+            // let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
 
-    // let count = search::search_kmer(&hk_count, &hyperkmers, kmer_test, k, m);
-    // println!(
-    //     "test with a kmer with a count 11 in KMC\nour count is {:?}",
-    //     count
-    // );
-    dump_hk(&hyperkmers);
-    let kmc_file_path = Path::new("data/100mers.txt");
-    compare_to_kmc(&hk_count, &hyperkmers, kmc_file_path, k, m, threshold);
+            // let count = search::search_kmer(&hk_count, &hyperkmers, kmer_test, k, m);
+            // println!(
+            //     "test with a kmer with a count 11 in KMC\nour count is {:?}",
+            //     count
+            // );
+            if let Some(kmc_file) = args.check_kmc {
+                compare_to_kmc(&hk_count, &hyperkmers, kmc_file, k, m, threshold);
+            }
+
+            if let Some(output_file) = args.output {
+                warn!("Output is experimental and not optimized yet");
+                dump_hk(&hyperkmers, output_file);
+            }
+        }
+    }
 }
 
 // TODO tests
