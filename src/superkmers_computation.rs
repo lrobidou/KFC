@@ -5,6 +5,7 @@ use std::iter::{Copied, Map, Rev};
 use std::slice::Iter;
 
 // Get the reverse complement of a DNA sequence
+
 const REVCOMP_TAB: [u8; 255] = {
     let mut tab = [0; 255];
     tab[b'A' as usize] = b'T';

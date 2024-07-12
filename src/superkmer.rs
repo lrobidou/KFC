@@ -4,7 +4,6 @@ use crate::Minimizer;
 use super::superkmers_computation::is_canonical;
 use super::two_bits;
 use itertools::Itertools;
-use num_traits::ops::bytes;
 use std::iter::Map;
 use std::iter::Rev;
 use xxhash_rust::const_xxh3::xxh3_64;

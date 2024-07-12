@@ -151,3 +151,21 @@ where
         Some(self.min_pos)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+
+    use super::*;
+
+    #[test]
+    fn test_iter_single_kmer() {
+        let kmer = "TGATGAGTACGTAGCGAAAAAAAAAAGGGTACGTGCATGCAGTGACG".as_bytes();
+        let k = kmer.len();
+        let m = 10;
+        let minimizer_iter: CanonicalMinimizerIterator<u64> =
+            CanonicalMinimizerIterator::new(kmer, m, (k - m) as u16);
+        let minimizer_iter = minimizer_iter.collect_vec();
+        assert_eq!(minimizer_iter.len(), 1);
+    }
+}
