@@ -16,26 +16,11 @@ pub fn char_to_u8(c: u8) -> u8 {
     (c >> 1) & 3
 }
 
-// get unchecked
-pub fn u8_to_char(c: u8) -> u8 {
-    match c {
-        0 => b'A',
-        1 => b'C',
-        2 => b'T',
-        _ => b'G',
-    }
-}
+const TAB_U8_TO_CHAR: [u8; 4] = [b'A', b'C', b'T', b'G'];
 
-// // TODO copy
-// pub fn encode_2bits_u64(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u64> {
-//     let add_one = (len % 32) != 0;
-//     let mut result: Vec<u64> = vec![0; (len / 32) + usize::from(add_one)];
-//     for (i, ascii_letter) in bytes.into_iter().enumerate() {
-//         let shift = (31 - i % 32) * 2;
-//         result[i / 32] += char_to_u64(ascii_letter) << shift;
-//     }
-//     result
-// }
+pub fn u8_to_char(c: u8) -> u8 {
+    unsafe { *TAB_U8_TO_CHAR.get_unchecked(c as usize) }
+}
 
 pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
     let mut nb_base = 0;
@@ -120,46 +105,6 @@ where
     }
 }
 
-// // TODO copy
-// pub fn decode_2bits(bytes: impl Iterator<Item = u64>, len: usize) -> Vec<u8> {
-//     let mut result: Vec<u8> = Vec::with_capacity(len);
-//     for (i, byte) in bytes.enumerate() {
-//         if i < len / 32 {
-//             for j in 0..32 {
-//                 let bits = byte >> (62 - 2 * j) & 0b0000_0011;
-//                 result.push(u8_to_char(bits as u8));
-//             }
-//         } else {
-//             for j in 0..(len % 32) {
-//                 let bits = byte >> (62 - 2 * j) & 0b0000_0011;
-//                 result.push(u8_to_char(bits as u8));
-//             }
-//         }
-//     }
-
-//     result
-// }
-
-// // TODO copy
-// pub fn decode_2bits(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u8> {
-//     let mut result: Vec<u8> = Vec::with_capacity(len);
-//     for (i, byte) in bytes.enumerate() {
-//         if i < len / 4 {
-//             for j in 0..4 {
-//                 let bits = byte >> (6 - 2 * j) & 0b0000_0011;
-//                 result.push(u8_to_char(bits));
-//             }
-//         } else {
-//             for j in 0..(len % 4) {
-//                 let bits = byte >> (6 - 2 * j) & 0b0000_0011;
-//                 result.push(u8_to_char(bits));
-//             }
-//         }
-//     }
-
-//     result
-// }
-
 pub fn decode_2bits<I>(
     mut bytes: I,
     start: usize,
@@ -176,27 +121,9 @@ where
         bytes.next();
     }
 
-    let nb_base_in_last_byte = nb_base_in_iterator % 4;
-    let nb_full_bases = nb_base_in_iterator - nb_base_in_last_byte;
     // TODO relire
-    let full_bytes_to_skip_at_the_end = if end > nb_full_bases {
-        assert!(end < nb_full_bases + 4);
-        0
-    } else if end == nb_full_bases {
-        if nb_base_in_last_byte != 0 {
-            1
-        } else {
-            0
-        }
-    } else {
-        let to_keep = (end + 3) & !3; // equivalent to `let to_keep = 4 * ((end / 4) + (end % 4 != 0) as usize);`
-        let skip = nb_full_bases - to_keep;
-        skip / 4 + 1
-    };
-
-    for _ in 0..full_bytes_to_skip_at_the_end {
-        bytes.next_back();
-    }
+    let nb_base_in_last_byte = nb_base_in_iterator % 4;
+    let nb_full_bases: usize = nb_base_in_iterator - nb_base_in_last_byte;
 
     Decode2Bits {
         bytes,
@@ -206,6 +133,9 @@ where
         end_byte: None,
         backward_index: end,
         end_byte_ready: false,
+        iterating_back: false,
+        nb_base_in_last_byte,
+        nb_full_bases,
     }
 }
 
@@ -220,6 +150,9 @@ where
     end_byte: Option<u8>,
     backward_index: usize,
     end_byte_ready: bool,
+    iterating_back: bool,
+    nb_base_in_last_byte: usize,
+    nb_full_bases: usize,
 }
 
 impl<I> Iterator for Decode2Bits<I>
@@ -234,13 +167,9 @@ where
         }
 
         if !self.byte_ready {
-            // print!("no bytes ready");
             self.byte = self.bytes.next()?;
             self.byte_ready = true;
-        } else {
-            // print!(".");
         }
-
         let shift = 6 - 2 * (self.forward_index % 4);
         let bits = (self.byte >> shift) & 0b0000_0011;
         let result = u8_to_char(bits);
@@ -259,17 +188,38 @@ where
     I: DoubleEndedIterator<Item = u8>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        // println!("backward index: {}", self.backward_index);
+        if !self.iterating_back {
+            let end = self.backward_index;
+            // let start = self.forward_index;
+            let full_bytes_to_skip_at_the_end = if end > self.nb_full_bases {
+                assert!(end < self.nb_full_bases + 4);
+                0
+            } else if end == self.nb_full_bases {
+                if self.nb_base_in_last_byte != 0 {
+                    1
+                } else {
+                    0
+                }
+            } else {
+                let to_keep = (end + 3) & !3; // equivalent to `let to_keep = 4 * ((end / 4) + (end % 4 != 0) as usize);`
+
+                let skip = self.nb_full_bases - to_keep;
+                skip / 4 + 1
+            };
+
+            for _ in 0..full_bytes_to_skip_at_the_end {
+                self.bytes.next_back();
+            }
+            self.iterating_back = true;
+        }
+
         if self.backward_index <= self.forward_index {
             return None;
         }
 
         if !self.end_byte_ready {
-            // println!("pulling a byte");
             self.end_byte = self.bytes.next_back();
             self.end_byte_ready = true;
-        } else {
-            // print!(".");
         }
 
         let shift = 6 - 2 * ((self.backward_index - 1) % 4);

@@ -15,7 +15,7 @@ impl ExtendedHyperkmers {
         Self {
             k,
             ext_hyperkmers_buffers: Vec::new(),
-            size_encoded: k / 4 + (k % 4 != 0) as usize,
+            size_encoded: (k - 1) / 4 + ((k - 1) % 4 != 0) as usize,
             nb_inserted: 0,
             nb_hk_in_a_buffer,
         }

@@ -4,35 +4,43 @@ use crate::Minimizer;
 use super::superkmers_computation::is_canonical;
 use super::two_bits;
 use itertools::Itertools;
+use num_traits::ops::bytes;
 use std::iter::Map;
 use std::iter::Rev;
 use xxhash_rust::const_xxh3::xxh3_64;
 
+const REVCOMP_TAB_CHAR: [char; 255] = {
+    let mut tab = ['A'; 255];
+    tab[b'A' as usize] = 'T';
+    tab[b'T' as usize] = 'A';
+    tab[b'C' as usize] = 'G';
+    tab[b'G' as usize] = 'C';
+    tab
+};
+
 pub fn reverse_complement(seq: &[u8]) -> String {
     seq.iter()
         .rev()
-        .map(|base| match base {
-            b'A' => 'T',
-            b'T' => 'A',
-            b'C' => 'G',
-            b'G' => 'C',
-            _ => *base as char,
-        })
+        .map(|base| unsafe { *REVCOMP_TAB_CHAR.get_unchecked(*base as usize) })
         .collect()
 }
 
-// TODO is there no copy here ? What is the cost of moving references ?
+// TODO duplication: move to a module
+const REVCOMP_TAB: [u8; 255] = {
+    let mut tab = [0; 255];
+    tab[b'A' as usize] = b'T';
+    tab[b'T' as usize] = b'A';
+    tab[b'C' as usize] = b'G';
+    tab[b'G' as usize] = b'C';
+    tab
+};
+
+// TODO "discuss" is there no copy here ? What is the cost of moving references ?
 pub fn reverse_complement_no_copy(
     seq: impl DoubleEndedIterator<Item = u8>,
 ) -> Map<Rev<impl DoubleEndedIterator<Item = u8>>, fn(u8) -> u8> {
-    // TODO match -> tableau
-    seq.rev().map(|base| match base {
-        b'A' => b'T',
-        b'T' => b'A',
-        b'C' => b'G',
-        b'G' => b'C',
-        _ => base,
-    })
+    seq.rev()
+        .map(|base| unsafe { *REVCOMP_TAB.get_unchecked(base as usize) })
 }
 
 // states of SubsequenceMetadata
@@ -43,7 +51,7 @@ pub struct BitPacked {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NoBitPacked;
 
-// TODO duplication of `read` and `same_orientation` when used in Superkmer
+// OPTIMIZE duplication of `read` when used in Superkmer
 /// Represents a subsequence, possibly in reverse
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SubsequenceMetadata<'a, Packing> {
@@ -56,8 +64,8 @@ pub struct SubsequenceMetadata<'a, Packing> {
 
 impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     pub fn new(read: &'a [u8], start: usize, end: usize, same_orientation: bool) -> Self {
-        assert!(start <= read.len());
-        assert!(end <= read.len());
+        debug_assert!(start <= read.len());
+        debug_assert!(end <= read.len());
         Self {
             read,
             start, // in base
@@ -266,6 +274,17 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
             self.common_prefix_length_with_bitpacked(other) == other.len()
         }
     }
+
+    pub fn hash(&self) -> u64 {
+        let subsequence = &self.read[self.start..self.end];
+        if self.same_orientation {
+            xxh3_64(subsequence)
+        } else {
+            let revcomp = reverse_complement_no_copy(subsequence.iter().copied());
+            // TODO copy into a vec
+            xxh3_64(&revcomp.collect_vec())
+        }
+    }
 }
 
 impl<'a> std::fmt::Display for SubsequenceMetadata<'a, NoBitPacked> {
@@ -282,7 +301,7 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, NoBitPacked> {
 
 impl<'a> SubsequenceMetadata<'a, BitPacked> {
     pub fn whole_bitpacked(bytes: &'a [u8], nb_bases: usize) -> Self {
-        assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == bytes.len());
+        debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == bytes.len());
         Self {
             read: bytes,
             start: 0,
@@ -311,10 +330,12 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
     }
 
     pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + 'a {
+        debug_assert!(self.end <= self.packing.total_base_in_sequence);
+        debug_assert!(self.read.len() * 4 >= self.packing.total_base_in_sequence);
         #[cfg(debug_assertions)]
         {
             // test to check that the reverse is working
-            // TODO more check for the reverse decoding
+            // TODO do more check and tests for the reverse decoding
             let truth = decode_2bits(
                 self.read.iter().cloned(),
                 self.start,
@@ -334,7 +355,10 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
             .rev()
             .copied()
             .collect_vec();
-            assert_eq!(truth, what_i_made);
+
+            debug_assert_eq!(truth.len(), self.end - self.start);
+
+            debug_assert_eq!(truth, what_i_made);
         }
         decode_2bits(
             self.read.iter().cloned(),
@@ -454,7 +478,7 @@ fn iter_suffix_len(
 
 pub struct Superkmer<'a> {
     pub read: &'a [u8],
-    pub minimizer: u64,
+    minimizer: u64,
     start_mini: usize,
     end_mini: usize,
     pub superkmer: SubsequenceMetadata<'a, NoBitPacked>,
@@ -492,12 +516,42 @@ impl<'a> Superkmer<'a> {
         }
     }
 
-    // TODO no String anymore
+    // pub fn new_with_hash(
+    //     read: &'a [u8],
+    //     start_mini: usize,
+    //     end_mini: usize,
+    //     start_sk: usize,
+    //     end_sk: usize,
+    //     hash_minimizer: u64,
+    //     same_orientation: bool,
+    // ) -> Self {
+    //     let minizer_subsequence = &read[start_mini..end_mini];
+    //     let minimizer = if same_orientation {
+    //         two_bits::encode_minimizer(minizer_subsequence.iter().copied())
+    //     } else {
+    //         two_bits::encode_minimizer(reverse_complement_no_copy(
+    //             minizer_subsequence.iter().copied(),
+    //         ))
+    //     };
+
+    //     Self {
+    //         read,
+    //         minimizer,
+    //         start_mini,
+    //         end_mini,
+    //         superkmer: SubsequenceMetadata::<NoBitPacked>::new(
+    //             read,
+    //             start_sk,
+    //             end_sk,
+    //             same_orientation,
+    //         ),
+    //     }
+    // }
+
     pub fn hash_superkmer(&self) -> u64 {
-        xxh3_64(self.superkmer.to_string().as_bytes())
+        self.superkmer.hash()
     }
 
-    // TODO un peu dégeu, stocker l'encodage
     pub fn get_minimizer(&self) -> Minimizer {
         self.minimizer
     }

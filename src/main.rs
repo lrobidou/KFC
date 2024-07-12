@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk};
+// TODO use better library
 use fastxgz::fasta_reads;
 use itertools::Itertools;
 use log::warn;
@@ -14,7 +15,6 @@ type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
 
-mod brrr_minimizers;
 // mod cheap_vec;
 mod compute_left_and_right;
 mod extended_hyperkmers;
@@ -102,7 +102,7 @@ struct BuildArgs {
 //     match_left && match_right
 // }
 
-// TODO find a better name for the first stage function
+// TODO "style" find a better name for the first stage function
 fn first_stage(
     sequences: &Vec<&str>,
     k: usize,
@@ -122,14 +122,7 @@ fn first_stage(
             None => continue,
         };
 
-        // println!(
-        //     "super kmers computed in {} milliseconds",
-        //     start_superkmers.elapsed().as_millis()
-        // );
-
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
-            // let (previous_sk, current_sk, next_sk) = (&triplet[0], &triplet[1], &triplet[2]);
-
             let (previous_sk, next_sk) = if current_sk.is_canonical_in_the_read() {
                 (previous_sk, next_sk)
             } else {
@@ -143,7 +136,7 @@ fn first_stage(
             let previous_sk_is_solid = sk_count.get_count_superkmer(&previous_sk) >= threshold;
             let next_sk_is_solid = sk_count.get_count_superkmer(&next_sk) >= threshold;
 
-            // TODO est-il possible de stocker les counts pour ne pas les recalculer ?
+            // OPTIMIZE est-il possible de stocker les counts pour ne pas les recalculer ?
             let current_count = sk_count.increase_count_superkmer(&current_sk);
 
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
@@ -246,10 +239,10 @@ fn first_stage(
                     current_count,
                 );
             } else if current_count > threshold {
-                // TODO regarder les debut et fin de seq pour un match rapide
+                // TODO fusionnner les deux passes
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let found = hk_count.increase_count_if_exact_match(
-                    &current_sk,
+                    &current_sk.get_minimizer(),
                     &hyperkmers,
                     &left_sk,
                     &right_sk,
@@ -285,15 +278,15 @@ fn first_stage(
             }
         }
     }
-    (sk_count, hk_count, hyperkmers) // TODO renommer extended_hyperkmers
+    (sk_count, hk_count, hyperkmers) // TODO "style" renommer extended_hyperkmers
 }
 
-// TODO find a better name for the second stage function
+// TODO "style" find a better name for the second stage function
 fn second_stage(
     sk_count: &mut SuperKmerCounts,
     hk_count: &mut HKCount,
     hyperkmers: &ExtendedHyperkmers,
-    sequences: &Vec<&str>, // TODO iterateur
+    sequences: &Vec<&str>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,

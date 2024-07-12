@@ -35,6 +35,7 @@ impl HKCount {
         extended_hyperkmer_left: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<usize> {
         let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
+
         for (candidate_left_hk_metadata, _candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
@@ -88,15 +89,13 @@ impl HKCount {
     /// Else, return false
     pub fn increase_count_if_exact_match(
         &self,
-        superkmer: &Superkmer,
+        minimizer: &Minimizer,
         hyperkmers: &ExtendedHyperkmers,
         left_hk: &SubsequenceMetadata<NoBitPacked>,
         right_hk: &SubsequenceMetadata<NoBitPacked>,
     ) -> bool {
-        // TODO remove
-        let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
-            self.data.get_mut_iter(&minimizer)
+            self.data.get_mut_iter(minimizer)
         {
             let is_exact_match = search_exact_hyperkmer_match(
                 hyperkmers,
@@ -307,7 +306,7 @@ pub fn search_exact_hyperkmer_match(
     candidate_right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
     // get sequences as they would appear if the current superkmer was canonical
-    // TODO this repetition of `candidate_left_hyperkmer` confuses me, how can I get rid of it ?
+    // TODO "style": this repetition of `candidate_left_hyperkmer` confuses me, how can I get rid of it ?
     let candidate_left_hyperkmer =
         hyperkmers.get_hyperkmer_from_id(candidate_left_ext_hk_metadata.index);
     let candidate_left_hyperkmer = candidate_left_hyperkmer
@@ -326,7 +325,6 @@ pub fn search_exact_hyperkmer_match(
         candidate_right_ext_hk_metadata.end,
     );
 
-    // TODO copy here
     let match_left = left_hk.equal_bitpacked(&candidate_left_hyperkmer);
     let match_right = right_hk.equal_bitpacked(&candidate_right_hyperkmer);
 
