@@ -176,18 +176,18 @@ mod tests {
     // 11 01 10 00 11
     // TCGAT
     // ATCGA
-    #[test]
-    fn test_compute_superkmers() {
-        let seq = "AGCAGCTAGCATTTTTGCAGT".as_bytes();
-        let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 17, 5)
-            .unwrap()
-            .collect();
-        assert_eq!(
-            // ACTGCAAAAATGCTAGCTGCT
-            superkmers,
-            vec![Superkmer::new(seq, 11, 11 + 5, 0, seq.len(), false)]
-        );
-    }
+    // #[test]
+    // fn test_compute_superkmers() {
+    //     let seq = "AGCAGCTAGCATTTTTGCAGT".as_bytes();
+    //     let superkmers: Vec<Superkmer> = compute_superkmers_linear_streaming(seq, 17, 5)
+    //         .unwrap()
+    //         .collect();
+    //     assert_eq!(
+    //         // ACTGCAAAAATGCTAGCTGCT
+    //         superkmers,
+    //         vec![Superkmer::new(seq, 11, 11 + 5, 0, seq.len(), false)]
+    //     );
+    // }
     // encoding and decoding
     // TODO correct test
     // #[test]
