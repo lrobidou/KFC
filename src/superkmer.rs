@@ -74,9 +74,9 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         }
     }
 
-    pub fn whole_string(read: &'a [u8]) -> Self {
-        Self::new(read, 0, read.len(), true)
-    }
+    // pub fn whole_string(read: &'a [u8]) -> Self {
+    //     Self::new(read, 0, read.len(), true)
+    // }
 
     pub fn is_canonical(&self) -> bool {
         let subsequence = &self.read[self.start..self.end];
@@ -593,7 +593,7 @@ mod tests {
     pub fn test_dump() {
         let read = "ACTGAGCTA";
         let bytes = read.as_bytes();
-        let hk = SubsequenceMetadata::whole_string(bytes);
+        let hk = SubsequenceMetadata::new(bytes, 0, bytes.len(), true);
 
         let dest = &mut [0, 0, 0];
         hk.to_canonical().dump_as_2bits(dest);
