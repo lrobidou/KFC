@@ -33,4 +33,5 @@ cargo llvm-cov report --lcov --output-path $LCOV_FILE
 #
 # Generate html file in target/llvm-cov/html
 #
-cargo llvm-cov report --html
+genhtml $LCOV_FILE --output-directory=coverage/html
+mv .lcov.info coverage/lcov.info
