@@ -1,8 +1,76 @@
-use crate::{Count, HashSuperKmer, Minimizer, Superkmer};
+use crate::{check_equal_mashmap, Count, HashSuperKmer, Minimizer, Superkmer};
 use mashmap::MashMap;
+use serde::{
+    de::{MapAccess, Visitor},
+    ser::{Serialize, SerializeMap, Serializer},
+    Deserialize, Deserializer,
+};
 
 pub struct SuperKmerCounts {
     data: MashMap<Minimizer, (HashSuperKmer, Count)>,
+}
+
+impl PartialEq for SuperKmerCounts {
+    fn eq(&self, other: &Self) -> bool {
+        check_equal_mashmap(&self.data, &other.data)
+    }
+}
+
+impl Serialize for SuperKmerCounts {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.data.len()))?;
+        for (k, v) in self.data.iter() {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+struct SuperKmerCountsVisitor {}
+
+impl SuperKmerCountsVisitor {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl<'de> Visitor<'de> for SuperKmerCountsVisitor {
+    type Value = SuperKmerCounts;
+
+    // Format a message stating what data this Visitor expects to receive.
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("super kmer counts")
+    }
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut super_kmer_counts_data =
+            MashMap::<Minimizer, (HashSuperKmer, Count)>::with_capacity(
+                access.size_hint().unwrap_or(0),
+            );
+
+        while let Some((key, value)) = access.next_entry()? {
+            super_kmer_counts_data.insert(key, value);
+        }
+
+        Ok(SuperKmerCounts {
+            data: super_kmer_counts_data,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for SuperKmerCounts {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(SuperKmerCountsVisitor::new())
+    }
 }
 
 impl SuperKmerCounts {

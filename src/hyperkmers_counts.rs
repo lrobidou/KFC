@@ -1,12 +1,18 @@
 use super::Superkmer;
 use crate::{
+    check_equal_mashmap,
     extended_hyperkmers::ExtendedHyperkmers,
     superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
     Count, Minimizer,
 };
 use mashmap::MashMap;
+use serde::{
+    de::{MapAccess, Visitor},
+    ser::SerializeMap,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
 pub struct HKMetadata {
     pub index: usize,
     pub start: usize,
@@ -17,6 +23,69 @@ pub struct HKMetadata {
 
 pub struct HKCount {
     data: MashMap<Minimizer, (HKMetadata, HKMetadata, Count)>,
+}
+
+impl PartialEq for HKCount {
+    fn eq(&self, other: &Self) -> bool {
+        check_equal_mashmap(&self.data, &other.data)
+    }
+}
+
+impl Serialize for HKCount {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.data.len()))?;
+        for (k, v) in self.data.iter() {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+struct HKCountVisitor {}
+
+impl HKCountVisitor {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl<'de> Visitor<'de> for HKCountVisitor {
+    type Value = HKCount;
+
+    // Format a message stating what data this Visitor expects to receive.
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("hyper kmer counts")
+    }
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut super_kmer_counts_data =
+            MashMap::<Minimizer, (HKMetadata, HKMetadata, Count)>::with_capacity(
+                access.size_hint().unwrap_or(0),
+            );
+
+        while let Some((key, value)) = access.next_entry()? {
+            super_kmer_counts_data.insert(key, value);
+        }
+
+        Ok(HKCount {
+            data: super_kmer_counts_data,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for HKCount {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(HKCountVisitor::new())
+    }
 }
 
 impl HKCount {

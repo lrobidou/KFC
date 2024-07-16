@@ -4,19 +4,20 @@ use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_
 use fastxgz::fasta_reads;
 use itertools::Itertools;
 use log::warn;
+use mashmap::MashMap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::time::Instant;
-// use two_bits::decode_2bits;
 
 type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
 
-// mod cheap_vec;
 mod compute_left_and_right;
+mod dump;
 mod extended_hyperkmers;
 mod hyperkmers_counts;
 mod minimizer_iter;
@@ -25,7 +26,6 @@ mod superkmer;
 mod superkmers_computation;
 mod two_bits;
 
-// use cheap_vec::SimpleVec;
 use extended_hyperkmers::ExtendedHyperkmers;
 use superkmer::Superkmer;
 
@@ -111,7 +111,7 @@ fn first_stage(
 ) -> (SuperKmerCounts, HKCount, ExtendedHyperkmers) {
     let mut sk_count = SuperKmerCounts::new();
     let mut hk_count = HKCount::new();
-    let mut hyperkmers = ExtendedHyperkmers::new(k, 7);
+    let mut hyperkmers = ExtendedHyperkmers::new(k, 50);
 
     for sequence in sequences {
         let sequence = &sequence.as_bytes();
@@ -417,17 +417,20 @@ fn compare_to_kmc<P: AsRef<Path>>(
     println!("ok = {ok}\nko={ko}");
 }
 
-fn dump_hk<P: AsRef<Path>>(ext_hyperkmers: &ExtendedHyperkmers, output_file: P) {
-    use std::io::Write;
-    let mut file = File::create(output_file).unwrap();
+fn check_equal_mashmap<K: Ord, V: Ord>(map0: &MashMap<K, V>, map1: &MashMap<K, V>) -> bool {
+    let mut v0 = map0.iter().collect_vec();
+    let mut v1 = map1.iter().collect_vec();
+    v0.sort();
+    v1.sort();
+    v0 == v1
+}
 
-    // Iterate over the vector and write each line to the file
-    for i in 0..ext_hyperkmers.len() {
-        let ext_hk = ext_hyperkmers.get_hyperkmer_from_id(i);
-        let line = ext_hk.to_string();
-        // let line = String::from_utf8(line).unwrap();
-        writeln!(file, "{line}").unwrap();
-    }
+#[derive(Serialize, Deserialize, PartialEq)]
+struct Index {
+    super_kmer_counts: SuperKmerCounts,
+    hk_count: HKCount,
+    hyperkmers: ExtendedHyperkmers,
+    discarded_minimizers: HashMap<Minimizer, u16>,
 }
 
 fn main() {
@@ -459,9 +462,18 @@ fn main() {
                 compare_to_kmc(&hk_count, &hyperkmers, kmc_file, k, m, threshold);
             }
 
+            let index = Index {
+                super_kmer_counts: _sk_count,
+                hk_count,
+                hyperkmers,
+                discarded_minimizers: _discarded_minimizers,
+            };
+
             if let Some(output_file) = args.output {
-                warn!("Output is experimental and not optimized yet");
-                dump_hk(&hyperkmers, output_file);
+                dump::bin_dump::dump(&output_file, &index).expect("impossible to dump");
+                let index2 = dump::bin_dump::load(&output_file).expect("impossible to load");
+
+                assert!(index == index2);
             }
         }
     }
