@@ -30,45 +30,83 @@ pub fn search_kmer(
 #[cfg(test)]
 mod tests {
     use crate::{
-        hyperkmers_counts::HKMetadata, superkmer::SubsequenceMetadata, two_bits::encode_minimizer,
+        compute_left_and_right,
+        hyperkmers_counts::HKMetadata,
+        superkmer::SubsequenceMetadata, // two_bits::encode_minimizer,
     };
 
     use super::*;
+    use itertools::Itertools;
 
     #[test]
     fn test_search() {
         let kmer = "TGATGAGTACGTAGCGAAAAAAAAAAGGGTACGTGCATGCAGTGACGG";
+        let k = kmer.len();
+
+        let superkmers = compute_superkmers_linear_streaming(kmer.as_bytes(), kmer.len(), 10)
+            .unwrap()
+            .collect_vec();
+        assert!(superkmers.len() == 1);
+        let superkmer = superkmers[0];
+
+        // let's assume the minimizer is as follow
+        assert_eq!(superkmer.start_of_minimizer(), 24);
+        assert_eq!(superkmer.end_of_minimizer(), 34);
+
         let mut hk: HKCount = HKCount::new();
-        let minimizer = "AAAAAAAAAA";
-        let minimizer = encode_minimizer(minimizer.bytes());
         let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
         let count = 34;
 
+        // nothing inserted => nothing is found
         let search_result = search_kmer(&hk, &hyperkmers, kmer.as_bytes(), kmer.len(), 10);
         assert!(search_result == 0);
-        let s = "TGATGAGTACGTAGCGAAAAAAAAA";
-        hyperkmers.add_new_ext_hyperkmer(&SubsequenceMetadata::whole_string(s.as_bytes()));
 
-        let s = "AAAAAAAAAGGGTACGTGCATGCAGTGACGG";
-        hyperkmers.add_new_ext_hyperkmer(&SubsequenceMetadata::whole_string(s.as_bytes()));
+        // computing the left and right context to insert them in vector of hyperkmer
+        let (left, right) = compute_left_and_right::get_left_and_rigth_of_sk(&superkmer);
+        let size_left = left.len();
+        let size_right = right.len();
+
+        assert_eq!(size_left, superkmer.end_of_minimizer() - 1);
+        assert_eq!(
+            size_right,
+            superkmer.superkmer.len() - (superkmer.start_of_minimizer() + 1)
+        );
+
+        // adding 'A' to complete the hyperkmers
+        let mut left = left.to_string();
+        while left.len() < k - 1 {
+            left.push('A');
+        }
+        let mut right = right.to_string();
+        while right.len() < k - 1 {
+            right.push('A');
+        }
+
+        // computing the left and right extended hyperkmers
+        let left = SubsequenceMetadata::new(left.as_bytes(), 0, left.len(), true);
+        let right = SubsequenceMetadata::new(right.as_bytes(), 0, right.len(), true);
+
+        // inserting the hyperkmers
+        let index_left = hyperkmers.add_new_ext_hyperkmer(&left);
+        let index_right = hyperkmers.add_new_ext_hyperkmer(&right);
 
         hk.insert_new_entry_in_hyperkmer_count(
-            &minimizer,
+            &superkmer.get_minimizer(),
             &HKMetadata {
-                index: 0,
+                index: index_left,
                 start: 0,
-                end: 25,
-                change_orientation: false,
+                end: size_left,
+                change_orientation: left.is_canonical() != superkmer.is_canonical_in_the_read(),
             },
             &HKMetadata {
-                index: 1,
+                index: index_right,
                 start: 0,
-                end: 31,
-                change_orientation: false,
+                end: size_right,
+                change_orientation: right.is_canonical() != superkmer.is_canonical_in_the_read(),
             },
             count,
         );
         let search_result = search_kmer(&hk, &hyperkmers, kmer.as_bytes(), kmer.len(), 10);
-        assert!(search_result == count);
+        assert_eq!(search_result, count);
     }
 }
