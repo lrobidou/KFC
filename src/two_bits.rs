@@ -190,7 +190,7 @@ where
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.iterating_back {
             let end = self.backward_index;
-            // let start = self.forward_index;
+
             let full_bytes_to_skip_at_the_end = if end > self.nb_full_bases {
                 assert!(end < self.nb_full_bases + 4);
                 0
@@ -235,6 +235,7 @@ where
     }
 }
 
+#[cfg(test)]
 mod tests {
     use itertools::Itertools;
 
