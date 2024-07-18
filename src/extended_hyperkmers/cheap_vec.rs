@@ -11,6 +11,8 @@ pub struct SimpleVec {
 }
 
 impl SimpleVec {
+    /// Creates a new `Self` of a give `size`.
+    /// `size` should be the number a u64 fitting into `Self`.
     pub fn new(size: usize) -> Self {
         // Create a memory layout for the array
         let layout = Layout::array::<u64>(size).expect("Failed to create layout");
@@ -35,8 +37,8 @@ impl SimpleVec {
         }
     }
 
-    // #[cfg(test)]
-    pub fn from_iter<I>(iter: I, size: usize) -> Self
+    /// Constructs a `Self` from a u64 iterator.
+    pub fn from_u64_iter<I>(iter: I, size: usize) -> Self
     where
         I: IntoIterator<Item = u64>,
     {
@@ -55,16 +57,17 @@ impl SimpleVec {
         simple_vec
     }
 
+    // TODO this seems to work, but is this UB ?
     pub fn as_slice(&self, len: usize) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr as *mut u8, len) }
+        unsafe { std::slice::from_raw_parts(self.ptr as *mut u8, len * 8) }
+    }
+
+    pub fn as_mut_slice(&mut self, len: usize) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, len * 8) }
     }
 
     pub fn as_u64_slice(&self, len: usize) -> &[u64] {
         unsafe { std::slice::from_raw_parts(self.ptr, len) }
-    }
-
-    pub fn as_mut_slice(&mut self, len: usize) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, len) }
     }
 
     pub fn dealloc(&mut self, size: usize) {

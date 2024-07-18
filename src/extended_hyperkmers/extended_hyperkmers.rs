@@ -7,19 +7,27 @@ use serde::{
 use crate::superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata};
 
 use super::cheap_vec::SimpleVec;
+use crate::macros::debug_print as p;
 
 pub struct ExtendedHyperkmers {
+    /// the `k` value
     k: usize,
-    size_encoded: usize,
+    /// the size in byte taken by a single (extended) hyper kmer
+    byte_size_encoded_hyper_kmer: usize,
+    /// the numer of extended hyperkmer inserted
     nb_inserted: usize,
+    /// number of extended hyperkmer fitting in a single buffer
     nb_hk_in_a_buffer: usize,
+    /// the vector of buffers containing extended hyperkmers
     ext_hyperkmers_buffers: Vec<SimpleVec>,
+    /// the size of each buffer
+    buffer_size: usize,
 }
 
 impl PartialEq for ExtendedHyperkmers {
     fn eq(&self, other: &Self) -> bool {
         let quick_check = self.k == other.k
-            && self.size_encoded == other.size_encoded
+            && self.byte_size_encoded_hyper_kmer == other.byte_size_encoded_hyper_kmer
             && self.nb_inserted == other.nb_inserted
             && self.nb_hk_in_a_buffer == other.nb_hk_in_a_buffer;
         if !quick_check {
@@ -43,13 +51,16 @@ impl Serialize for ExtendedHyperkmers {
     {
         let mut state = serializer.serialize_struct("ExtendedHyperkmers", 0)?;
         state.serialize_field("k", &self.k)?;
-        state.serialize_field("size_encoded", &self.size_encoded)?;
+        state.serialize_field(
+            "byte_size_encoded_hyper_kmer",
+            &self.byte_size_encoded_hyper_kmer,
+        )?;
         state.serialize_field("nb_inserted", &self.nb_inserted)?;
         state.serialize_field("nb_hk_in_a_buffer", &self.nb_hk_in_a_buffer)?;
         state.serialize_field(
             "ext_hyperkmers_buffers",
             &StreamingBuffers {
-                size: self.size_encoded * self.nb_hk_in_a_buffer,
+                size: self.byte_size_encoded_hyper_kmer * self.nb_hk_in_a_buffer,
                 buffers: &self.ext_hyperkmers_buffers,
             },
         )?;
@@ -107,7 +118,7 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
                 let k = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
-                let size_encoded = seq
+                let byte_size_encoded_hyper_kmer = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
                 let nb_inserted = seq
@@ -121,21 +132,29 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
                     .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
                 let ext_hyperkmers_buffers = buffers
                     .into_iter()
-                    .map(|buf| SimpleVec::from_iter(buf, size_encoded * nb_hk_in_a_buffer))
+                    .map(|buf| {
+                        SimpleVec::from_u64_iter(
+                            buf,
+                            byte_size_encoded_hyper_kmer * nb_hk_in_a_buffer,
+                        )
+                    })
                     .collect();
+                let buffer_size = (nb_hk_in_a_buffer * byte_size_encoded_hyper_kmer) / 8
+                    + ((nb_hk_in_a_buffer * byte_size_encoded_hyper_kmer) % 8 != 0) as usize;
                 Ok(ExtendedHyperkmers {
                     k,
-                    size_encoded,
+                    byte_size_encoded_hyper_kmer,
                     nb_inserted,
                     nb_hk_in_a_buffer,
                     ext_hyperkmers_buffers,
+                    buffer_size,
                 })
             }
         }
 
         const FIELDS: &[&str] = &[
             "k",
-            "size_encoded",
+            "byte_size_encoded_hyper_kmer",
             "nb_inserted",
             "nb_hk_in_a_buffer",
             "ext_hyperkmers_buffers",
@@ -146,12 +165,16 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
 
 impl ExtendedHyperkmers {
     pub fn new(k: usize, nb_hk_in_a_buffer: usize) -> Self {
+        let byte_size_encoded_hyper_kmer = (k - 1) / 4 + ((k - 1) % 4 != 0) as usize;
+        let buffer_size = (nb_hk_in_a_buffer * byte_size_encoded_hyper_kmer) / 8
+            + ((nb_hk_in_a_buffer * byte_size_encoded_hyper_kmer) % 8 != 0) as usize;
         Self {
             k,
             ext_hyperkmers_buffers: Vec::new(),
-            size_encoded: (k - 1) / 4 + ((k - 1) % 4 != 0) as usize,
+            byte_size_encoded_hyper_kmer,
             nb_inserted: 0,
             nb_hk_in_a_buffer,
+            buffer_size,
         }
     }
 
@@ -167,21 +190,23 @@ impl ExtendedHyperkmers {
     fn get_mut_slice_from_id(&mut self, id: usize) -> &mut [u8] {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_a_buffer;
-        let pos_in_buffer = id % self.nb_hk_in_a_buffer;
+        let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
+        let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
+        let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
 
         let buffer = &mut self.ext_hyperkmers_buffers[id_buffer];
-        &mut buffer.as_mut_slice(self.size_encoded * self.nb_hk_in_a_buffer)
-            [pos_in_buffer * self.size_encoded..(pos_in_buffer + 1) * self.size_encoded]
+        &mut buffer.as_mut_slice(self.buffer_size)[start..end]
     }
 
     fn get_slice_from_id(&self, id: usize) -> &[u8] {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_a_buffer;
-        let pos_in_buffer = id % self.nb_hk_in_a_buffer;
+        let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
+        let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
+        let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
 
         let buffer = &self.ext_hyperkmers_buffers[id_buffer];
-        &buffer.as_slice(self.size_encoded * self.nb_hk_in_a_buffer)
-            [pos_in_buffer * self.size_encoded..(pos_in_buffer + 1) * (self.size_encoded)]
+        &buffer.as_slice(self.buffer_size)[start..end]
     }
 
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
@@ -194,8 +219,9 @@ impl ExtendedHyperkmers {
 
         // allocates memory
         if is_full {
-            self.ext_hyperkmers_buffers
-                .push(SimpleVec::new(self.size_encoded * self.nb_hk_in_a_buffer));
+            self.ext_hyperkmers_buffers.push(SimpleVec::new(
+                self.byte_size_encoded_hyper_kmer * self.nb_hk_in_a_buffer,
+            ));
         }
         let id_hyperkmer = self.len();
         self.nb_inserted += 1;
@@ -205,6 +231,10 @@ impl ExtendedHyperkmers {
         new_ext_hyperkmer.to_canonical().dump_as_2bits(dest_slice);
 
         id_hyperkmer
+    }
+
+    pub fn get_nb_inserted(&self) -> usize {
+        self.nb_inserted
     }
 }
 
