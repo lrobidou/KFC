@@ -1,10 +1,13 @@
 pub mod components;
-
-use crate::Count;
+mod computation;
 
 use super::Minimizer;
+use crate::Count;
+use computation::first_stage;
+use computation::second_stage;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Instant;
 
 use components::ExtendedHyperkmers;
 use components::HKCount;
@@ -64,6 +67,36 @@ impl Index {
             k,
             m,
         )
+    }
+
+    pub fn index(k: usize, m: usize, threshold: Count, sequences: &Vec<&str>) -> Self {
+        let start_fisrt_step = Instant::now();
+        let (mut super_kmer_counts, mut hk_count, hyperkmers) =
+            first_stage(sequences, k, m, threshold);
+        println!(
+            "time first stage: {} milliseconds",
+            start_fisrt_step.elapsed().as_millis()
+        );
+        let start_second_stage = Instant::now();
+        let discarded_minimizers = second_stage(
+            &mut super_kmer_counts,
+            &mut hk_count,
+            &hyperkmers,
+            sequences,
+            k,
+            m,
+            threshold,
+        );
+        println!(
+            "time second stage: {} milliseconds",
+            start_second_stage.elapsed().as_millis()
+        );
+        Self {
+            super_kmer_counts,
+            hk_count,
+            hyperkmers,
+            discarded_minimizers,
+        }
     }
 }
 
