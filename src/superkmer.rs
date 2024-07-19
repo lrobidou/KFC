@@ -100,14 +100,14 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         }
     }
 
-    pub fn to_canonical_string(&self) -> String {
-        let subsequence = &self.read[self.start..self.end];
-        if is_canonical(subsequence) {
-            String::from_utf8(Vec::from(subsequence)).unwrap()
-        } else {
-            reverse_complement(subsequence)
-        }
-    }
+    // pub fn to_canonical_string(&self) -> String {
+    //     let subsequence = &self.read[self.start..self.end];
+    //     if is_canonical(subsequence) {
+    //         String::from_utf8(Vec::from(subsequence)).unwrap()
+    //     } else {
+    //         reverse_complement(subsequence)
+    //     }
+    // }
 
     // pub fn equal_str(&self, other: &str) -> bool {
     //     self.to_string() == other
@@ -584,6 +584,7 @@ impl<'a> Superkmer<'a> {
     // }
 }
 
+#[cfg(test)]
 mod tests {
     use two_bits::encode_2bits;
 

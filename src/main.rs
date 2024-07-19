@@ -1,11 +1,16 @@
 use clap::{Args, Parser, Subcommand};
 use compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk};
+use dump::bin_dump;
 // TODO use better library
 use fastxgz::fasta_reads;
+use index::components::{
+    search_exact_hyperkmer_match, ExtendedHyperkmers, HKCount, HKMetadata, SuperKmerCounts,
+};
+use index::Index;
 use itertools::Itertools;
 use log::warn;
 use mashmap::MashMap;
-use serde::{Deserialize, Serialize};
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -18,23 +23,27 @@ type Count = u16;
 
 mod compute_left_and_right;
 mod dump;
-mod extended_hyperkmers;
-mod hyperkmers_counts;
+mod index;
 mod minimizer_iter;
-mod search;
 mod superkmer;
 mod superkmers_computation;
 mod two_bits;
 
-use extended_hyperkmers::ExtendedHyperkmers;
+// use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 use superkmer::Superkmer;
-
-use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 use superkmers_computation::compute_superkmers_linear_streaming;
 
-mod superkmers_count;
+mod macros {
+    macro_rules! debug_print {
+        ($var:expr) => {{
+            let value = $var;
+            println!("{} = {:?}", stringify!($var), &value);
+            value
+        }};
+    }
 
-use superkmers_count::SuperKmerCounts;
+    pub(crate) use debug_print;
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -47,6 +56,17 @@ struct Cli {
 enum Command {
     /// Build an index counting the k-mers of a FASTA/Q file
     Build(BuildArgs),
+    Dump(DumpArgs),
+}
+
+#[derive(Args, Debug)]
+struct DumpArgs {
+    /// Input index
+    #[arg(short, long)]
+    input: String,
+    /// Output txt file
+    #[arg(short, long)]
+    output: String,
 }
 
 #[derive(Args, Debug)]
@@ -71,37 +91,6 @@ struct BuildArgs {
     check_kmc: Option<String>,
 }
 
-// fn extract_hyperkmer<'a>(
-//     hyperkmers: &'a [String],
-//     metadata: &HKMetadata,
-// ) -> SubsequenceMetadata<'a> {
-//     let hyperkmer: &str = &hyperkmers[metadata.index];
-
-//     SubsequenceMetadata::new(
-//         hyperkmer,
-//         metadata.start,
-//         metadata.end,
-//         !metadata.change_orientation,
-//     )
-// }
-
-// fn search_exact_ext_hyperkmer_match(
-//     hyperkmers: &[String],
-//     left_hk: &SubsequenceMetadata,
-//     right_hk: &SubsequenceMetadata,
-//     left_metadata: &HKMetadata,
-//     right_metadata: &HKMetadata,
-// ) -> bool {
-//     // get sequences as they would appear if the current superkmer was canonical
-//     let candidate_left_hk = extract_hyperkmer(hyperkmers, left_metadata);
-//     let candidate_right_hk = extract_hyperkmer(hyperkmers, right_metadata);
-
-//     let match_left = candidate_left_hk.equal(&left_hk);
-//     let match_right = candidate_right_hk.equal(&right_hk);
-
-//     match_left && match_right
-// }
-
 // TODO "style" find a better name for the first stage function
 fn first_stage(
     sequences: &Vec<&str>,
@@ -111,7 +100,7 @@ fn first_stage(
 ) -> (SuperKmerCounts, HKCount, ExtendedHyperkmers) {
     let mut sk_count = SuperKmerCounts::new();
     let mut hk_count = HKCount::new();
-    let mut hyperkmers = ExtendedHyperkmers::new(k, 50);
+    let mut hyperkmers = ExtendedHyperkmers::new(k, 1000);
 
     for sequence in sequences {
         let sequence = &sequence.as_bytes();
@@ -377,16 +366,21 @@ fn index_hyperkmers(
     (sk_count, hk_count, hyperkmers, discarded_minimizers)
 }
 
-fn stats_hk(hyperkmers: &[String], k: usize) -> (usize, usize) {
-    for ext_hk in hyperkmers {
-        assert_eq!(ext_hk.len(), k - 1);
+fn stats(index: &Index, k: usize) {
+    for i in 0..index.get_hyperkmers().get_nb_inserted() {
+        let slice = index.get_hyperkmers().get_hyperkmer_from_id(i);
+        assert_eq!(slice.len(), k - 1);
     }
-    (hyperkmers.len(), hyperkmers.len() * (k - 1))
+
+    let number_of_hyperkmers = index.get_hyperkmers().get_nb_inserted();
+    use macros::debug_print as p;
+    println!("===== stats =====");
+    p!(number_of_hyperkmers);
+    println!("nb bases in hyperkmers: {}", number_of_hyperkmers * (k - 1));
 }
 
 fn compare_to_kmc<P: AsRef<Path>>(
-    hk_count: &HKCount,
-    hyperkmers: &ExtendedHyperkmers,
+    index: &Index,
     kmc_file: P,
     k: usize,
     m: usize,
@@ -405,7 +399,7 @@ fn compare_to_kmc<P: AsRef<Path>>(
         let ground_truth_count: usize = count.parse().unwrap();
 
         if ground_truth_count >= threshold as usize {
-            let kfc_res = search::search_kmer(hk_count, hyperkmers, kmer.as_bytes(), k, m);
+            let kfc_res = index.search_kmer(kmer.as_bytes(), k, m);
             if kfc_res as usize == ground_truth_count {
                 ok += 1;
             } else {
@@ -425,14 +419,6 @@ fn check_equal_mashmap<K: Ord, V: Ord>(map0: &MashMap<K, V>, map1: &MashMap<K, V
     v0 == v1
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
-struct Index {
-    super_kmer_counts: SuperKmerCounts,
-    hk_count: HKCount,
-    hyperkmers: ExtendedHyperkmers,
-    discarded_minimizers: HashMap<Minimizer, u16>,
-}
-
 fn main() {
     let args = Cli::parse();
     simple_logger::SimpleLogger::new().env().init().unwrap();
@@ -448,33 +434,33 @@ fn main() {
             let m = args.m;
             let threshold = args.threshold;
 
-            let (_sk_count, hk_count, hyperkmers, _discarded_minimizers) =
+            // build the index
+            let (sk_count, hk_count, hyperkmers, discarded_minimizers) =
                 index_hyperkmers(k, m, threshold, &sequences);
-
-            // let kmer_test = "CGCGAGGAGCTGGCCGAGGTGGATGTGGACTGGCTGATCGCCGAGCGCCCCGGCAAGGTAAGAACCTTGAAACAGCATCCACGCAAGAACAAAACGGCCA";
-
-            // let count = search::search_kmer(&hk_count, &hyperkmers, kmer_test, k, m);
-            // println!(
-            //     "test with a kmer with a count 11 in KMC\nour count is {:?}",
-            //     count
-            // );
+            let index = Index::new(sk_count, hk_count, hyperkmers, discarded_minimizers);
+            // use KMC's output as a query against the index
             if let Some(kmc_file) = args.check_kmc {
-                compare_to_kmc(&hk_count, &hyperkmers, kmc_file, k, m, threshold);
+                compare_to_kmc(&index, kmc_file, k, m, threshold);
             }
 
-            let index = Index {
-                super_kmer_counts: _sk_count,
-                hk_count,
-                hyperkmers,
-                discarded_minimizers: _discarded_minimizers,
-            };
-
+            // write the index to disk
             if let Some(output_file) = args.output {
-                dump::bin_dump::dump(&output_file, &index).expect("impossible to dump");
-                let index2 = dump::bin_dump::load(&output_file).expect("impossible to load");
+                dump::bin_dump::dump(&index, &output_file).expect("impossible to dump");
 
-                assert!(index == index2);
+                #[cfg(debug_assertions)]
+                {
+                    let index2 = dump::bin_dump::load(&output_file).expect("impossible to load");
+                    assert!(index == index2);
+                }
+                stats(&index, k);
             }
+        }
+        Command::Dump(args) => {
+            let input = args.input;
+            let output = args.output;
+
+            let index = bin_dump::load(&input).expect("unable to read the index");
+            dump::plain_text::plain_text(&index, output);
         }
     }
 }

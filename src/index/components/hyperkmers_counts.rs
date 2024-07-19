@@ -1,7 +1,7 @@
-use super::Superkmer;
+use super::extended_hyperkmers::ExtendedHyperkmers;
+use crate::Superkmer;
 use crate::{
     check_equal_mashmap,
-    extended_hyperkmers::ExtendedHyperkmers,
     superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
     Count, Minimizer,
 };
