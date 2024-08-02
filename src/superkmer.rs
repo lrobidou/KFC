@@ -375,9 +375,14 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, BitPacked> {
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
-        );
-        let s = String::from_utf8(iter.collect_vec()).expect("Invalid string");
-        write!(f, "{}", s)
+        )
+        .collect_vec();
+        let string = if self.same_orientation {
+            String::from_utf8(iter).unwrap()
+        } else {
+            reverse_complement(&iter)
+        };
+        write!(f, "{}", string)
     }
 }
 
