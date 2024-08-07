@@ -191,6 +191,7 @@ where
         if !self.iterating_back {
             let end = self.backward_index;
 
+            #[allow(clippy::comparison_chain)] // I find it clearer than the alternative
             let full_bytes_to_skip_at_the_end = if end > self.nb_full_bases {
                 assert!(end < self.nb_full_bases + 4);
                 0
