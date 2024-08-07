@@ -15,6 +15,13 @@ use crate::{
 
 use super::components::{ExtendedHyperkmers, HKCount, SuperKmerCounts};
 
+// Branch prediction hint. This is currently only available on nightly but it
+// consistently improves performance by 10-15%.
+#[cfg(not(feature = "nightly"))]
+use core::convert::identity as likely;
+#[cfg(feature = "nightly")]
+use core::intrinsics::likely;
+
 // TODO "style" find a better name for the first stage function
 pub fn first_stage(
     sequences: &Vec<&str>,
@@ -96,8 +103,7 @@ pub fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
-                    //TODO likely
-                    if !left_extended_hk.3 {
+                    if likely(!left_extended_hk.3) {
                         (hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0), false)
                     } else {
                         (
@@ -127,8 +133,7 @@ pub fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
-                    //TODO likely
-                    if !right_extended_hk.3 {
+                    if likely(!right_extended_hk.3) {
                         (
                             hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0),
                             false,
