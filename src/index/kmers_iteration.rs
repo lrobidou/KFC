@@ -11,7 +11,7 @@ fn extract_kmers_from_minimizer(
     hk_count: &HKCount,
     minimizer: &u64,
     hyperkmers: &ExtendedHyperkmers,
-    large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+    large_hyperkmers: &[(usize, Vec<u8>)],
     k: usize,
     m: usize,
 ) -> Option<hash_map::IntoIter<String, u16>> {
@@ -130,34 +130,34 @@ impl<'a> Iterator for KmerIterator<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use itertools::Itertools;
+// #[cfg(test)]
+// mod tests {
+// use itertools::Itertools;
 
-    use crate::superkmers_computation;
+// use crate::superkmers_computation;
 
-    use super::*;
+// use super::*;
 
-    // #[test]
-    // fn test_extract_kmers_from_hk_count_iter_empty() {
-    //     let kmer = "TAAAGATCCCTCACAAAGAA";
-    //     let k = kmer.len();
-    //     let m = 10;
-    //     let superkmers =
-    //         superkmers_computation::compute_superkmers_linear_streaming(kmer.as_bytes(), k, m)
-    //             .expect("unable to extract superkmers")
-    //             .collect_vec();
-    //     assert_eq!(superkmers.len(), 1);
-    //     let superkmer = superkmers[0];
-    //     assert!(!superkmer.is_canonical_in_the_read());
-    //     let start_mini = superkmer.start_of_minimizer();
+// #[test]
+// fn test_extract_kmers_from_hk_count_iter_empty() {
+//     let kmer = "TAAAGATCCCTCACAAAGAA";
+//     let k = kmer.len();
+//     let m = 10;
+//     let superkmers =
+//         superkmers_computation::compute_superkmers_linear_streaming(kmer.as_bytes(), k, m)
+//             .expect("unable to extract superkmers")
+//             .collect_vec();
+//     assert_eq!(superkmers.len(), 1);
+//     let superkmer = superkmers[0];
+//     assert!(!superkmer.is_canonical_in_the_read());
+//     let start_mini = superkmer.start_of_minimizer();
 
-    //     let left_context = &kmer[0..start_mini + m - 1];
-    //     let right_context = &kmer[start_mini + 1..kmer.len()];
+//     let left_context = &kmer[0..start_mini + m - 1];
+//     let right_context = &kmer[start_mini + 1..kmer.len()];
 
-    //     let left_context =
-    //         SubsequenceMetadata::new(left_context.as_bytes(), 0, left_context.len(), false);
-    //     let right_context =
-    //         SubsequenceMetadata::new(right_context.as_bytes(), 0, right_context.len(), false);
-    // }
-}
+//     let left_context =
+//         SubsequenceMetadata::new(left_context.as_bytes(), 0, left_context.len(), false);
+//     let right_context =
+//         SubsequenceMetadata::new(right_context.as_bytes(), 0, right_context.len(), false);
+// }
+// }

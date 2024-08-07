@@ -209,7 +209,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_left_id(
         &self,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
         extended_hyperkmer_left: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<(usize, bool)> {
@@ -238,7 +238,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_right_id(
         &self,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
         extended_hyperkmer_right: &SubsequenceMetadata<NoBitPacked>,
     ) -> Option<(usize, bool)> {
@@ -284,7 +284,7 @@ impl HKCount {
         &self,
         minimizer: &Minimizer,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         left_hk: &SubsequenceMetadata<NoBitPacked>,
         right_hk: &SubsequenceMetadata<NoBitPacked>,
     ) -> bool {
@@ -310,7 +310,7 @@ impl HKCount {
     pub fn search_for_inclusion(
         &self,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         superkmer: &Superkmer,
         left_sk: &SubsequenceMetadata<NoBitPacked>,
         right_sk: &SubsequenceMetadata<NoBitPacked>,
@@ -397,7 +397,7 @@ impl HKCount {
     pub fn search_for_maximal_inclusion(
         &self,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         k: usize,
         m: usize,
         minimizer: &Minimizer,
@@ -476,7 +476,7 @@ impl HKCount {
     pub fn count_occurence_kmer(
         &self,
         hyperkmers: &ExtendedHyperkmers,
-        large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
         left_context: &SubsequenceMetadata<NoBitPacked>,
         right_context: &SubsequenceMetadata<NoBitPacked>,
@@ -536,7 +536,7 @@ impl HKCount {
 
 pub fn search_exact_hyperkmer_match(
     hyperkmers: &ExtendedHyperkmers,
-    large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+    large_hyperkmers: &[(usize, Vec<u8>)],
     left_hk: &SubsequenceMetadata<NoBitPacked>,
     right_hk: &SubsequenceMetadata<NoBitPacked>,
     candidate_left_ext_hk_metadata: &HKMetadata,

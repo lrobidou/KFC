@@ -10,7 +10,7 @@ use crate::superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata};
 
 pub fn get_subsequence_from_metadata<'a>(
     hyperkmers: &'a ExtendedHyperkmers,
-    large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+    large_hyperkmers: &'a [(usize, Vec<u8>)],
     metadata: &HKMetadata,
 ) -> SubsequenceMetadata<'a, BitPacked> {
     let index = metadata.get_index();

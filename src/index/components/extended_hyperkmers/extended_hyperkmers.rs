@@ -7,7 +7,6 @@ use serde::{
 use crate::superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata};
 
 use super::cheap_vec::SimpleVec;
-use crate::macros::debug_print as p;
 
 pub struct ExtendedHyperkmers {
     /// the `k` value
