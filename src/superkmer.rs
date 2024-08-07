@@ -65,6 +65,7 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     pub fn new(read: &'a [u8], start: usize, end: usize, same_orientation: bool) -> Self {
         debug_assert!(start <= read.len());
         debug_assert!(end <= read.len());
+        debug_assert!(start <= end);
         Self {
             read,
             start, // in base
@@ -574,6 +575,21 @@ impl<'a> Superkmer<'a> {
 
     pub fn is_canonical_in_the_read(&self) -> bool {
         self.superkmer.same_orientation
+    }
+
+    // TODO remove
+    pub fn minimizer_string(&self) -> String {
+        if self.is_canonical_in_the_read() {
+            String::from_utf8(
+                self.read[self.start_of_minimizer()..self.end_of_minimizer()]
+                    .iter()
+                    .copied()
+                    .collect_vec(),
+            )
+            .unwrap()
+        } else {
+            reverse_complement(&self.read[self.start_of_minimizer()..self.end_of_minimizer()])
+        }
     }
 
     // pub fn print(&self) -> String {
