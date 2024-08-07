@@ -6,8 +6,21 @@
 - [x] implement search
 - [] implement streaming search
 - [] use kff as possible output
-- [] implement kmer iterator
-- [x] streaming of superkmer
+- [x] implement kmer iterator
+- [x] streaming of kmers
+- [] optimize iteration of minimizer for streaming of kmers
+- [] discuss what to do when a single kmer is indexed: there is no previous nor next kmer
+- [] debug: we miss the first and last superkmer if t = 1 
+
+# bug lefts
+```bash
+cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
+cargo run -- dump --input index_64.kfc --output index_64.txt
+# sort the two files
+sort index_64.txt > dump_sorted.txt 
+sort 99mers.txt > 99_sort.txt
+diff dump_sorted.txt 99_sort.txt  # 74 kmers missing from the output of KFC
+```
 
 # Tests
 # data sources
