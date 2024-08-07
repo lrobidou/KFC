@@ -91,11 +91,22 @@ fn stats(index: &Index, k: usize) {
         assert_eq!(slice.len(), k - 1);
     }
 
+    let nb_base_in_large_hyperkmers: usize = index
+        .get_large_hyperkmers()
+        .iter()
+        .map(|large_hk| large_hk.0)
+        .sum();
     let number_of_hyperkmers = index.get_hyperkmers().get_nb_inserted();
+    let number_of_large_hyperkmers = index.get_large_hyperkmers().len();
     use macros::debug_print as p;
     println!("===== stats =====");
     p!(number_of_hyperkmers);
+    p!(number_of_large_hyperkmers);
     println!("nb bases in hyperkmers: {}", number_of_hyperkmers * (k - 1));
+    println!(
+        "nb base in large hyperkmers: {}",
+        nb_base_in_large_hyperkmers
+    );
 }
 
 /// Query the index with the output of KMC
