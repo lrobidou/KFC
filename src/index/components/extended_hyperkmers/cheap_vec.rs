@@ -1,4 +1,4 @@
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ptr;
 
 /// Wrapper around a pointer.
@@ -18,7 +18,7 @@ impl SimpleVec {
         let layout = Layout::array::<u64>(size).expect("Failed to create layout");
 
         // Allocate the memory
-        let ptr = unsafe { alloc(layout) };
+        let ptr = unsafe { alloc_zeroed(layout) };
 
         // Check for null pointer
         if ptr.is_null() {
