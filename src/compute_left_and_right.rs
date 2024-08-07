@@ -10,8 +10,8 @@ use core::intrinsics::unlikely;
 
 /// return the left and right extended hyperkmers of the currrent superkmer
 /// extended left hyperkmer is the largest sequence between:
-/// - the left part of a superkmer
-/// - the right part of the left superkmer
+///     - the left part of a superkmer
+///     - the right part of the left superkmer
 /// returned extended hyerkmer are not in canonical form, but are as they appear in the current superkmer
 /// (i.e. as if the the current superkmer was in its canonical form in the read)
 /// returned tuple is (left, right)
@@ -21,8 +21,8 @@ pub fn get_left_and_rigth_extended_hk<'a>(
     next_sk: &Superkmer<'a>,
     k: usize,
 ) -> (
-    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize),
-    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize),
+    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize, bool),
+    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize, bool),
 ) {
     // Caution: the next and previous superkmer are given as they appear in the read.
     // * but still in the order they would appear if the current superkmer was canonical *
@@ -48,88 +48,131 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             next_right_sk.change_orientation()
         };
 
-    let extended_left_sk: (SubsequenceMetadata<'a, NoBitPacked>, usize, usize) =
-        if current_left_sk.len() > previous_right_sk.len() {
-            (current_left_sk, 0, current_left_sk.len())
-        } else {
-            (previous_right_sk, 0, current_left_sk.len())
-        };
+    let extended_left_sk = if current_left_sk.len() > previous_right_sk.len() {
+        (current_left_sk, 0, current_left_sk.len(), false)
+    } else {
+        (previous_right_sk, 0, current_left_sk.len(), false)
+    };
 
     let extended_right_sk = if current_right_sk.len() > next_left_sk.len() {
-        (current_right_sk, 0, current_right_sk.len())
+        (current_right_sk, 0, current_right_sk.len(), false)
     } else {
         (
             next_left_sk,
             next_left_sk.len() - current_right_sk.len(),
             next_left_sk.len(),
+            false,
         )
     };
 
     debug_assert!(extended_left_sk.0.len() < k);
     debug_assert!(extended_right_sk.0.len() < k);
 
+    // TODO discuss should the test be about if the two minimizers are the same?
+    // TODO document this code
+    // I (lucas) feel like I am missing something here
+    // I think there's an edge case and the "inclusion hypothesis" can be violated if the two minimizers are equal
     let extended_left_sk = if extended_left_sk.0.len() == k - 1 {
         extended_left_sk
     } else if unlikely(extended_left_sk.0.len() < k - 1) {
         // the right context is not maximal => need to create such context
         if current_sk.is_canonical_in_the_read() {
-            debug_assert!(previous_sk.superkmer.len() >= k);
-            let left_ext = SubsequenceMetadata::new(
-                previous_sk.read,
-                previous_sk.superkmer.end() - (k - 1),
-                previous_sk.superkmer.end(),
-                current_sk.is_canonical_in_the_read(),
-            );
-            (
-                left_ext,
-                left_ext.len() - current_left_sk.len(),
-                left_ext.len(),
-            )
-        } else {
-            debug_assert!(previous_sk.superkmer.len() >= k);
+            // TODO review my code please
+            debug_assert!(previous_sk.superkmer.start() < current_sk.superkmer.start());
+
             let left_ext = SubsequenceMetadata::new(
                 previous_sk.read,
                 previous_sk.superkmer.start(),
-                previous_sk.superkmer.start() + (k - 1),
+                current_sk.superkmer.end(),
                 current_sk.is_canonical_in_the_read(),
             );
-            (left_ext, 0, current_left_sk.len())
+
+            let start = left_ext.len() - current_sk.superkmer.len();
+            (left_ext, start, start + current_left_sk.len(), true)
+        } else {
+            // TODO review my code please
+            debug_assert!(previous_sk.superkmer.start() > current_sk.superkmer.start());
+
+            let left_ext = SubsequenceMetadata::new(
+                current_sk.read,
+                current_sk.superkmer.start(),
+                previous_sk.superkmer.end(),
+                current_sk.is_canonical_in_the_read(),
+            );
+
+            let start = left_ext.len() - current_sk.superkmer.len();
+            (left_ext, start, start + current_left_sk.len(), true)
         }
     } else {
         panic!() // TODO error message
     };
 
+    #[cfg(debug_assertions)]
+    {
+        // left hyperkmer should end by the minimizer (excluding its last character)
+        let left_hyperkmer =
+            extended_left_sk.0.to_string()[extended_left_sk.1..extended_left_sk.2].to_string(); // potentially its revcomp
+        let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
+        let minimizer = current_sk.minimizer_string();
+        debug_assert_eq!(
+            left_hyperkmer[left_hyperkmer.len() + 1 - m..left_hyperkmer.len()].to_owned(),
+            minimizer[0..minimizer.len() - 1]
+        );
+    }
+
+    // TODO discuss (same as above)
     let extended_right_sk = if extended_right_sk.0.len() == k - 1 {
         extended_right_sk
     } else if unlikely(extended_right_sk.0.len() < k - 1) {
         // the right context is not maximal => need to create such context
         if current_sk.is_canonical_in_the_read() {
-            let right_ext = SubsequenceMetadata::new(
-                current_sk.read,
-                current_sk.superkmer.end() - (k - 1),
-                current_sk.superkmer.end(),
-                current_sk.is_canonical_in_the_read(),
-            );
-            (
-                right_ext,
-                right_ext.len() - current_right_sk.len(),
-                right_ext.len(),
-            )
-        } else {
+            // TODO review my code please
+            debug_assert!(current_sk.superkmer.start() < (next_sk.superkmer.start()));
+
             let right_ext = SubsequenceMetadata::new(
                 current_sk.read,
                 current_sk.superkmer.start(),
-                current_sk.superkmer.start() + (k - 1),
+                next_sk.superkmer.end(),
                 current_sk.is_canonical_in_the_read(),
             );
-            (right_ext, 0, current_right_sk.len())
+
+            let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
+            let start = current_left_sk.len() - m + 2;
+            (right_ext, start, start + current_right_sk.len(), true)
+        } else {
+            // TODO review my code please
+            debug_assert!(current_sk.superkmer.start() > (next_sk.superkmer.start()));
+
+            let right_ext = SubsequenceMetadata::new(
+                next_sk.read,
+                next_sk.superkmer.start(),
+                current_sk.superkmer.end(),
+                current_sk.is_canonical_in_the_read(),
+            );
+
+            let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
+            let start = current_left_sk.len() - m + 2;
+            (right_ext, start, start + current_right_sk.len(), true)
         }
     } else {
         panic!() // TODO error message
     };
-    debug_assert!(extended_left_sk.0.len() == k - 1);
-    debug_assert!(extended_right_sk.0.len() == k - 1);
 
+    #[cfg(debug_assertions)]
+    {
+        // right hyperkmer should start by the minimizer (excluding its first character)
+        let right_hyperkmer =
+            extended_right_sk.0.to_string()[extended_right_sk.1..extended_right_sk.2].to_string();
+        let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
+        let minimizer = current_sk.minimizer_string();
+        debug_assert_eq!(right_hyperkmer[0..m - 1].to_owned(), minimizer[1..m]);
+    }
+    if !extended_left_sk.3 {
+        debug_assert!(extended_left_sk.0.len() == k - 1);
+    }
+    if !extended_right_sk.3 {
+        debug_assert!(extended_right_sk.0.len() == k - 1);
+    }
     (extended_left_sk, extended_right_sk)
 }
 

@@ -112,6 +112,11 @@ impl SuperKmerCounts {
             .insert(superkmer.get_minimizer(), (superkmer_hash, 1));
         1
     }
+
+    // #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
 #[cfg(test)]
