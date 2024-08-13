@@ -23,6 +23,7 @@ pub fn u8_to_char(c: u8) -> u8 {
 }
 
 pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
+    const NB_BASES_MAX: usize = 64 / 2;
     let mut nb_base = 0;
     let mut result = 0;
     for ascii_letter in bytes.into_iter() {
@@ -30,7 +31,14 @@ pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
         result <<= 2;
         result += char_to_u64(ascii_letter);
     }
-    assert!(nb_base <= 64);
+    assert!(
+        nb_base <= NB_BASES_MAX,
+        "minimizer should consists of {NB_BASES_MAX} bases max"
+    );
+    // TODO possible source of bug if kff need some other order
+    let nb_base_not_inserted = NB_BASES_MAX - nb_base;
+    let result = result << (2 * nb_base_not_inserted);
+    #[allow(clippy::let_and_return)]
     result
 }
 

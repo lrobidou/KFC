@@ -1,13 +1,13 @@
 use clap::{Args, Parser, Subcommand};
-use dump::bin_dump;
+use serde::bin;
 // TODO use better library
 use fastxgz::fasta_reads;
 use index::Index;
 use itertools::Itertools;
 use mashmap::MashMap;
-
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::Write;
+use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
 
 type Minimizer = u64;
@@ -15,9 +15,9 @@ type HashSuperKmer = u64;
 type Count = u16;
 
 mod compute_left_and_right;
-mod dump;
 mod index;
 mod minimizer_iter;
+mod serde;
 mod superkmer;
 mod superkmers_computation;
 mod two_bits;
@@ -59,7 +59,9 @@ struct DumpArgs {
     input: String,
     /// Output txt file
     #[arg(short, long)]
-    output: String,
+    text: Option<String>,
+    #[arg(short, long)]
+    kff: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -176,22 +178,67 @@ fn main() {
 
             // write the index to disk
             if let Some(output_file) = args.output {
-                dump::bin_dump::dump(&index, &output_file).expect("impossible to dump");
+                serde::bin::dump(&index, &output_file).expect("impossible to dump");
 
                 #[cfg(debug_assertions)]
                 {
-                    let index2 = dump::bin_dump::load(&output_file).expect("impossible to load");
-                    assert!(index == index2);
+                    let index2 = serde::bin::load(&output_file).expect("impossible to load");
+                    debug_assert!(index == index2);
                 }
+
                 stats(&index, k);
             }
         }
         Command::Dump(args) => {
             let input = args.input;
-            let output = args.output;
+            let index = bin::load(&input).expect("unable to read the index");
+            if let Some(kff_path) = args.kff {
+                serde::kff::buggy_dump(&index, kff_path.clone()).unwrap();
 
-            let index = bin_dump::load(&input).expect("unable to read the index");
-            dump::plain_text::plain_text(&index, output);
+                // // TODO remove
+                // // read kff and dump to txt
+                // let file = std::fs::File::open(kff_path.clone()).expect("unable to read kff file");
+                // let buffer = BufReader::new(file);
+                // let reader = kff::Kff::read(std::io::BufReader::new(buffer))
+                //     .expect("cannot open the kff file");
+                // // assert!(reader.check().unwrap());  // surprising behavior, "breaks" the reader
+                // println!("{:?}", reader.header());
+                // println!("{:?}", reader.values());
+                // let kmers = reader.kmers().map(|x| {
+                //     println!("{:?}", x);
+                //     let kmer = x.unwrap();
+                //     let seq = kmer.seq(0b00011110);
+                //     let mut data: [u8; 2] = [0, 0];
+                //     debug_assert_eq!(kmer.data().len(), 2);
+                //     data.copy_from_slice(kmer.data());
+
+                //     (
+                //         String::from_utf8(seq).expect("cannot parse utf-8"),
+                //         Count::from_le_bytes(data),
+                //     )
+                // });
+                // let file = std::fs::File::create("test_kff.txt").expect("unable to read kff file");
+                // let mut buffer = BufWriter::new(file);
+                // for (kmer, count) in kmers {
+                //     writeln!(buffer, "{}\t{}", kmer, count).unwrap();
+                // }
+
+                let file = kff::Kff::<std::io::BufReader<std::fs::File>>::open(kff_path)
+                    .expect("could not open kff file");
+                let encoding = *(file.header().encoding());
+
+                let mut iter = file.kmers();
+                while let Some(Ok(kmer)) = iter.next() {
+                    println!(
+                        "{}",
+                        String::from_utf8(kmer.seq(encoding)).expect("could not parse utf 8")
+                    );
+                }
+            };
+
+            if let Some(plain_text_path) = args.text {
+                serde::plain_text::plain_text(&index, plain_text_path);
+            }
         }
     }
 }

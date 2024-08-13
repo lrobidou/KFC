@@ -3,11 +3,14 @@ mod computation;
 mod kmers_iteration;
 
 use super::Minimizer;
+use crate::serde::bin;
 use crate::Count;
 use computation::first_stage;
 use computation::second_stage;
+use kmers_iteration::NormalContextsIterator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Instant;
 
 use kmers_iteration::KmerIterator;
@@ -120,13 +123,62 @@ impl Index {
     }
 
     pub fn iter_kmers(&self) -> KmerIterator {
+        let minimizers = self.iter_minimizers();
         KmerIterator::new(
             &self.hk_count,
+            minimizers,
             &self.hyperkmers,
             &self.large_hyperkmers,
             self.k,
             self.m,
         )
+    }
+
+    pub fn iter_minimizers(&self) -> std::collections::hash_set::IntoIter<&u64> {
+        let mut set = HashSet::new();
+        for (minimizer, _v) in self.hk_count.get_data().iter() {
+            set.insert(minimizer);
+        }
+        set.into_iter()
+    }
+
+    /// Once a change in minimizer occurs, it never comes again
+    pub fn normal_context_iterator(&self) -> NormalContextsIterator {
+        let mini_iter = self.iter_minimizers();
+        NormalContextsIterator::new(
+            &self.hk_count,
+            mini_iter,
+            &self.hyperkmers,
+            &self.large_hyperkmers,
+            // self.k,
+            self.m,
+        )
+    }
+
+    // pub fn iter_minimizers_large_context(&self) -> std::collections::hash_set::IntoIter<&u64> {
+    //     let mut set = HashSet::new();
+    //     for (minimizer, (l, r, _c)) in self.hk_count.get_data().iter() {
+    //         if l.get_is_large() || r.get_is_large() {
+    //             set.insert(minimizer);
+    //         }
+    //     }
+    //     set.into_iter()
+    // }
+
+    // TODO
+    // pub fn iter_minimizers_normal_contexts(&self) -> std::collections::hash_set::IntoIter<&u64> {
+    //     let mut set = HashSet::new();
+    //     for (k, _v) in self.hk_count.get_data().iter() {
+    //         set.insert(k);
+    //     }
+    //     set.into_iter()
+    // }
+    pub fn get_k(&self) -> usize {
+        self.k
+    }
+
+    pub fn get_m(&self) -> usize {
+        self.m
     }
 }
 
@@ -252,7 +304,6 @@ mod tests {
 
     #[test]
     fn test_empty_serde() {
-        use crate::dump::bin_dump;
         let filename = "test_empty_serde";
         let k = 10;
         let m = 3;
@@ -266,14 +317,13 @@ mod tests {
             k,
             m,
         );
-        bin_dump::dump(&empty_index, filename).unwrap();
-        assert!(empty_index == bin_dump::load(filename).unwrap());
+        bin::dump(&empty_index, filename).unwrap();
+        assert!(empty_index == bin::load(filename).unwrap());
     }
 
     #[test]
     fn test_serde() {
-        use crate::dump::bin_dump;
-        let filename = "test_empty_serde";
+        let filename = "test_serde";
         let kmer = "TGATGAGTACGTAGCGAAAAAAAAAAGGGTACGTGCATGCAGTGACGG";
         let k = kmer.len();
         let m = 3;
@@ -354,8 +404,8 @@ mod tests {
             m,
         );
 
-        bin_dump::dump(&index, filename).unwrap();
-        assert!(index == bin_dump::load(filename).unwrap());
+        bin::dump(&index, filename).unwrap();
+        assert!(index == bin::load(filename).unwrap());
     }
 
     #[test]

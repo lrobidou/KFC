@@ -48,7 +48,7 @@ impl Serialize for ExtendedHyperkmers {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("ExtendedHyperkmers", 0)?;
+        let mut state = serializer.serialize_struct("ExtendedHyperkmers", 5)?;
         state.serialize_field("k", &self.k)?;
         state.serialize_field(
             "byte_size_encoded_hyper_kmer",
