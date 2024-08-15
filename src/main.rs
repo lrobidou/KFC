@@ -5,10 +5,12 @@ use fastxgz::fasta_reads;
 use index::Index;
 use itertools::Itertools;
 use mashmap::MashMap;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
+use superkmers_computation::is_canonical;
 
 type Minimizer = u64;
 type HashSuperKmer = u64;
@@ -23,7 +25,7 @@ mod superkmers_computation;
 mod two_bits;
 
 // use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
-use superkmer::Superkmer;
+use superkmer::{reverse_complement, Superkmer};
 
 /// Macro to print the name of a variable and its value
 mod macros {
@@ -50,18 +52,7 @@ enum Command {
     /// Build an index counting the k-mers of a FASTA/Q file
     Build(BuildArgs),
     Dump(DumpArgs),
-}
-
-#[derive(Args, Debug)]
-struct DumpArgs {
-    /// Input index
-    #[arg(short, long)]
-    input: String,
-    /// Output txt file
-    #[arg(short, long)]
-    text: Option<String>,
-    #[arg(short, long)]
-    kff: Option<String>,
+    KFFDump(KFFDumpArgs),
 }
 
 #[derive(Args, Debug)]
@@ -84,6 +75,28 @@ struct BuildArgs {
     /// Check against the results of KMC
     #[arg(long)]
     check_kmc: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct DumpArgs {
+    /// Input index
+    #[arg(short, long)]
+    input_index: String,
+    /// Output txt file
+    #[arg(long)]
+    output_text: Option<String>,
+    #[arg(long)]
+    output_kff: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct KFFDumpArgs {
+    /// Input index
+    #[arg(short, long)]
+    input_kff: String,
+    /// Output txt file
+    #[arg(short, long)]
+    output_text: String,
 }
 
 /// Prints some statistics about the index
@@ -190,10 +203,10 @@ fn main() {
             }
         }
         Command::Dump(args) => {
-            let input = args.input;
+            let input = args.input_index;
             let index = bin::load(&input).expect("unable to read the index");
-            if let Some(kff_path) = args.kff {
-                serde::kff::buggy_dump(&index, kff_path.clone()).unwrap();
+            if let Some(kff_path) = args.output_kff {
+                serde::kff::dump(&index, kff_path.clone()).unwrap();
 
                 // // TODO remove
                 // // read kff and dump to txt
@@ -223,21 +236,45 @@ fn main() {
                 //     writeln!(buffer, "{}\t{}", kmer, count).unwrap();
                 // }
 
-                let file = kff::Kff::<std::io::BufReader<std::fs::File>>::open(kff_path)
-                    .expect("could not open kff file");
-                let encoding = *(file.header().encoding());
-
-                let mut iter = file.kmers();
-                while let Some(Ok(kmer)) = iter.next() {
-                    println!(
-                        "{}",
-                        String::from_utf8(kmer.seq(encoding)).expect("could not parse utf 8")
-                    );
+                if let Some(plain_text_path) = args.output_text {
+                    serde::plain_text::plain_text(&index, plain_text_path);
                 }
-            };
+            }
+        }
+        Command::KFFDump(args) => {
+            let mut file = kff::Kff::<std::io::BufReader<std::fs::File>>::open(args.input_kff)
+                .expect("could not open kff file");
+            let output_file = File::create(args.output_text).expect("unable to open output file");
+            let mut buffer = BufWriter::with_capacity(9000000, output_file);
+            let encoding = *(file.header().encoding());
 
-            if let Some(plain_text_path) = args.text {
-                serde::plain_text::plain_text(&index, plain_text_path);
+            while let Some(kmer_section) = file.next_kmer_section() {
+                let kmer_section = kmer_section.expect("could not read the kmer section");
+                let mut kmers_counts: HashMap<String, u16> = HashMap::new();
+                for kmer in kmer_section {
+                    // extract count
+                    let mut slice = [0; 2];
+                    slice.copy_from_slice(kmer.data());
+                    let count = Count::from_le_bytes(slice);
+                    // compute kmer
+                    let kmer = {
+                        let seq = kmer.seq(encoding);
+                        if is_canonical(&seq) {
+                            String::from_utf8(seq).unwrap()
+                        } else {
+                            reverse_complement(&seq)
+                        }
+                    };
+                    // store kmer
+                    kmers_counts
+                        .entry(kmer)
+                        .and_modify(|x| *x = x.saturating_add(count))
+                        .or_insert(count);
+                }
+                // no more kmer in this section => dump the kmers
+                for (kmer, count) in kmers_counts {
+                    writeln!(buffer, "{}\t{}", kmer, count).unwrap();
+                }
             }
         }
     }

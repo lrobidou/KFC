@@ -3,11 +3,10 @@ mod computation;
 mod kmers_iteration;
 
 use super::Minimizer;
-use crate::serde::bin;
 use crate::Count;
 use computation::first_stage;
 use computation::second_stage;
-use kmers_iteration::NormalContextsIterator;
+use kmers_iteration::{ContextsIterator, LargeContextsIterator, NormalContextsIterator};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -69,7 +68,6 @@ impl Index {
             start_fisrt_step.elapsed().as_millis()
         );
         let start_second_stage = Instant::now();
-        println!("{:?}", super_kmer_counts.len());
         let discarded_minimizers = second_stage(
             &mut super_kmer_counts,
             &mut hk_count,
@@ -142,7 +140,6 @@ impl Index {
         set.into_iter()
     }
 
-    /// Once a change in minimizer occurs, it never comes again
     pub fn normal_context_iterator(&self) -> NormalContextsIterator {
         let mini_iter = self.iter_minimizers();
         NormalContextsIterator::new(
@@ -151,6 +148,29 @@ impl Index {
             &self.hyperkmers,
             &self.large_hyperkmers,
             // self.k,
+            self.m,
+        )
+    }
+
+    pub fn large_context_iterator(&self) -> LargeContextsIterator {
+        let mini_iter = self.iter_minimizers();
+        LargeContextsIterator::new(
+            &self.hk_count,
+            mini_iter,
+            &self.hyperkmers,
+            &self.large_hyperkmers,
+            self.m,
+        )
+    }
+
+    /// Once a change in minimizer occurs, it never comes again
+    pub fn context_iterator(&self) -> ContextsIterator {
+        let mini_iter = self.iter_minimizers();
+        ContextsIterator::new(
+            &self.hk_count,
+            mini_iter,
+            &self.hyperkmers,
+            &self.large_hyperkmers,
             self.m,
         )
     }
@@ -185,7 +205,7 @@ impl Index {
 #[cfg(test)]
 mod tests {
 
-    // use std::collections::HashSet;
+    use crate::serde::bin;
 
     use crate::{
         compute_left_and_right, superkmer::SubsequenceMetadata,

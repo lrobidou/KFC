@@ -76,7 +76,6 @@ impl<const SIZE_INDEX: usize, const SIZE_START: usize, const SIZE_END: usize>
         // true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer it is associated with in the `HKCount` table
         change_orientation: bool,
     ) -> Self {
-        // println!("{}", is_large);
         debug_assert_eq!(SIZE_INDEX + SIZE_START + SIZE_END + 2, 64);
         debug_assert!(index < 2usize.pow((SIZE_INDEX + 1) as u32));
         debug_assert!(start < 2usize.pow((SIZE_START + 1) as u32));
@@ -91,7 +90,6 @@ impl<const SIZE_INDEX: usize, const SIZE_START: usize, const SIZE_END: usize>
         assert_eq!(me.get_index(), index);
         assert_eq!(me.get_start(), start);
         assert_eq!(me.get_end(), end);
-        // assert_eq!((data >> 1) as bool, is_large);
         assert_eq!(me.get_is_large(), is_large);
         assert_eq!(me.get_change_orientation(), change_orientation);
         me
@@ -116,7 +114,6 @@ impl<const SIZE_INDEX: usize, const SIZE_START: usize, const SIZE_END: usize>
     }
 
     pub fn get_is_large(&self) -> bool {
-        // last bit of the data
         (self.data >> 1) % 2 == 1
     }
 

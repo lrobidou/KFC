@@ -17,12 +17,7 @@ pub fn extract_context_if_not_large(
     if left_ext_hk_metadata.get_is_large() || right_ext_hk_metadata.get_is_large() {
         None
     } else {
-        Some(extract_context_but_cut_the_minimizer_out(
-            entry,
-            m,
-            hyperkmers,
-            large_hyperkmers,
-        ))
+        Some(extract_context(entry, m, hyperkmers, large_hyperkmers))
     }
 }
 
@@ -34,12 +29,7 @@ pub fn extract_context_if_large(
 ) -> Option<(String, usize)> {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
     if left_ext_hk_metadata.get_is_large() || right_ext_hk_metadata.get_is_large() {
-        Some(extract_context_but_cut_the_minimizer_out(
-            entry,
-            m,
-            hyperkmers,
-            large_hyperkmers,
-        ))
+        Some(extract_context(entry, m, hyperkmers, large_hyperkmers))
     } else {
         None
     }
@@ -103,7 +93,7 @@ pub fn extract_context(
     m: usize,
     hyperkmers: &ExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
-) -> String {
+) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
     // get sequences as they would appear if the current superkmer was canonical
     let left_ext_hk =
@@ -131,7 +121,7 @@ pub fn extract_context(
         left_string[(left_string.len() - (m - 2))..left_string.len()],
         right_string[0..(m - 2)]
     );
-
+    let minimizer_pos = left_string.len() - (m - 1);
     let whole_context = {
         let mut x = left_string;
         x.push_str(&right_string[(m - 2)..right_string.len()]);
@@ -140,7 +130,7 @@ pub fn extract_context(
 
     // clearer with a name
     #[allow(clippy::let_and_return)]
-    whole_context
+    (whole_context, minimizer_pos)
 }
 
 fn extract_kmers_from_contexts_associated_to_a_minimizer(
@@ -154,7 +144,8 @@ fn extract_kmers_from_contexts_associated_to_a_minimizer(
     let mut kmers_counts: HashMap<String, u16> = HashMap::new();
     for hk_count_elem in hk_count.get_data().get_iter(minimizer) {
         let count = hk_count_elem.2;
-        let context = extract_context(hk_count_elem, m, hyperkmers, large_hyperkmers);
+        let (context, _minimizer_start_pos) =
+            extract_context(hk_count_elem, m, hyperkmers, large_hyperkmers);
         let context = SubsequenceMetadata::new(context.as_bytes(), 0, context.len(), true);
         // extract canonical kmers from the whole context and add them to the set
         for i in 0..context.len() - k + 1 {
@@ -223,6 +214,72 @@ impl<'a> Iterator for KmerIterator<'a> {
     }
 }
 
+pub struct ContextsIterator<'a> {
+    hk_count: &'a HKCount,
+    minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
+    hyperkmers: &'a ExtendedHyperkmers,
+    large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+    // k: usize,
+    m: usize,
+    current_entry_iterator: Option<(
+        u64,
+        Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, Count)> + 'a>,
+    )>,
+}
+
+impl<'a> ContextsIterator<'a> {
+    pub fn new(
+        hk_count: &'a HKCount,
+        minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
+        hyperkmers: &'a ExtendedHyperkmers,
+        large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+        // k: usize,
+        m: usize,
+    ) -> Self {
+        // let hk_count_iter = Box::new(hk_count.get_data().iter());
+        // let minimizer = minimizers_iter.peekable();
+
+        Self {
+            hk_count,
+            minimizers_iter,
+            hyperkmers,
+            large_hyperkmers,
+            // k,
+            m,
+            current_entry_iterator: None,
+        }
+    }
+}
+
+impl<'a> Iterator for ContextsIterator<'a> {
+    type Item = (String, u64, usize, Count);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // If we have an iterator over entries, try to get the next item from it.
+            if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
+                if let Some(entry) = entry_iter.next() {
+                    let context =
+                        extract_context(entry, self.m, self.hyperkmers, self.large_hyperkmers);
+                    return Some((context.0, *minimizer, context.1, entry.2));
+                } else {
+                    // If the current entry iterator is exhausted, clear it.
+                    self.current_entry_iterator = None;
+                }
+            }
+
+            // If there's no current entry iterator, try to create one from the next minimizer.
+            if self.current_entry_iterator.is_none() {
+                let minimizer = self.minimizers_iter.next()?;
+                let hkcount_iter_for_this_minimizer = self.hk_count.get_data().get_iter(minimizer);
+                // TODO eviter Box
+                self.current_entry_iterator =
+                    Some((*minimizer, Box::new(hkcount_iter_for_this_minimizer)));
+            }
+        }
+    }
+}
+
 pub struct NormalContextsIterator<'a> {
     hk_count: &'a HKCount,
     minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
@@ -269,6 +326,73 @@ impl<'a> Iterator for NormalContextsIterator<'a> {
             if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
                 if let Some(entry) = entry_iter.next() {
                     if let Some(context) = extract_context_if_not_large(
+                        entry,
+                        self.m,
+                        self.hyperkmers,
+                        self.large_hyperkmers,
+                    ) {
+                        return Some((context.0, *minimizer, context.1, entry.2));
+                    } else {
+                        continue;
+                    }
+                } else {
+                    // If the current entry iterator is exhausted, clear it.
+                    self.current_entry_iterator = None;
+                }
+            }
+
+            // If there's no current entry iterator, try to create one from the next minimizer.
+            if self.current_entry_iterator.is_none() {
+                let minimizer = self.minimizers_iter.next()?;
+                let hkcount_iter_for_this_minimizer = self.hk_count.get_data().get_iter(minimizer);
+                // TODO eviter Box
+                self.current_entry_iterator =
+                    Some((*minimizer, Box::new(hkcount_iter_for_this_minimizer)));
+            }
+        }
+    }
+}
+
+pub struct LargeContextsIterator<'a> {
+    hk_count: &'a HKCount,
+    minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
+    hyperkmers: &'a ExtendedHyperkmers,
+    large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+    m: usize,
+    current_entry_iterator: Option<(
+        u64,
+        Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, Count)> + 'a>,
+    )>,
+}
+
+impl<'a> LargeContextsIterator<'a> {
+    pub fn new(
+        hk_count: &'a HKCount,
+        minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
+        hyperkmers: &'a ExtendedHyperkmers,
+        large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+        m: usize,
+    ) -> Self {
+        Self {
+            hk_count,
+            minimizers_iter,
+            hyperkmers,
+            large_hyperkmers,
+            m,
+            current_entry_iterator: None,
+        }
+    }
+}
+
+impl<'a> Iterator for LargeContextsIterator<'a> {
+    type Item = (String, u64, usize, Count);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            // If we have an iterator over entries, try to get the next item from it.
+            if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
+                if let Some(entry) = entry_iter.next() {
+                    if let Some(context) = extract_context_if_large(
                         entry,
                         self.m,
                         self.hyperkmers,
