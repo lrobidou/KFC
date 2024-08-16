@@ -75,9 +75,9 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         }
     }
 
-    pub fn whole_string(read: &'a [u8]) -> Self {
-        Self::new(read, 0, read.len(), true)
-    }
+    // pub fn whole_string(read: &'a [u8]) -> Self {
+    //     Self::new(read, 0, read.len(), true)
+    // }
 
     pub fn is_canonical(&self) -> bool {
         let subsequence = &self.read[self.start..self.end];

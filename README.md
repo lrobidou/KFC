@@ -1,25 +1,99 @@
-# KFC
-
 ## TODO:
 - [x] using &str instead of String to prevent copies
 - [x] using Vec<u8> instead of `String` in the data structures
 - [x] implement search
 - [] implement streaming search
-- [] use kff as possible output
-- [x] implement kmer iterator
-- [x] streaming of kmers
-- [] optimize iteration of minimizer for streaming of kmers
-- [] discuss what to do when a single kmer is indexed: there is no previous nor next kmer
+- [x] use kff as possible output
+- [x] implement k-mer iterator
+- [x] streaming of k-mers
+- [] optimize iteration of minimizer for streaming of k-mers
+- [] discuss what to do when a single k-mer is indexed: there is no previous nor next k-mer
 - [] debug: we miss the first and last superkmer if t = 1 
+- [] use version of kff from the crate instead of my own 
+- [] make it possible to do a single pass 
+- [] allow non canonical k-mers (?)
 
-# bug lefts
+## bug lefts
+We miss the first and last superkmers:
 ```bash
 cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
-cargo run -- dump --input index_64.kfc --output index_64.txt
+cargo run -- dump --input-index index_64.kfc --output-text index_64.txt
 # sort the two files
 sort index_64.txt > dump_sorted.txt 
 sort 99mers.txt > 99_sort.txt
-diff dump_sorted.txt 99_sort.txt  # 74 kmers missing from the output of KFC
+diff dump_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
+```
+Alternatively:
+```bash
+cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
+cargo run -- dump --input-index index_64.kfc --output-kff index.kff
+cargo run -- kff-dump --input-kff index.kff --output-text kff_text.txt
+
+# sort the two files
+sort kff_text.txt > kff_sorted.txt
+sort 99mers.txt > 99_sort.txt
+diff kff_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
+```
+# KFC
+KFC is an implementation of a canonical k-mer counter using a k-mer representation introduced in XXX the paper XXX.
+
+This representation allows to:
+- use a (very, very) large k value (as big as 2^(regirster size)) XXX more tests on big values XXX
+- be space efficient (output index is typically ~x XXX x XXX times smaller than KMC)
+- be fast (indexation is typically ~x XXX x XXX faster than KMC)
+KFC can filter k-mer based on their count and only index the k-mers above that count.
+
+## If you are a reviewer
+We created a branch `paper` that will stay consistant with the paper.
+
+Please checkout to the `paper` branch:
+```bash
+git clone https://github.com/lrobidou/KFC
+git checkout paper XXX do the branch XXX
+cd KFC
+cargo build --release
+```
+
+## Install
+
+First, [install rust](https://www.rust-lang.org/learn/get-started).
+
+Then install KFC:
+```bash
+git clone https://github.com/lrobidou/KFC
+cd KFC
+cargo build --release
+```
+XXX install in path ? XXX
+
+## Run
+### Build a KFC index
+The first step to any KFC usage is to build a KFC index.
+```bash
+cargo run --release -- build -k <k>> -m <m> -t <threshold_count> --input <file>.fasta --output <index>.kfc
+```
+
+### Dump a KFC index to text
+Once the KFC index is computed, it is possible to dump it to text. The k-mers are *not* ordered.
+```bash
+cargo run --release -- dump --input-index <index>.kfc --output-text <kmers.txt>
+```
+
+### Dump a KFC index to the k-mer file format (KFF)
+KFC supports the k-mer file format (XXX cite XXX).
+As such, it is possible to dump a KFC index into a KFF file.
+The count of each k-mer is encoded in the KFF file. 
+```bash
+cargo run --release -- dump --input-index <index>.kfc --output-kff <index>.kff
+```
+
+### Dump a KFF to text
+**Warning:** KFC only handles KFF files built by KFC.
+
+Reading the KFF file produced by KFC should be possible with any implementation supporting KFF, but we recommand relying on KFC for this task. Indeed, a KFF built by KFC respects some assumptions on the count of k-mers, which can be used to dump the KFF file with a lower memory consumption. This also means that files not respecting these assumptions would produce invalid count if dumped by KFC.
+
+```bash 
+cargo run --release -- kff-dump --input-kff <index>.kff --output-text <index>.txt
 ```
 
 # Tests

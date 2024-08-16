@@ -104,7 +104,10 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             (left_ext, start, start + current_left_sk.len(), true)
         }
     } else {
-        panic!() // TODO error message
+        unreachable!(
+            "the left context of the superkmer {} is larger or equal to k",
+            current_sk.superkmer
+        )
     };
 
     #[cfg(debug_assertions)]
@@ -155,7 +158,10 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             (right_ext, start, start + current_right_sk.len(), true)
         }
     } else {
-        panic!() // TODO error message
+        unreachable!(
+            "the right context of the superkmer {} is larger or equal to k",
+            current_sk.superkmer
+        )
     };
 
     #[cfg(debug_assertions)]

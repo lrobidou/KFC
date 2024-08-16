@@ -1,18 +1,18 @@
 pub mod components;
 mod computation;
-mod kmers_iteration;
+mod iterators;
 
 use super::Minimizer;
 use crate::Count;
 use computation::first_stage;
 use computation::second_stage;
-use kmers_iteration::{ContextsIterator, LargeContextsIterator, NormalContextsIterator};
+use iterators::ContextsIterator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use kmers_iteration::KmerIterator;
+use iterators::KmerIterator;
 
 use components::ExtendedHyperkmers;
 use components::HKCount;
@@ -140,30 +140,7 @@ impl Index {
         set.into_iter()
     }
 
-    pub fn normal_context_iterator(&self) -> NormalContextsIterator {
-        let mini_iter = self.iter_minimizers();
-        NormalContextsIterator::new(
-            &self.hk_count,
-            mini_iter,
-            &self.hyperkmers,
-            &self.large_hyperkmers,
-            // self.k,
-            self.m,
-        )
-    }
-
-    pub fn large_context_iterator(&self) -> LargeContextsIterator {
-        let mini_iter = self.iter_minimizers();
-        LargeContextsIterator::new(
-            &self.hk_count,
-            mini_iter,
-            &self.hyperkmers,
-            &self.large_hyperkmers,
-            self.m,
-        )
-    }
-
-    /// Once a change in minimizer occurs, it never comes again
+    /// Once a change in minimizer occurs, it never comes back again
     pub fn context_iterator(&self) -> ContextsIterator {
         let mini_iter = self.iter_minimizers();
         ContextsIterator::new(

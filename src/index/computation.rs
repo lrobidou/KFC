@@ -72,9 +72,6 @@ pub fn first_stage(
                 let (left_extended_hk, right_extended_hk) =
                     get_left_and_rigth_extended_hk(&previous_sk, &current_sk, &next_sk, k);
 
-                // let canonical_extended_left_hk = left_extended_hk.0.to_canonical();
-                // let canonical_extended_right_hk = right_extended_hk.0.to_canonical();
-
                 // left_hk and right_hk are the left and right hyperkmer
                 // as we would see them if the minimizer was in canonical form in the read
 
@@ -103,6 +100,8 @@ pub fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
+                    // previous sk is not solid => our hyperkmer is not already present
+                    // let's add it
                     if likely(!left_extended_hk.3) {
                         (hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0), false)
                     } else {
@@ -133,6 +132,8 @@ pub fn first_stage(
                             .expect("Hash collision on superkmers. Please change your seed.")
                     }
                 } else {
+                    // previous sk is not solid => our hyperkmer is not already present
+                    // let's add it
                     if likely(!right_extended_hk.3) {
                         (
                             hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0),
@@ -282,7 +283,7 @@ pub fn second_stage(
     sk_count: &mut SuperKmerCounts,
     hk_count: &mut HKCount,
     hyperkmers: &ExtendedHyperkmers,
-    large_hyperkmers: &Vec<(usize, Vec<u8>)>,
+    large_hyperkmers: &[(usize, Vec<u8>)],
     sequences: &Vec<&str>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
@@ -326,7 +327,7 @@ pub fn second_stage(
             let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
             let match_metadata = hk_count.search_for_maximal_inclusion(
                 hyperkmers,
-                &large_hyperkmers,
+                large_hyperkmers,
                 k,
                 m,
                 minimizer,
