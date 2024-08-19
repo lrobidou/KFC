@@ -38,6 +38,10 @@ sort 99mers.txt > 99_sort.txt
 diff kff_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
 ```
 # KFC
+
+![tests](https://github.com/lrobidou/KFC/workflows/tests/badge.svg)
+[![license](https://img.shields.io/badge/license-AGPL-purple)](https://github.com/lrobidou/KFC//blob/main/LICENSE)
+
 KFC is an implementation of a canonical k-mer counter using a k-mer representation introduced in XXX the paper XXX.
 
 This representation allows to:
