@@ -108,9 +108,10 @@ Place [https://www.ebi.ac.uk/ena/browser/view/U00096](https://www.ebi.ac.uk/ena/
 
 * [cargo-nextest](https://nexte.st/)
 * [cargo-llvm-cov](https://crates.io/crates/cargo-llvm-cov)
-    ```bash
-    cargo install cargo-llvm-cov
-    ```
+```bash
+cargo install cargo-llvm-cov
+cargo install cargo-nextest
+```
 
 ### Generate report on terminal
 
