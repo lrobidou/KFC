@@ -12,6 +12,9 @@
 - [] use version of kff from the crate instead of my own 
 - [] make it possible to do a single pass 
 - [] allow non canonical k-mers (?)
+- [] reference the paper in the README
+- [] test large value of k
+- [] make a paper branch (?)
 
 ## bug lefts
 We miss the first and last superkmers:
@@ -80,7 +83,7 @@ cargo run --release -- dump --input-index <index>.kfc --output-text <kmers.txt>
 ```
 
 ### Dump a KFC index to the k-mer file format (KFF)
-KFC supports the k-mer file format (XXX cite XXX).
+KFC supports the k-mer file format (see [Dufresne et al, The K-mer File Format: a standardized and compact disk representation of sets of k-mers](https://doi.org/10.1093/bioinformatics/btac528)).
 As such, it is possible to dump a KFC index into a KFF file.
 The count of each k-mer is encoded in the KFF file. 
 ```bash
