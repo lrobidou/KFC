@@ -23,11 +23,27 @@ jobs:
       - name: Run check
         run: cargo check --all-targets
 
-  tests:
+  tests_stable:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        toolchain: [stable, nightly]
+        toolchain: [stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Run tests
+        run: cargo test
+
+  tests_nightly:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        toolchain: [nightly]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
