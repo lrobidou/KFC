@@ -1,8 +1,10 @@
+use crate::index::FullIndexTrait;
 use crate::{Count, Index};
 use bitvec::view::BitView;
 use bitvec::{boxed::BitBox, order::Msb0, vec::BitVec};
 use kff::Kff;
 use log::error;
+use serde::Serialize;
 use std::{fs::File, io::BufWriter, path::Path};
 use thiserror::Error;
 
@@ -38,7 +40,10 @@ macro_rules! kff_cast_error {
 }
 
 // TODO report errors instead of panicking ?
-fn build_values(index: &Index) -> Result<kff::section::Values, KFFError> {
+fn build_values<FI>(index: &Index<FI>) -> Result<kff::section::Values, KFFError>
+where
+    FI: FullIndexTrait + Serialize,
+{
     let k = index.get_k();
     let m = index.get_m();
     let ordered = false;
@@ -116,11 +121,14 @@ fn create_block(
     ))
 }
 
-fn write_all_context(
+fn write_all_context<FI>(
     kff_writer: &mut Kff<BufWriter<File>>,
-    index: &Index,
+    index: &Index<FI>,
     values: &kff::section::Values,
-) -> Result<(), KFFError> {
+) -> Result<(), KFFError>
+where
+    FI: FullIndexTrait + Serialize,
+{
     let mut previous_minimizer = None;
     let mut blocks = vec![];
     let k = index.get_k();
@@ -151,7 +159,10 @@ fn write_all_context(
 
 /// Dump all kmers and their abundance from the index into `output_file`.
 /// K-mers are not sorted.
-pub fn dump<P: AsRef<Path>>(index: &Index, output_file: P) -> Result<(), KFFError> {
+pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
+    index: &Index<FI>,
+    output_file: P,
+) -> Result<(), KFFError> {
     // TODO discuss: our kmers are non unique and canonical, right ?
     let header = kff::section::Header::new(1, 0, ENCODING, false, true, b"".to_vec())
         .or(Err(KFFError::InvalidHeader))?;

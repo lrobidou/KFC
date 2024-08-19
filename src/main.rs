@@ -1,8 +1,9 @@
 use clap::{Args, Parser, Subcommand};
 use serde::bin;
 // TODO use better library
+use ::serde::Serialize;
 use fastxgz::fasta_reads;
-use index::Index;
+use index::{CompleteIndex, FullIndexTrait, Index, StrippedIndex};
 use itertools::Itertools;
 use mashmap::MashMap;
 use std::collections::HashMap;
@@ -75,6 +76,9 @@ struct BuildArgs {
     /// Check against the results of KMC
     #[arg(long)]
     check_kmc: Option<String>,
+    /// Dump full index, with superkmer informations
+    #[arg(short, long)]
+    fulldump: bool,
 }
 
 #[derive(Args, Debug)]
@@ -100,7 +104,7 @@ struct KFFDumpArgs {
 }
 
 /// Prints some statistics about the index
-fn stats(index: &Index, k: usize) {
+fn stats<FI: FullIndexTrait + Serialize>(index: &Index<FI>, k: usize) {
     for i in 0..index.get_hyperkmers().get_nb_inserted() {
         let slice = index.get_hyperkmers().get_hyperkmer_from_id(i);
         assert_eq!(slice.len(), k - 1);
@@ -125,8 +129,8 @@ fn stats(index: &Index, k: usize) {
 }
 
 /// Query the index with the output of KMC
-fn compare_to_kmc<P: AsRef<Path>>(
-    index: &Index,
+fn compare_to_kmc<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
+    index: &Index<FI>,
     kmc_file: P,
     k: usize,
     m: usize,
@@ -183,28 +187,41 @@ fn main() {
             let threshold = args.threshold;
 
             // build the index
-            let index = Index::index(k, m, threshold, &sequences);
+            let index = Index::<CompleteIndex>::index(k, m, threshold, &sequences);
             // use KMC's output as a query against the index
             if let Some(kmc_file) = args.check_kmc {
                 compare_to_kmc(&index, kmc_file, k, m, threshold);
             }
 
+            stats(&index, k);
+
             // write the index to disk
             if let Some(output_file) = args.output {
-                serde::bin::dump(&index, &output_file).expect("impossible to dump");
+                println!("fulldump : {}", args.fulldump);
+                if args.fulldump {
+                    serde::bin::dump(&index, &output_file).expect("impossible to dump");
 
-                #[cfg(debug_assertions)]
-                {
-                    let index2 = serde::bin::load(&output_file).expect("impossible to load");
-                    debug_assert!(index == index2);
+                    #[cfg(debug_assertions)]
+                    {
+                        let index2 = serde::bin::load(&output_file).expect("impossible to load");
+                        debug_assert!(index == index2);
+                    }
+                } else {
+                    // not a full dump: let's remove infos from the index
+                    let index = index.remove_superkmer_infos();
+                    serde::bin::dump(&index, &output_file).expect("impossible to dump");
+
+                    #[cfg(debug_assertions)]
+                    {
+                        let index2 = serde::bin::load(&output_file).expect("impossible to load");
+                        debug_assert!(index == index2);
+                    }
                 }
-
-                stats(&index, k);
             }
         }
         Command::Dump(args) => {
             let input = args.input_index;
-            let index = bin::load(&input).expect("unable to read the index");
+            let index: Index<StrippedIndex> = bin::load(&input).expect("unable to read the index");
             if let Some(kff_path) = args.output_kff {
                 serde::kff::dump(&index, kff_path.clone()).unwrap();
 

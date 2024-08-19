@@ -22,41 +22,36 @@ use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear_streaming,
 };
+// -- type state pattern
+pub trait FullIndexTrait {}
 
 #[derive(Serialize, Deserialize, PartialEq)]
-pub struct Index {
+pub struct CompleteIndex {
     super_kmer_counts: SuperKmerCounts,
+    discarded_minimizers: HashMap<Minimizer, u16>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct StrippedIndex {}
+
+impl FullIndexTrait for CompleteIndex {}
+impl FullIndexTrait for StrippedIndex {}
+
+/// Index of KFC
+/// The index holds the hyperkmers and their counts.
+/// During contruction, the index also holds the counts of superkmers and information about minimizers.
+#[derive(Serialize, Deserialize, PartialEq)]
+pub struct Index<FI: FullIndexTrait> {
     hk_count: HKCount,
     hyperkmers: ExtendedHyperkmers,
     /// vector of larger extended hyperkmers // TODO document
     large_hyperkmers: Vec<(usize, Vec<u8>)>, // TODO use slice
-    discarded_minimizers: HashMap<Minimizer, u16>,
     k: usize,
     m: usize,
+    superkmers_infos: FI,
 }
 
-impl Index {
-    #[cfg(test)]
-    pub fn new(
-        super_kmer_counts: SuperKmerCounts,
-        hk_count: HKCount,
-        hyperkmers: ExtendedHyperkmers,
-        large_hyperkmers: Vec<(usize, Vec<u8>)>,
-        discarded_minimizers: HashMap<u64, u16>,
-        k: usize,
-        m: usize,
-    ) -> Self {
-        Self {
-            super_kmer_counts,
-            hk_count,
-            hyperkmers,
-            large_hyperkmers,
-            discarded_minimizers,
-            k,
-            m,
-        }
-    }
-
+impl Index<CompleteIndex> {
     /// Constructs a new `Index` indexing a set of sequences
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
     pub fn index(k: usize, m: usize, threshold: Count, sequences: &Vec<&str>) -> Self {
@@ -83,11 +78,85 @@ impl Index {
             start_second_stage.elapsed().as_millis()
         );
         Self {
-            super_kmer_counts,
             hk_count,
             hyperkmers,
             large_hyperkmers,
-            discarded_minimizers,
+            superkmers_infos: CompleteIndex {
+                super_kmer_counts,
+                discarded_minimizers,
+            },
+            k,
+            m,
+        }
+    }
+
+    pub fn remove_superkmer_infos(self) -> Index<StrippedIndex> {
+        Index {
+            hk_count: self.hk_count,
+            hyperkmers: self.hyperkmers,
+            large_hyperkmers: self.large_hyperkmers,
+            k: self.k,
+            m: self.m,
+            superkmers_infos: StrippedIndex {},
+        }
+    }
+}
+
+impl Index<StrippedIndex> {
+    /// Constructs a new `Index` indexing a set of sequences
+    #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
+    pub fn index(k: usize, m: usize, threshold: Count, sequences: &Vec<&str>) -> Self {
+        let start_fisrt_step = Instant::now();
+        let (mut super_kmer_counts, mut hk_count, hyperkmers, large_hyperkmers) =
+            first_stage(sequences, k, m, threshold);
+        println!(
+            "time first stage: {} milliseconds",
+            start_fisrt_step.elapsed().as_millis()
+        );
+        let start_second_stage = Instant::now();
+        let _discarded_minimizers = second_stage(
+            &mut super_kmer_counts,
+            &mut hk_count,
+            &hyperkmers,
+            &large_hyperkmers,
+            sequences,
+            k,
+            m,
+            threshold,
+        );
+        println!(
+            "time second stage: {} milliseconds",
+            start_second_stage.elapsed().as_millis()
+        );
+        Self {
+            hk_count,
+            hyperkmers,
+            large_hyperkmers,
+            superkmers_infos: StrippedIndex {},
+            k,
+            m,
+        }
+    }
+}
+
+impl<FI> Index<FI>
+where
+    FI: FullIndexTrait + Serialize,
+{
+    #[cfg(test)]
+    pub fn new(
+        hk_count: HKCount,
+        hyperkmers: ExtendedHyperkmers,
+        large_hyperkmers: Vec<(usize, Vec<u8>)>,
+        superkmers_infos: FI,
+        k: usize,
+        m: usize,
+    ) -> Self {
+        Self {
+            hk_count,
+            hyperkmers,
+            large_hyperkmers,
+            superkmers_infos,
             k,
             m,
         }
@@ -200,12 +269,14 @@ mod tests {
         let m = 10;
 
         // nothing inserted => nothing is found
-        let empty_index = Index::new(
-            SuperKmerCounts::new(),
+        let empty_index: Index<CompleteIndex> = Index::new(
             HKCount::new(),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
-            HashMap::new(),
+            CompleteIndex {
+                super_kmer_counts: SuperKmerCounts::new(),
+                discarded_minimizers: HashMap::new(),
+            },
             k,
             m,
         );
@@ -286,12 +357,14 @@ mod tests {
             count,
         );
 
-        let index = Index::new(
-            SuperKmerCounts::new(),
+        let index: Index<CompleteIndex> = Index::new(
             hk,
             hyperkmers,
             large_hyperkmers,
-            HashMap::new(),
+            CompleteIndex {
+                super_kmer_counts: SuperKmerCounts::new(),
+                discarded_minimizers: HashMap::new(),
+            },
             k,
             m,
         );
@@ -305,15 +378,18 @@ mod tests {
         let k = 10;
         let m = 3;
 
-        let empty_index = Index::new(
-            SuperKmerCounts::new(),
+        let empty_index: Index<CompleteIndex> = Index::new(
             HKCount::new(),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
-            HashMap::new(),
+            CompleteIndex {
+                super_kmer_counts: SuperKmerCounts::new(),
+                discarded_minimizers: HashMap::new(),
+            },
             k,
             m,
         );
+        let empty_index = empty_index.remove_superkmer_infos();
         bin::dump(&empty_index, filename).unwrap();
         assert!(empty_index == bin::load(filename).unwrap());
     }
@@ -391,23 +467,26 @@ mod tests {
             count,
         );
 
-        let index = Index::new(
-            SuperKmerCounts::new(),
+        let index: Index<CompleteIndex> = Index::new(
             hk,
             hyperkmers,
             Vec::new(),
-            HashMap::new(),
+            CompleteIndex {
+                super_kmer_counts: SuperKmerCounts::new(),
+                discarded_minimizers: HashMap::new(),
+            },
             k,
             m,
         );
 
+        let index = index.remove_superkmer_infos();
         bin::dump(&index, filename).unwrap();
         assert!(index == bin::load(filename).unwrap());
     }
 
     #[test]
     fn test_iter_kmers_empty() {
-        let index = Index::index(21, 11, 1, &vec![]);
+        let index: Index<CompleteIndex> = Index::<CompleteIndex>::index(21, 11, 1, &vec![]);
         let kmers_iter = index.iter_kmers().flatten();
         let kmers = kmers_iter.collect_vec();
         assert_eq!(kmers, vec![]);
