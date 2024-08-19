@@ -1,3 +1,4 @@
+#[cfg_attr(feature = "nightly", feature(core_intrinsics))]
 use clap::{Args, Parser, Subcommand};
 use serde::bin;
 // TODO use better library
