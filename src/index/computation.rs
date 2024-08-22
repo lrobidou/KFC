@@ -213,19 +213,23 @@ pub fn first_stage(
                 )
                 .change_orientation_if(right_hk_metadata.get_change_orientation());
 
-                // extract candidate hyperkmers
-                let left_hyperkmer = &left_ext_hk
-                    .subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
-                let right_hyperkmer = &right_ext_hk
-                    .subsequence(right_hk_metadata.get_start(), right_hk_metadata.get_end());
+                #[cfg(debug_assertions)]
+                {
+                    // extract candidate hyperkmers
+                    let left_hyperkmer = &left_ext_hk
+                        .subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
+                    let right_hyperkmer = &right_ext_hk
+                        .subsequence(right_hk_metadata.get_start(), right_hk_metadata.get_end());
 
-                let left_string = left_hyperkmer.to_string();
-                let right_string = right_hyperkmer.to_string();
+                    let left_string = left_hyperkmer.to_string();
+                    let right_string = right_hyperkmer.to_string();
 
-                debug_assert_eq!(
-                    left_string[(left_string.len() - (m - 2))..left_string.len()],
-                    right_string[0..(m - 2)]
-                );
+                    debug_assert_eq!(
+                        left_string[(left_string.len() - (m - 2))..left_string.len()],
+                        right_string[0..(m - 2)]
+                    );
+                }
+
                 hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),
                     &left_hk_metadata,
