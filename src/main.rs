@@ -74,10 +74,10 @@ struct BuildArgs {
     /// Output file (no dump by default)
     #[arg(short, long)]
     output: Option<String>,
-    /// Check against the results of KMC
+    /// Check against the results of KMC (no check by default)
     #[arg(long)]
     check_kmc: Option<String>,
-    /// Dump full index, with superkmer informations
+    /// Dump full index, with superkmer informations (partial dump by default)
     #[arg(short, long)]
     fulldump: bool,
 }
@@ -87,9 +87,10 @@ struct DumpArgs {
     /// Input index
     #[arg(short, long)]
     input_index: String,
-    /// Output txt file
+    /// Output txt file (no txt output by default)
     #[arg(long)]
     output_text: Option<String>,
+    /// Output kff file (no kff output by default)
     #[arg(long)]
     output_kff: Option<String>,
 }
@@ -253,10 +254,9 @@ fn main() {
                 // for (kmer, count) in kmers {
                 //     writeln!(buffer, "{}\t{}", kmer, count).unwrap();
                 // }
-
-                if let Some(plain_text_path) = args.output_text {
-                    serde::plain_text::plain_text(&index, plain_text_path);
-                }
+            }
+            if let Some(plain_text_path) = args.output_text {
+                serde::plain_text::plain_text(&index, plain_text_path);
             }
         }
         Command::KFFDump(args) => {
