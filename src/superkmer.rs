@@ -24,6 +24,20 @@ pub fn reverse_complement(seq: &[u8]) -> String {
         .collect()
 }
 
+pub fn reverse_complement_ascii_to_ascii(seq: &[u8]) -> Vec<u8> {
+    seq.iter()
+        .rev()
+        .map(|base| unsafe { *REVCOMP_TAB_CHAR.get_unchecked(*base as usize) } as u8)
+        .collect()
+}
+
+pub fn reverse_complement_ascii_to_ascii_iter<I: DoubleEndedIterator<Item = u8>>(
+    seq: I,
+) -> Map<Rev<I>, impl FnMut(u8) -> u8> {
+    seq.rev()
+        .map(|base| unsafe { *REVCOMP_TAB_CHAR.get_unchecked(base as usize) } as u8)
+}
+
 // TODO duplication: move to a module
 const REVCOMP_TAB: [u8; 255] = {
     let mut tab = [0; 255];
@@ -299,6 +313,30 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, NoBitPacked> {
     }
 }
 
+impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
+    pub fn as_vec(&self) -> Vec<u8> {
+        let subsequence = &self.read[self.start..self.end];
+        if self.same_orientation {
+            Vec::from(subsequence)
+        } else {
+            reverse_complement_ascii_to_ascii(subsequence)
+        }
+    }
+}
+
+// impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
+//     pub fn as_iter(&self) -> Box<dyn Iterator<Item = u8> + 'a> {
+//         let subsequence = &self.read[self.start..self.end];
+//         if self.same_orientation {
+//             Box::new(subsequence.iter().copied())
+//         } else {
+//             Box::new(reverse_complement_ascii_to_ascii_iter(
+//                 subsequence.iter().copied(),
+//             ))
+//         }
+//     }
+// }
+
 impl<'a> SubsequenceMetadata<'a, BitPacked> {
     pub fn whole_bitpacked(bytes: &'a [u8], nb_bases: usize) -> Self {
         debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == bytes.len());
@@ -384,6 +422,23 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, BitPacked> {
             reverse_complement(&iter)
         };
         write!(f, "{}", string)
+    }
+}
+
+impl<'a> SubsequenceMetadata<'a, BitPacked> {
+    pub fn as_vec(&self) -> Vec<u8> {
+        let iter = decode_2bits(
+            self.read.iter().copied(),
+            self.start,
+            self.end,
+            self.packing.total_base_in_sequence,
+        )
+        .collect_vec();
+        if self.same_orientation {
+            iter
+        } else {
+            reverse_complement_ascii_to_ascii(&iter)
+        }
     }
 }
 
@@ -577,7 +632,7 @@ impl<'a> Superkmer<'a> {
         self.superkmer.same_orientation
     }
 
-    // TODO remove
+    #[cfg(debug_assertions)]
     pub fn minimizer_string(&self) -> String {
         if self.is_canonical_in_the_read() {
             String::from_utf8(

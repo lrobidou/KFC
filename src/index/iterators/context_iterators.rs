@@ -1,3 +1,7 @@
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
+
 use crate::Count;
 
 use super::super::components::ExtendedHyperkmers;
@@ -34,10 +38,10 @@ pub fn extract_context_if_large(
 }
 
 pub struct ContextsIterator<'a> {
-    hk_count: &'a HKCount,
+    hk_count: RwLockReadGuard<'a, HKCount>,
     minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-    hyperkmers: &'a ExtendedHyperkmers,
-    large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+    hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+    large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
     m: usize,
     current_entry_iterator: Option<(
         u64,
@@ -47,10 +51,10 @@ pub struct ContextsIterator<'a> {
 
 impl<'a> ContextsIterator<'a> {
     pub fn new(
-        hk_count: &'a HKCount,
+        hk_count: RwLockReadGuard<'a, HKCount>,
         minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-        hyperkmers: &'a ExtendedHyperkmers,
-        large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+        hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+        large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
         m: usize,
     ) -> Self {
         Self {
@@ -73,7 +77,7 @@ impl<'a> Iterator for ContextsIterator<'a> {
             if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
                 if let Some(entry) = entry_iter.next() {
                     let context =
-                        extract_context(entry, self.m, self.hyperkmers, self.large_hyperkmers);
+                        extract_context(entry, self.m, &self.hyperkmers, &self.large_hyperkmers);
                     return Some((context.0, *minimizer, context.1, entry.2));
                 } else {
                     // If the current entry iterator is exhausted, clear it.
@@ -86,8 +90,9 @@ impl<'a> Iterator for ContextsIterator<'a> {
                 let minimizer = self.minimizers_iter.next()?;
                 let hkcount_iter_for_this_minimizer = self.hk_count.get_data().get_iter(minimizer);
                 // TODO eviter Box
-                self.current_entry_iterator =
-                    Some((*minimizer, Box::new(hkcount_iter_for_this_minimizer)));
+                let boite: Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, u16)> + 'a> =
+                    Box::new(hkcount_iter_for_this_minimizer);
+                self.current_entry_iterator = Some((*minimizer, boite));
             }
         }
     }
