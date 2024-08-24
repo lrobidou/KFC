@@ -186,7 +186,18 @@ impl ExtendedHyperkmers {
         self.nb_inserted
     }
 
-    fn get_mut_slice_from_id(&mut self, id: usize) -> &mut [u8] {
+    // fn get_mut_slice_from_id(&mut self, id: usize) -> &mut [u8] {
+    //     debug_assert!(id < self.nb_inserted);
+    //     let id_buffer = id / self.nb_hk_in_a_buffer;
+    //     let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
+    //     let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
+    //     let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
+
+    //     let buffer = &mut self.ext_hyperkmers_buffers[id_buffer];
+    //     &mut buffer.as_mut_slice(self.buffer_size)[start..end]
+    // }
+
+    fn dump_hk(&mut self, id: usize, subseq: SubsequenceMetadata<NoBitPacked>) {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_a_buffer;
         let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
@@ -194,7 +205,7 @@ impl ExtendedHyperkmers {
         let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
 
         let buffer = &mut self.ext_hyperkmers_buffers[id_buffer];
-        &mut buffer.as_mut_slice(self.buffer_size)[start..end]
+        buffer.dump(self.buffer_size, start, end, subseq);
     }
 
     fn get_slice_from_id(&self, id: usize) -> &[u8] {
@@ -226,8 +237,7 @@ impl ExtendedHyperkmers {
         self.nb_inserted += 1;
 
         // dump into memory
-        let dest_slice = self.get_mut_slice_from_id(id_hyperkmer);
-        new_ext_hyperkmer.to_canonical().dump_as_2bits(dest_slice);
+        self.dump_hk(id_hyperkmer, new_ext_hyperkmer.to_canonical());
 
         id_hyperkmer
     }

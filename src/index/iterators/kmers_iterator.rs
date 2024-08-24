@@ -1,30 +1,36 @@
+use ahash::HashSet;
+
+use crate::index::MinimizerIter;
 use crate::superkmer::SubsequenceMetadata;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
 
 use super::super::components::ExtendedHyperkmers;
 use super::super::components::HKCount;
 use super::extract_context;
 
-fn extract_kmers_from_contexts_associated_to_a_minimizer(
+pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     hk_count: &HKCount,
     minimizer: &u64,
     hyperkmers: &ExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
-    k: usize,
-    m: usize,
-) -> Option<std::collections::hash_map::IntoIter<String, u16>> {
+    k: &usize,
+    m: &usize,
+) -> std::collections::hash_map::IntoIter<Vec<u8>, u16> {
     // strategy: compute the original contexts associated with the minimizer
     // then extract kmers from these contexts
     // consider the union of the kmers from these contexts
-    let mut kmers_counts: HashMap<String, u16> = HashMap::new();
+    let mut kmers_counts: HashMap<Vec<u8>, u16> = HashMap::new();
     for hk_count_elem in hk_count.get_data().get_iter(minimizer) {
         let count = hk_count_elem.2;
         let (context, _minimizer_start_pos) =
-            extract_context(hk_count_elem, m, hyperkmers, large_hyperkmers);
+            extract_context(hk_count_elem, *m, hyperkmers, large_hyperkmers);
         let context = SubsequenceMetadata::new(context.as_bytes(), 0, context.len(), true);
         // extract canonical kmers from the whole context and add them to the set
         for i in 0..context.len() - k + 1 {
-            let kmer = context.subsequence(i, i + k).to_canonical().to_string();
+            let kmer = context.subsequence(i, i + k).to_canonical().as_vec();
 
             kmers_counts
                 .entry(kmer)
@@ -33,24 +39,91 @@ fn extract_kmers_from_contexts_associated_to_a_minimizer(
         }
     }
 
-    Some(kmers_counts.into_iter())
+    kmers_counts.into_iter()
 }
 
+// pub fn insert_kmers_from_contexts_associated_to_a_minimizer(
+//     hk_count: &HKCount,
+//     minimizer: &u64,
+//     hyperkmers: &ExtendedHyperkmers,
+//     large_hyperkmers: &[(usize, Vec<u8>)],
+//     k: &usize,
+//     m: &usize,
+//     kmers_vec: &mut Vec<(Vec<u8>, u16)>,
+// ) {
+//     // strategy: compute the original contexts associated with the minimizer
+//     // then extract kmers from these contexts
+//     // consider the union of the kmers from these contexts
+//     let mut kmers_counts: HashMap<Vec<u8>, u16> = HashMap::new();
+//     for hk_count_elem in hk_count.get_data().get_iter(minimizer) {
+//         let count = hk_count_elem.2;
+//         let (context, _minimizer_start_pos) =
+//             extract_context(hk_count_elem, *m, hyperkmers, large_hyperkmers);
+//         let context = SubsequenceMetadata::new(context.as_bytes(), 0, context.len(), true);
+//         // extract canonical kmers from the whole context and add them to the set
+//         for i in 0..context.len() - k + 1 {
+//             let kmer = context.subsequence(i, i + k).to_canonical().as_vec();
+
+//             kmers_counts
+//                 .entry(kmer)
+//                 .and_modify(|x| *x = x.saturating_add(count))
+//                 .or_insert(count);
+//         }
+//     }
+
+// }
+
+// pub fn par_extract_kmers_from_contexts_associated_to_a_minimizer(
+//     hk_count: Arc<RwLock<HKCount>>,
+//     minimizer: u64,
+//     hyperkmers: Arc<RwLock<ExtendedHyperkmers>>,
+//     large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+//     k: usize,
+//     m: usize,
+// ) -> Option<std::collections::hash_map::IntoIter<Vec<u8>, u16>> {
+//     // strategy: compute the original contexts associated with the minimizer
+//     // then extract kmers from these contexts
+//     // consider the union of the kmers from these contexts
+//     let hk_count = hk_count.read().expect("impossible to aquire lock");
+//     let hyperkmers = hyperkmers.read().expect("impossible to aquire lock");
+//     let large_hyperkmers = large_hyperkmers.read().expect("impossible to aquire lock");
+
+//     let mut kmers_counts: HashMap<Vec<u8>, u16> = HashMap::new();
+//     for hk_count_elem in hk_count.get_data().get_iter(&minimizer) {
+//         let count = hk_count_elem.2;
+//         let (context, _minimizer_start_pos) =
+//             extract_context(hk_count_elem, m, &hyperkmers, &large_hyperkmers);
+//         let context = SubsequenceMetadata::new(context.as_bytes(), 0, context.len(), true);
+//         // extract canonical kmers from the whole context and add them to the set
+//         for i in 0..context.len() - k + 1 {
+//             let kmer = context.subsequence(i, i + k).to_canonical().as_vec();
+
+//             kmers_counts
+//                 .entry(kmer)
+//                 .and_modify(|x| *x = x.saturating_add(count))
+//                 .or_insert(count);
+//         }
+//     }
+
+//     Some(kmers_counts.into_iter())
+// }
+
 pub struct KmerIterator<'a> {
-    hk_count: &'a HKCount,
-    minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-    hyperkmers: &'a ExtendedHyperkmers,
-    large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+    hk_count: RwLockReadGuard<'a, HKCount>,
+    // minimizers_iter: MinimizerIter<'a>,
+    minimizers_iter: std::collections::hash_set::IntoIter<u64>,
+    hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+    large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
     k: usize,
     m: usize,
 }
 
 impl<'a> KmerIterator<'a> {
     pub fn new(
-        hk_count: &'a HKCount,
-        minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-        hyperkmers: &'a ExtendedHyperkmers,
-        large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
+        hk_count: RwLockReadGuard<'a, HKCount>,
+        minimizers_iter: std::collections::hash_set::IntoIter<u64>,
+        hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+        large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
         k: usize,
         m: usize,
     ) -> Self {
@@ -66,18 +139,18 @@ impl<'a> KmerIterator<'a> {
 }
 
 impl<'a> Iterator for KmerIterator<'a> {
-    type Item = std::collections::hash_map::IntoIter<String, u16>;
+    type Item = std::collections::hash_map::IntoIter<Vec<u8>, u16>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let minimizer = self.minimizers_iter.next()?;
-        extract_kmers_from_contexts_associated_to_a_minimizer(
-            self.hk_count,
-            minimizer,
-            self.hyperkmers,
-            self.large_hyperkmers,
-            self.k,
-            self.m,
-        )
+        Some(extract_kmers_from_contexts_associated_to_a_minimizer(
+            &self.hk_count,
+            &minimizer,
+            &self.hyperkmers,
+            &self.large_hyperkmers,
+            &self.k,
+            &self.m,
+        ))
     }
 }
 

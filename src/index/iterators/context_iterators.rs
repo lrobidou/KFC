@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
 use crate::Count;
@@ -36,67 +34,67 @@ pub fn extract_context_if_large(
         None
     }
 }
+use std::collections::HashMap;
 
-pub struct ContextsIterator<'a> {
-    hk_count: RwLockReadGuard<'a, HKCount>,
-    minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-    hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
-    large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
-    m: usize,
-    current_entry_iterator: Option<(
-        u64,
-        Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, Count)> + 'a>,
-    )>,
-}
+// pub struct ContextsIterator<'a> {
+//     hk_count: RwLockReadGuard<'a, HKCount>,
+//     minimizers_iter: std::collections::hash_set::IntoIter<u64>,
+//     hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+//     large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
+//     m: usize,
+//     current_entry_iterator: Option<(
+//         u64,
+//         Box<dyn Iterator<Item = (HKMetadata, HKMetadata, Count)> + 'a>,
+//     )>,
+//     hk_count_cache: HashMap<u64, Box<dyn Iterator<Item = (HKMetadata, HKMetadata, Count)> + 'a>>,
+// }
 
-impl<'a> ContextsIterator<'a> {
-    pub fn new(
-        hk_count: RwLockReadGuard<'a, HKCount>,
-        minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-        hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
-        large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
-        m: usize,
-    ) -> Self {
-        Self {
-            hk_count,
-            minimizers_iter,
-            hyperkmers,
-            large_hyperkmers,
-            m,
-            current_entry_iterator: None,
-        }
-    }
-}
+// impl<'a> ContextsIterator<'a> {
+//     pub fn new(
+//         hk_count: RwLockReadGuard<'a, HKCount>,
+//         minimizers_iter: std::collections::hash_set::IntoIter<u64>,
+//         hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
+//         large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
+//         m: usize,
+//     ) -> Self {
+//         Self {
+//             hk_count,
+//             minimizers_iter,
+//             hyperkmers,
+//             large_hyperkmers,
+//             m,
+//             current_entry_iterator: None,
+//             hk_count_cache: HashMap::new(),
+//         }
+//     }
+// }
 
-impl<'a> Iterator for ContextsIterator<'a> {
-    type Item = (String, u64, usize, Count);
+// impl<'a> Iterator for ContextsIterator<'a> {
+//     type Item = (String, u64, usize, Count);
 
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // If we have an iterator over entries, try to get the next item from it.
-            if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
-                if let Some(entry) = entry_iter.next() {
-                    let context =
-                        extract_context(entry, self.m, &self.hyperkmers, &self.large_hyperkmers);
-                    return Some((context.0, *minimizer, context.1, entry.2));
-                } else {
-                    // If the current entry iterator is exhausted, clear it.
-                    self.current_entry_iterator = None;
-                }
-            }
+//     fn next(&mut self) -> Option<Self::Item> {
+//         loop {
+//             if let Some((minimizer, entry_iter)) = &mut self.current_entry_iterator {
+//                 if let Some(entry) = entry_iter.next() {
+//                     let context =
+//                         extract_context(&entry, self.m, &self.hyperkmers, &self.large_hyperkmers);
+//                     return Some((context.0, *minimizer, context.1, entry.2));
+//                 } else {
+//                     self.current_entry_iterator = None;
+//                 }
+//             }
 
-            // If there's no current entry iterator, try to create one from the next minimizer.
-            if self.current_entry_iterator.is_none() {
-                let minimizer = self.minimizers_iter.next()?;
-                let hkcount_iter_for_this_minimizer = self.hk_count.get_data().get_iter(minimizer);
-                // TODO eviter Box
-                let boite: Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, u16)> + 'a> =
-                    Box::new(hkcount_iter_for_this_minimizer);
-                self.current_entry_iterator = Some((*minimizer, boite));
-            }
-        }
-    }
-}
+//             if self.current_entry_iterator.is_none() {
+//                 let minimizer = self.minimizers_iter.next()?;
+//                 let hkcount_iter_for_this_minimizer = self.hk_count.get_data().get_iter(minimizer);
+//                 // TODO eviter Box
+//                 let boite: Box<dyn Iterator<Item = &'a (HKMetadata, HKMetadata, u16)> + 'a> =
+//                     Box::new(hkcount_iter_for_this_minimizer);
+//                 self.current_entry_iterator = Some((*minimizer, boite));
+//             }
+//         }
+//     }
+// }
 
 pub struct NormalContextsIterator<'a> {
     hk_count: &'a HKCount,

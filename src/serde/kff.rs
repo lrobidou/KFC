@@ -42,7 +42,7 @@ macro_rules! kff_cast_error {
 // TODO report errors instead of panicking ?
 fn build_values<FI>(index: &Index<FI>) -> Result<kff::section::Values, KFFError>
 where
-    FI: FullIndexTrait + Serialize,
+    FI: FullIndexTrait + Serialize + Sync + Send,
 {
     let k = index.get_k();
     let m = index.get_m();
@@ -127,39 +127,40 @@ fn write_all_context<FI>(
     values: &kff::section::Values,
 ) -> Result<(), KFFError>
 where
-    FI: FullIndexTrait + Serialize,
+    FI: FullIndexTrait + Serialize + Sync + Send,
 {
-    let mut previous_minimizer = None;
-    let mut blocks = vec![];
+    // let mut previous_minimizer = None;
+    // let mut blocks = vec![];
     let k = index.get_k();
     let m = index.get_m();
+    // TODO
 
-    for (context, minimizer, minimizer_start_pos, count) in index.context_iterator() {
-        match previous_minimizer {
-            None => {
-                previous_minimizer = Some(minimizer);
-            }
-            Some(previous_minimizer_val) if previous_minimizer_val == minimizer => {}
-            Some(previous_minimizer_val) => {
-                // new minimizer, so we write the blocks
-                write_blocks(kff_writer, &blocks, m, values, &previous_minimizer_val)?;
-                blocks.clear();
-                previous_minimizer = Some(minimizer);
-            }
-        }
-        let block = create_block(&context, &count, &minimizer_start_pos, k)?;
-        blocks.push(block);
-    }
+    // for (context, minimizer, minimizer_start_pos, count) in index.context_iterator() {
+    //     match previous_minimizer {
+    //         None => {
+    //             previous_minimizer = Some(minimizer);
+    //         }
+    //         Some(previous_minimizer_val) if previous_minimizer_val == minimizer => {}
+    //         Some(previous_minimizer_val) => {
+    //             // new minimizer, so we write the blocks
+    //             write_blocks(kff_writer, &blocks, m, values, &previous_minimizer_val)?;
+    //             blocks.clear();
+    //             previous_minimizer = Some(minimizer);
+    //         }
+    //     }
+    //     let block = create_block(&context, &count, &minimizer_start_pos, k)?;
+    //     blocks.push(block);
+    // }
 
-    if !blocks.is_empty() {
-        write_blocks(kff_writer, &blocks, m, values, &previous_minimizer.unwrap())?;
-    };
+    // if !blocks.is_empty() {
+    //     write_blocks(kff_writer, &blocks, m, values, &previous_minimizer.unwrap())?;
+    // };
     Ok(())
 }
 
 /// Dump all kmers and their abundance from the index into `output_file`.
 /// K-mers are not sorted.
-pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
+pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize + Sync + Send>(
     index: &Index<FI>,
     output_file: P,
 ) -> Result<(), KFFError> {

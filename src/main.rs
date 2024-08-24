@@ -106,19 +106,24 @@ struct KFFDumpArgs {
 }
 
 /// Prints some statistics about the index
-fn stats<FI: FullIndexTrait + Serialize>(index: &Index<FI>, k: usize) {
-    for i in 0..index.get_hyperkmers().get_nb_inserted() {
-        let slice = index.get_hyperkmers().get_hyperkmer_from_id(i);
+fn stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(index: &Index<FI>, k: usize) {
+    let hyperkmers = index.get_hyperkmers();
+    let hyperkmers = hyperkmers.read().expect("could not acquire read lock");
+
+    let large_hyperkmers = index.get_large_hyperkmers();
+    let large_hyperkmers = large_hyperkmers
+        .read()
+        .expect("could not acquire read lock");
+
+    for i in 0..hyperkmers.get_nb_inserted() {
+        let slice = hyperkmers.get_hyperkmer_from_id(i);
         assert_eq!(slice.len(), k - 1);
     }
 
-    let nb_base_in_large_hyperkmers: usize = index
-        .get_large_hyperkmers()
-        .iter()
-        .map(|large_hk| large_hk.0)
-        .sum();
-    let number_of_hyperkmers = index.get_hyperkmers().get_nb_inserted();
-    let number_of_large_hyperkmers = index.get_large_hyperkmers().len();
+    let nb_base_in_large_hyperkmers: usize =
+        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
+    let number_of_hyperkmers = hyperkmers.get_nb_inserted();
+    let number_of_large_hyperkmers = large_hyperkmers.len();
     use macros::debug_print as p;
     println!("===== stats =====");
     p!(number_of_hyperkmers);
@@ -131,7 +136,7 @@ fn stats<FI: FullIndexTrait + Serialize>(index: &Index<FI>, k: usize) {
 }
 
 /// Query the index with the output of KMC
-fn compare_to_kmc<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
+fn compare_to_kmc<P: AsRef<Path>, FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
     index: &Index<FI>,
     kmc_file: P,
     k: usize,

@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::index::{FullIndexTrait, StrippedIndex};
+use crate::index::FullIndexTrait;
 use crate::Index;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
+pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize + Send + Sync + Serialize>(
     index: &Index<FI>,
     filename: P,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -16,7 +16,10 @@ pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize>(
     Ok(())
 }
 
-pub fn load<P: AsRef<Path>, FI: FullIndexTrait + for<'a> Deserialize<'a>>(
+pub fn load<
+    P: AsRef<Path>,
+    FI: FullIndexTrait + Send + Sync + Serialize + for<'a> Deserialize<'a>,
+>(
     filename: P,
 ) -> Result<Index<FI>, Box<dyn std::error::Error>> {
     let file = File::open(filename)?;
