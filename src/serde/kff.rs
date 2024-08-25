@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::{fs::File, io::BufWriter, path::Path};
 use thiserror::Error;
 
-const ENCODING: u8 = 0b00011011;
+pub const ENCODING: u8 = 0b00011011;
 
 /// Error related to manipulation of KFF files
 #[derive(Error, Debug)]
@@ -40,7 +40,7 @@ macro_rules! kff_cast_error {
 }
 
 // TODO report errors instead of panicking ?
-fn build_values<FI>(index: &Index<FI>) -> Result<kff::section::Values, KFFError>
+pub fn build_values<FI>(index: &Index<FI>) -> Result<kff::section::Values, KFFError>
 where
     FI: FullIndexTrait + Serialize + Sync + Send,
 {
@@ -70,7 +70,7 @@ where
     Ok(values)
 }
 
-fn write_blocks(
+pub fn write_blocks(
     kff_writer: &mut Kff<BufWriter<File>>,
     blocks: &[kff::section::Block],
     m: usize,
@@ -93,7 +93,7 @@ fn write_blocks(
     Ok(())
 }
 
-fn create_block(
+pub fn create_block(
     context: &str,
     count: &Count,
     minimizer_start_pos: &usize,
@@ -164,18 +164,5 @@ pub fn dump<P: AsRef<Path>, FI: FullIndexTrait + Serialize + Sync + Send>(
     index: &Index<FI>,
     output_file: P,
 ) -> Result<(), KFFError> {
-    // TODO discuss: our kmers are non unique and canonical, right ?
-    let header = kff::section::Header::new(1, 0, ENCODING, false, true, b"".to_vec())
-        .or(Err(KFFError::InvalidHeader))?;
-    let mut kff_writer = Kff::create(output_file, header).or(Err(KFFError::CreationFailure))?;
-
-    let values = build_values(index)?;
-    kff_writer
-        .write_values(values.clone())
-        .or(Err(KFFError::WriteValues))?;
-
-    write_all_context(&mut kff_writer, index, &values)?;
-    kff_writer.finalize().or(Err(KFFError::FinalizeFailure))?;
-
-    Ok(())
+    index.par_write_kff(output_file)
 }

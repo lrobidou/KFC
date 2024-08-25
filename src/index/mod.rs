@@ -6,6 +6,7 @@ mod parallel;
 
 use super::Minimizer;
 use crate::index::iterators::extract_kmers_from_contexts_associated_to_a_minimizer;
+use crate::serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING};
 use crate::Count;
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
@@ -16,8 +17,8 @@ use components::HKCount;
 use components::SuperKmerCounts;
 use computation::first_stage;
 use computation::second_stage;
-use iterators::KmerIterator;
-use itertools::{Chunk, Itertools};
+use iterators::{extract_context, KmerIterator};
+use kff::Kff;
 // use parallel::mac::read_lock;
 use parallel::Parallel;
 use rayon::prelude::*;
@@ -408,23 +409,23 @@ where
     //     }
     // }
 
-    pub fn minimizers_set(&self) -> std::collections::hash_set::HashSet<u64> {
-        let total_size = self
-            .hk_count
-            .chunks()
-            .iter()
-            .map(|chunk| chunk.read().unwrap().get_data().len())
-            .sum();
-        let mut set = HashSet::with_capacity(total_size);
+    // pub fn minimizers_set(&self) -> std::collections::hash_set::HashSet<u64> {
+    //     let total_size = self
+    //         .hk_count
+    //         .chunks()
+    //         .iter()
+    //         .map(|chunk| chunk.read().unwrap().get_data().len())
+    //         .sum();
+    //     let mut set = HashSet::with_capacity(total_size);
 
-        for hk_count in self.hk_count.chunks() {
-            for (minimizer, _v) in hk_count.read().unwrap().get_data().iter() {
-                set.insert(*minimizer);
-            }
-        }
+    //     for hk_count in self.hk_count.chunks() {
+    //         for (minimizer, _v) in hk_count.read().unwrap().get_data().iter() {
+    //             set.insert(*minimizer);
+    //         }
+    //     }
 
-        set
-    }
+    //     set
+    // }
 
     // pub fn minimizers_sets(&self) -> [HashSet<u64>; NB_PARALLEL_CHUNK] {
     //     let hk_count_chuncks = self.hk_count.chunks();
@@ -489,6 +490,58 @@ where
                 writeln!(buffer, "\t{}", count).unwrap();
             }
         });
+    }
+
+    pub fn par_write_kff<P: AsRef<Path>>(&self, path: P) -> Result<(), KFFError> {
+        // TODO discuss: our kmers are non unique and canonical, right ?
+        let header = kff::section::Header::new(1, 0, ENCODING, false, true, b"".to_vec())
+            .or(Err(KFFError::InvalidHeader))?;
+        let mut kff_writer = Kff::create(path, header).or(Err(KFFError::CreationFailure))?;
+
+        let values = build_values(self)?;
+        kff_writer
+            .write_values(values.clone())
+            .or(Err(KFFError::WriteValues))?;
+
+        let kff_writer = Arc::new(Mutex::new(kff_writer));
+
+        let hk_count_chunks = self.hk_count.chunks();
+
+        let mut s = String::new();
+        hk_count_chunks.iter().for_each(|chunk| {
+            let chunk = chunk.read().unwrap();
+            let size = chunk.get_data().len();
+            s.push_str(&format!("{}, ", size));
+        });
+
+        hk_count_chunks.par_iter().for_each(|chunk| {
+            let k = self.k;
+            let m = self.m;
+            let hyperkmers = self.hyperkmers.read().unwrap();
+            let large_hyperkmers = self.large_hyperkmers.read().unwrap();
+            let hk_count_chunk = chunk.read().unwrap();
+
+            let minimizers = hk_count_chunk.minimizer_set();
+
+            for minimizer in minimizers {
+                let mut blocks = vec![];
+                let hk_entries = hk_count_chunk.get_data().get_iter(&minimizer);
+                for entry in hk_entries {
+                    let (context, minimizer_start_pos) =
+                        extract_context(entry, m, &hyperkmers, &large_hyperkmers);
+                    let kff_block =
+                        create_block(&context, &entry.2, &minimizer_start_pos, k).unwrap();
+                    blocks.push(kff_block)
+                }
+                // TODO a bit stupid to write now
+                let mut kff_writer = kff_writer.lock().unwrap();
+                write_blocks(&mut kff_writer, &blocks, m, &values, &minimizer).unwrap();
+            }
+        });
+        // TODO do we have finished
+        let mut kff_writer = kff_writer.lock().unwrap();
+        kff_writer.finalize().or(Err(KFFError::FinalizeFailure))?;
+        Ok(())
     }
 
     /// Once a change in minimizer occurs, it never comes back again
