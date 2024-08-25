@@ -1,12 +1,13 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
-use std::sync::{Arc, RwLock};
+use std::rc::Rc;
+use std::sync::RwLock;
 
 use crate::superkmer::{NoBitPacked, SubsequenceMetadata};
 
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
 pub struct SimpleVec {
-    ptr: Arc<RwLock<*mut u64>>,
+    ptr: Rc<RwLock<*mut u64>>,
 
     #[cfg(debug_assertions)]
     is_dealloc: bool,
@@ -31,7 +32,7 @@ impl SimpleVec {
         }
 
         let ptr = ptr as *mut u64;
-        let ptr = Arc::new(RwLock::new(ptr));
+        let ptr = Rc::new(RwLock::new(ptr));
 
         SimpleVec {
             ptr,

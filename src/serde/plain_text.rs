@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use std::{fs::File, io::BufWriter, path::Path};
 
 use serde::Serialize;

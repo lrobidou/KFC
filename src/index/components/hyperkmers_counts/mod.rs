@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::extended_hyperkmers::ExtendedHyperkmers;
 use super::get_subsequence_from_metadata;
 use crate::Superkmer;
@@ -92,6 +94,16 @@ impl HKCount {
 
     pub fn get_data(&self) -> &MashMap<Minimizer, (HKMetadata, HKMetadata, Count)> {
         &self.data
+    }
+
+    pub fn minimizer_set(&self) -> HashSet<u64> {
+        let mut set = HashSet::with_capacity(self.data.len());
+
+        for (minimizer, _v) in self.data.iter() {
+            set.insert(*minimizer);
+        }
+
+        set
     }
 
     /// Searches for a match between `extended_hyperkmer_left` and one of the left extended hyperkmers assiociated with `minimizer`

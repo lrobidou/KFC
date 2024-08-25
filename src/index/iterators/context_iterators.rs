@@ -1,5 +1,3 @@
-use std::sync::RwLockReadGuard;
-
 use crate::Count;
 
 use super::super::components::ExtendedHyperkmers;
@@ -34,7 +32,6 @@ pub fn extract_context_if_large(
         None
     }
 }
-use std::collections::HashMap;
 
 // pub struct ContextsIterator<'a> {
 //     hk_count: RwLockReadGuard<'a, HKCount>,

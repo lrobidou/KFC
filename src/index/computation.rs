@@ -13,7 +13,13 @@ use crate::{
     Count, Minimizer,
 };
 
-use super::components::{ExtendedHyperkmers, HKCount, SuperKmerCounts};
+use super::{
+    components::{ExtendedHyperkmers, HKCount, SuperKmerCounts},
+    parallel::{
+        // mac::{read_lock, write_lock},
+        Paralell,
+    },
+};
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -29,13 +35,13 @@ pub fn first_stage(
     m: usize,
     threshold: Count,
 ) -> (
-    SuperKmerCounts,
-    HKCount,
+    Paralell<SuperKmerCounts>,
+    Paralell<HKCount>,
     ExtendedHyperkmers,
     Vec<(usize, Vec<u8>)>,
 ) {
-    let mut sk_count = SuperKmerCounts::new();
-    let mut hk_count = HKCount::new();
+    let sk_count = Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new);
+    let hk_count = Paralell::<HKCount>::new(HKCount::new);
     let mut hyperkmers = ExtendedHyperkmers::new(k, 1000);
     let mut large_hyperkmers: Vec<(usize, Vec<u8>)> = Vec::new();
 
@@ -59,11 +65,24 @@ pub fn first_stage(
             // compute now if the previous and/or next superkmer is solid
             // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
-            let previous_sk_is_solid = sk_count.get_count_superkmer(&previous_sk) >= threshold;
-            let next_sk_is_solid = sk_count.get_count_superkmer(&next_sk) >= threshold;
+            let previous_sk_count = sk_count.get_from_minimizer(previous_sk.get_minimizer());
+            let previous_sk_count = previous_sk_count.read().unwrap();
 
+            let next_sk_count = sk_count.get_from_minimizer(next_sk.get_minimizer());
+            let next_sk_count = next_sk_count.read().unwrap();
+
+            let previous_sk_is_solid =
+                previous_sk_count.get_count_superkmer(&previous_sk) >= threshold;
+            let next_sk_is_solid = next_sk_count.get_count_superkmer(&next_sk) >= threshold;
+
+            drop(previous_sk_count);
+            drop(next_sk_count);
+
+            let current_sk_count = sk_count.get_from_minimizer(current_sk.get_minimizer());
+            let mut current_sk_count = current_sk_count.write().unwrap();
             // OPTIMIZE est-il possible de stocker les counts pour ne pas les recalculer ?
-            let current_count = sk_count.increase_count_superkmer(&current_sk);
+            // TODO why not write ???
+            let current_count = current_sk_count.increase_count_superkmer(&current_sk);
 
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
             // so I tell clippy to shup up
@@ -78,10 +97,13 @@ pub fn first_stage(
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
                 let (id_left_hk, is_large_left) = if previous_sk_is_solid {
+                    let previous_hk_count =
+                        hk_count.get_from_minimizer(previous_sk.get_minimizer());
+                    let previous_hk_count = previous_hk_count.read().unwrap();
                     if previous_sk.is_canonical_in_the_read()
                         == current_sk.is_canonical_in_the_read()
                     {
-                        hk_count
+                        previous_hk_count
                             .get_extended_hyperkmer_right_id(
                                 &hyperkmers,
                                 &large_hyperkmers,
@@ -90,7 +112,7 @@ pub fn first_stage(
                             )
                             .expect("Hash collision on superkmers. Please change your seed.")
                     } else {
-                        hk_count
+                        previous_hk_count
                             .get_extended_hyperkmer_left_id(
                                 &hyperkmers,
                                 &large_hyperkmers,
@@ -112,8 +134,10 @@ pub fn first_stage(
                     }
                 };
                 let (id_right_hk, is_large_right) = if next_sk_is_solid {
+                    let next_hk_count = hk_count.get_from_minimizer(next_sk.get_minimizer());
+                    let next_hk_count = next_hk_count.read().unwrap();
                     if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
-                        hk_count
+                        next_hk_count
                             .get_extended_hyperkmer_left_id(
                                 &hyperkmers,
                                 &large_hyperkmers,
@@ -122,7 +146,7 @@ pub fn first_stage(
                             )
                             .expect("Hash collision on superkmers. Please change your seed.")
                     } else {
-                        hk_count
+                        next_hk_count
                             .get_extended_hyperkmer_right_id(
                                 &hyperkmers,
                                 &large_hyperkmers,
@@ -229,17 +253,20 @@ pub fn first_stage(
                         right_string[0..(m - 2)]
                     );
                 }
-
-                hk_count.insert_new_entry_in_hyperkmer_count(
+                let current_hk_count = hk_count.get_from_minimizer(current_sk.get_minimizer());
+                let mut current_hk_count = current_hk_count.write().unwrap();
+                current_hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),
                     &left_hk_metadata,
                     &right_hk_metadata,
                     current_count,
                 );
             } else if current_count > threshold {
+                let current_hk_count = hk_count.get_from_minimizer(current_sk.get_minimizer());
+                let mut current_hk_count = current_hk_count.write().unwrap();
                 // TODO fusionnner les deux passes
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
-                let found = hk_count.increase_count_if_exact_match(
+                let found = current_hk_count.increase_count_if_exact_match(
                     &current_sk.get_minimizer(),
                     &hyperkmers,
                     &large_hyperkmers,
@@ -248,7 +275,7 @@ pub fn first_stage(
                 );
                 if !found {
                     // if no exact match, then we must at least have an approximate match
-                    let new_left_and_right_metadata = hk_count.search_for_inclusion(
+                    let new_left_and_right_metadata = current_hk_count.search_for_inclusion(
                         &hyperkmers,
                         &large_hyperkmers,
                         &current_sk,
@@ -260,7 +287,7 @@ pub fn first_stage(
                     let (metadata_to_insert_left, metadata_to_insert_right) =
                         new_left_and_right_metadata
                             .expect("Hash collision on superkmers. Please change your seed.");
-                    hk_count.insert_new_entry_in_hyperkmer_count(
+                    current_hk_count.insert_new_entry_in_hyperkmer_count(
                         &current_sk.get_minimizer(),
                         &metadata_to_insert_left,
                         &metadata_to_insert_right,
@@ -284,16 +311,16 @@ pub fn first_stage(
 
 // TODO "style" find a better name for the second stage function
 pub fn second_stage(
-    sk_count: &mut SuperKmerCounts,
-    hk_count: &mut HKCount,
+    sk_count: &mut Paralell<SuperKmerCounts>,
+    hk_count: &mut Paralell<HKCount>,
     hyperkmers: &ExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
     sequences: &Vec<&str>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-) -> HashMap<Minimizer, Count> {
-    let mut discarded_minimizers: HashMap<Minimizer, Count> = HashMap::new();
+) -> Paralell<HashMap<Minimizer, Count>> {
+    let mut discarded_minimizers = Paralell::<HashMap<Minimizer, Count>>::new(|| HashMap::new());
 
     for sequence in sequences {
         let sequence = sequence.as_bytes();
@@ -303,16 +330,23 @@ pub fn second_stage(
             None => continue,
         };
         for superkmer in superkmers {
+            let minimizer = superkmer.get_minimizer();
+            let sk_count = sk_count.get_from_minimizer(minimizer);
+            let sk_count = sk_count.read().unwrap();
+
             if sk_count.get_count_superkmer(&superkmer) >= threshold {
                 continue;
             }
 
-            let minimizer = &superkmer.get_minimizer();
+            let hk_count = hk_count.get_from_minimizer(minimizer);
+            let mut hk_count = hk_count.write().unwrap();
 
-            if !hk_count.contains_minimizer(minimizer) {
+            let discarded_minimizers = discarded_minimizers.get_from_minimizer(minimizer);
+            let mut discarded_minimizers = discarded_minimizers.write().unwrap();
+            if !hk_count.contains_minimizer(&minimizer) {
                 // increase count, set to 1 if it was 0
                 let count = discarded_minimizers
-                    .entry(*minimizer)
+                    .entry(minimizer)
                     .and_modify(|counter| {
                         *counter = counter.saturating_add(1);
                     })
@@ -334,7 +368,7 @@ pub fn second_stage(
                 large_hyperkmers,
                 k,
                 m,
-                minimizer,
+                &minimizer,
                 &left_sk,
                 &right_sk,
             );
@@ -342,7 +376,7 @@ pub fn second_stage(
             // TODO duplication possible
             if let Some(metadata) = match_metadata {
                 hk_count.insert_new_entry_in_hyperkmer_count(
-                    minimizer,
+                    &minimizer,
                     &metadata.0,
                     &metadata.1,
                     1,

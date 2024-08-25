@@ -1,10 +1,6 @@
-use ahash::HashSet;
-
-use crate::index::MinimizerIter;
+use crate::index::parallel::Paralell;
 use crate::superkmer::SubsequenceMetadata;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
 use super::super::components::ExtendedHyperkmers;
@@ -23,6 +19,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     // then extract kmers from these contexts
     // consider the union of the kmers from these contexts
     let mut kmers_counts: HashMap<Vec<u8>, u16> = HashMap::new();
+    // for hk_count_chunk in hk_count.iter_chunks() {
     for hk_count_elem in hk_count.get_data().get_iter(minimizer) {
         let count = hk_count_elem.2;
         let (context, _minimizer_start_pos) =
@@ -38,6 +35,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
                 .or_insert(count);
         }
     }
+    // }
 
     kmers_counts.into_iter()
 }
@@ -109,7 +107,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 // }
 
 pub struct KmerIterator<'a> {
-    hk_count: RwLockReadGuard<'a, HKCount>,
+    hk_count: &'a Paralell<HKCount>,
     // minimizers_iter: MinimizerIter<'a>,
     minimizers_iter: std::collections::hash_set::IntoIter<u64>,
     hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
@@ -120,7 +118,7 @@ pub struct KmerIterator<'a> {
 
 impl<'a> KmerIterator<'a> {
     pub fn new(
-        hk_count: RwLockReadGuard<'a, HKCount>,
+        hk_count: &'a Paralell<HKCount>,
         minimizers_iter: std::collections::hash_set::IntoIter<u64>,
         hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
         large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,
@@ -143,8 +141,10 @@ impl<'a> Iterator for KmerIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let minimizer = self.minimizers_iter.next()?;
+        let hk_count_lock = self.hk_count.get_from_minimizer(minimizer);
+        let hk_count = hk_count_lock.read().unwrap();
         Some(extract_kmers_from_contexts_associated_to_a_minimizer(
-            &self.hk_count,
+            &hk_count,
             &minimizer,
             &self.hyperkmers,
             &self.large_hyperkmers,

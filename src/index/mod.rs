@@ -1,13 +1,25 @@
+#[macro_use]
 pub mod components;
 mod computation;
 mod iterators;
+mod parallel;
 
 use super::Minimizer;
 use crate::index::iterators::extract_kmers_from_contexts_associated_to_a_minimizer;
 use crate::Count;
+use crate::{
+    compute_left_and_right::get_left_and_rigth_of_sk,
+    superkmers_computation::compute_superkmers_linear_streaming,
+};
+use components::ExtendedHyperkmers;
+use components::HKCount;
+use components::SuperKmerCounts;
 use computation::first_stage;
 use computation::second_stage;
-use itertools::Itertools;
+use iterators::KmerIterator;
+use itertools::{Chunk, Itertools};
+// use parallel::mac::read_lock;
+use parallel::Paralell;
 use rayon::prelude::*;
 use serde::{
     de::{SeqAccess, Visitor},
@@ -26,22 +38,13 @@ use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-use crate::{
-    compute_left_and_right::get_left_and_rigth_of_sk,
-    superkmers_computation::compute_superkmers_linear_streaming,
-};
-use components::ExtendedHyperkmers;
-use components::HKCount;
-use components::SuperKmerCounts;
-use iterators::KmerIterator;
 // -- type state pattern
 pub trait FullIndexTrait: std::marker::Sync {}
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct CompleteIndex {
-    super_kmer_counts: SuperKmerCounts,
-    discarded_minimizers: HashMap<Minimizer, u16>,
+    super_kmer_counts: Paralell<SuperKmerCounts>,
+    discarded_minimizers: Paralell<HashMap<Minimizer, u16>>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -55,13 +58,13 @@ impl FullIndexTrait for StrippedIndex {}
 /// During contruction, the index also holds the counts of superkmers and information about minimizers.
 // #[derive(Serialize, Deserialize)]
 pub struct Index<FI: FullIndexTrait + Sync + Send + Serialize> {
-    hk_count: Arc<RwLock<HKCount>>,
+    hk_count: Paralell<HKCount>,
     hyperkmers: Arc<RwLock<ExtendedHyperkmers>>,
     /// vector of larger extended hyperkmers // TODO document
     large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>, // TODO use slice
     k: usize,
     m: usize,
-    superkmers_infos: Arc<RwLock<FI>>,
+    superkmers_infos: FI,
 }
 
 impl<FI: FullIndexTrait + Sync + Send + Serialize> Serialize for Index<FI> {
@@ -69,20 +72,20 @@ impl<FI: FullIndexTrait + Sync + Send + Serialize> Serialize for Index<FI> {
     where
         S: Serializer,
     {
-        let hk_count = self.hk_count.read().expect("msg");
-        let hyperkmers = self.hyperkmers.read().expect("msg");
-        let large_hyperkmers = self.large_hyperkmers.read().expect("msg");
+        // let hk_count = self.hk_count;
+        let hyperkmers = self.hyperkmers.read().unwrap();
+        let large_hyperkmers = self.large_hyperkmers.read().unwrap();
         let k = self.k;
         let m = self.m;
-        let superkmers_infos = self.superkmers_infos.read().expect("msg");
+        // let superkmers_infos = self.superkmers_infos;
 
         let mut state = serializer.serialize_struct("Index", 6)?;
-        state.serialize_field("hk_count", &*hk_count)?;
+        state.serialize_field("hk_count", &self.hk_count)?;
         state.serialize_field("hyperkmers", &*hyperkmers)?;
         state.serialize_field("large_hyperkmers", &*large_hyperkmers)?;
         state.serialize_field("k", &k)?;
         state.serialize_field("m", &m)?;
-        state.serialize_field("superkmers_infos", &*superkmers_infos)?;
+        state.serialize_field("superkmers_infos", &self.superkmers_infos)?;
         // serialize other fields
         state.end()
     }
@@ -149,11 +152,11 @@ impl<'a, FI: FullIndexTrait + Sync + Send + Serialize + for<'de> Deserialize<'de
             .next_element()?
             .ok_or_else(|| serde::de::Error::invalid_length(5, &self))?;
 
-        let hk_count = Arc::new(RwLock::new(hk_count));
+        // let hk_count = Arc::new(RwLock::new(hk_count));
         let hyperkmers = Arc::new(RwLock::new(hyperkmers));
         let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
 
-        let superkmers_infos = Arc::new(RwLock::new(superkmers_infos));
+        // let superkmers_infos = Arc::new(RwLock::new(superkmers_infos));
         Ok(Index {
             hk_count,
             hyperkmers,
@@ -175,10 +178,10 @@ impl<FI: FullIndexTrait + PartialEq + Send + Sync + Serialize + Serialize> Parti
     fn eq(&self, other: &Self) -> bool {
         self.k == other.k
             && self.m == other.m
-            && eq_arc_rwlock!(self.hk_count, other.hk_count)
+            && self.hk_count == other.hk_count
             && eq_arc_rwlock!(self.hyperkmers, other.hyperkmers)
             && eq_arc_rwlock!(self.large_hyperkmers, other.large_hyperkmers)
-            && eq_arc_rwlock!(self.superkmers_infos, other.superkmers_infos)
+            && self.superkmers_infos == other.superkmers_infos
     }
 }
 
@@ -208,17 +211,17 @@ impl Index<CompleteIndex> {
             "time second stage: {} milliseconds",
             start_second_stage.elapsed().as_millis()
         );
-        let hk_count = Arc::new(RwLock::new(hk_count));
+        // let hk_count = Arc::new(RwLock::new(hk_count));
         let hyperkmers = Arc::new(RwLock::new(hyperkmers));
         let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
         Self {
             hk_count,
             hyperkmers,
             large_hyperkmers,
-            superkmers_infos: Arc::new(RwLock::new(CompleteIndex {
+            superkmers_infos: CompleteIndex {
                 super_kmer_counts,
                 discarded_minimizers,
-            })),
+            },
             k,
             m,
         }
@@ -231,7 +234,7 @@ impl Index<CompleteIndex> {
             large_hyperkmers: self.large_hyperkmers,
             k: self.k,
             m: self.m,
-            superkmers_infos: Arc::new(RwLock::new(StrippedIndex {})),
+            superkmers_infos: StrippedIndex {},
         }
     }
 }
@@ -262,14 +265,14 @@ impl Index<StrippedIndex> {
             "time second stage: {} milliseconds",
             start_second_stage.elapsed().as_millis()
         );
-        let hk_count = Arc::new(RwLock::new(hk_count));
+        // let hk_count = Arc::new(RwLock::new(hk_count));
         let hyperkmers = Arc::new(RwLock::new(hyperkmers));
         let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
         Self {
             hk_count,
             hyperkmers,
             large_hyperkmers,
-            superkmers_infos: Arc::new(RwLock::new(StrippedIndex {})),
+            superkmers_infos: StrippedIndex {},
             k,
             m,
         }
@@ -282,17 +285,15 @@ where
 {
     #[cfg(test)]
     pub fn new(
-        hk_count: HKCount,
+        hk_count: Paralell<HKCount>,
         hyperkmers: ExtendedHyperkmers,
         large_hyperkmers: Vec<(usize, Vec<u8>)>,
         superkmers_infos: FI,
         k: usize,
         m: usize,
     ) -> Self {
-        let hk_count = Arc::new(RwLock::new(hk_count));
         let hyperkmers = Arc::new(RwLock::new(hyperkmers));
         let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
-        let superkmers_infos = Arc::new(RwLock::new(superkmers_infos));
         Self {
             hk_count,
             hyperkmers,
@@ -319,14 +320,17 @@ where
 
         let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
 
-        let hk_count = self.hk_count.read().expect("could not acquire read lock");
+        let hk_count_for_minimizer = self.hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let hk_count_for_minimizer = hk_count_for_minimizer
+            .read()
+            .expect("could not acquire read lock");
         let hyperkmers = self.hyperkmers.read().expect("could not acquire read lock");
         let large_hyperkmers = self
             .large_hyperkmers
             .read()
             .expect("could not acquire read lock");
 
-        hk_count.count_occurence_kmer(
+        hk_count_for_minimizer.count_occurence_kmer(
             &hyperkmers,
             &large_hyperkmers,
             &superkmer.get_minimizer(),
@@ -339,7 +343,7 @@ where
 
     pub fn iter_kmers(&self) -> KmerIterator {
         let minimizers = self.iter_minimizers();
-        let hk_count = self.hk_count.read().expect("could not acquire read lock");
+        let hk_count = &self.hk_count;
         let hyperkmers = self.hyperkmers.read().expect("could not acquire read lock");
         let large_hyperkmers = self
             .large_hyperkmers
@@ -383,10 +387,13 @@ where
 
     pub fn iter_minimizers(&self) -> std::collections::hash_set::IntoIter<u64> {
         let mut set: HashSet<u64> = HashSet::new();
-        let hk_count = self.hk_count.read().unwrap(); // Acquire the read lock
-        for (minimizer, _v) in hk_count.get_data().iter() {
-            set.insert(*minimizer);
-        }
+        self.hk_count.chunks().iter().for_each(|chunk| {
+            let chunk = chunk.read().unwrap(); // Acquire the read lock
+            for (minimizer, _v) in chunk.get_data().iter() {
+                set.insert(*minimizer);
+            }
+        });
+
         set.into_iter()
     }
 
@@ -402,13 +409,37 @@ where
     // }
 
     pub fn minimizers_set(&self) -> std::collections::hash_set::HashSet<u64> {
-        let hk_count = self.hk_count.read().expect("msg");
-        let mut set = HashSet::with_capacity(hk_count.get_data().len());
-        for (minimizer, _v) in hk_count.get_data().iter() {
-            set.insert(*minimizer);
+        let total_size = self
+            .hk_count
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.read().unwrap().get_data().len())
+            .sum();
+        let mut set = HashSet::with_capacity(total_size);
+
+        for hk_count in self.hk_count.chunks() {
+            for (minimizer, _v) in hk_count.read().unwrap().get_data().iter() {
+                set.insert(*minimizer);
+            }
         }
+
         set
     }
+
+    // pub fn minimizers_sets(&self) -> [HashSet<u64>; NB_PARALELL_CHUNK] {
+    //     let hk_count_chuncks = self.hk_count.chunks();
+    //     // [HashSet::<u64>; PARALELL_CHUNK_SIZE]
+    //     let sets = std::array::from_fn(|i| {
+    //         let chunk = hk_count_chuncks[i].read().unwrap();
+    //         let size = chunk.get_data().len();
+    //         let mut set = HashSet::with_capacity(size);
+    //         for (minimizer, _v) in chunk.get_data().iter() {
+    //             set.insert(*minimizer);
+    //         }
+    //         set
+    //     });
+    //     sets
+    // }
 
     pub fn par_write_kmers<P: AsRef<Path>>(&self, path: P) {
         // create file and wrap it in mutex
@@ -416,53 +447,56 @@ where
         let buffer = BufWriter::with_capacity(100_000, file);
         let buffer = Arc::new(Mutex::new(buffer));
 
-        // parallel iterator on minimizers
-        let minimizers = self.minimizers_set();
-        let minimizers = minimizers.iter().collect_vec(); // TODO BEURK
-        let chunk_size = minimizers.len() / (10 * 12); // TODO parameter
-        println!("chunk_size: {}", chunk_size);
+        let hk_count_chunks = self.hk_count.chunks();
 
-        minimizers
-            .par_chunks(chunk_size)
-            .for_each(|minimizer_chunk| {
-                let k = self.k;
-                let m = self.m;
-                let hk_count = self.hk_count.read().unwrap();
-                let hyperkmers = self.hyperkmers.read().unwrap();
-                let large_hyperkmers = self.large_hyperkmers.read().unwrap();
+        let mut s = String::new();
+        hk_count_chunks.iter().for_each(|chunk| {
+            let chunk = chunk.read().unwrap();
+            let size = chunk.get_data().len();
+            s.push_str(&format!("{}, ", size));
+        });
 
-                let mut kmers_and_count = Vec::with_capacity(chunk_size * k * 2); // TODO discuss: how many kmer par minmizer?
-                for minimizer in minimizer_chunk {
-                    let kmers = extract_kmers_from_contexts_associated_to_a_minimizer(
-                        &hk_count,
-                        minimizer,
-                        &hyperkmers,
-                        &large_hyperkmers,
-                        &k,
-                        &m,
-                    );
+        hk_count_chunks.par_iter().for_each(|chunk| {
+            let k = self.k;
+            let m = self.m;
+            let hyperkmers = self.hyperkmers.read().unwrap();
+            let large_hyperkmers = self.large_hyperkmers.read().unwrap();
+            let hk_count_chunk = chunk.read().unwrap();
 
-                    for kmer_and_count in kmers {
-                        kmers_and_count.push(kmer_and_count);
-                    }
+            let minimizers = hk_count_chunk.minimizer_set();
+
+            let mut kmers_and_count = Vec::with_capacity(hk_count_chunk.get_data().len());
+            for minimizer in minimizers {
+                let kmers = extract_kmers_from_contexts_associated_to_a_minimizer(
+                    &hk_count_chunk,
+                    &minimizer,
+                    &hyperkmers,
+                    &large_hyperkmers,
+                    &k,
+                    &m,
+                );
+
+                for kmer_and_count in kmers {
+                    kmers_and_count.push(kmer_and_count);
                 }
+            }
 
-                let mut buffer = buffer.as_ref().lock().unwrap();
-                for (kmer, count) in kmers_and_count {
-                    buffer
-                        .write_all(&kmer)
-                        .expect("could not write to the file");
-                    writeln!(buffer, "\t{}", count).unwrap();
-                }
-            });
+            let mut buffer = buffer.as_ref().lock().unwrap();
+            for (kmer, count) in kmers_and_count {
+                buffer
+                    .write_all(&kmer)
+                    .expect("could not write to the file");
+                writeln!(buffer, "\t{}", count).unwrap();
+            }
+        });
     }
 
     /// Once a change in minimizer occurs, it never comes back again
     // pub fn context_iterator(&self) -> ContextsIterator {
     //     let mini_iter = self.iter_minimizers();
-    //     let hk_count = self.hk_count.read().expect("msg");
-    //     let hyperkmers = self.hyperkmers.read().expect("msg");
-    //     let large_hyperkmers = self.large_hyperkmers.read().expect("msg");
+    //     let hk_count = self.hk_count.read().unwrap();
+    //     let hyperkmers = self.hyperkmers.read().unwrap();
+    //     let large_hyperkmers = self.large_hyperkmers.read().unwrap();
     //     ContextsIterator::new(hk_count, mini_iter, hyperkmers, large_hyperkmers, self.m)
     // }
 
@@ -545,12 +579,12 @@ mod tests {
 
         // nothing inserted => nothing is found
         let empty_index: Index<CompleteIndex> = Index::new(
-            HKCount::new(),
+            Paralell::<HKCount>::new(HKCount::new),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: SuperKmerCounts::new(),
-                discarded_minimizers: HashMap::new(),
+                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -575,7 +609,6 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let mut hk: HKCount = HKCount::new();
         let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
         let large_hyperkmers = Vec::new();
         let count = 34;
@@ -625,20 +658,24 @@ mod tests {
             right.is_canonical() != superkmer.is_canonical_in_the_read(),
         );
 
-        hk.insert_new_entry_in_hyperkmer_count(
+        let hk_count = Paralell::<HKCount>::new(HKCount::new);
+        let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let mut hk_count_chunk = hk_count_chunk.write().unwrap();
+        hk_count_chunk.insert_new_entry_in_hyperkmer_count(
             &superkmer.get_minimizer(),
             &left_hk_metadata,
             &right_hk_metadata,
             count,
         );
+        drop(hk_count_chunk);
 
         let index: Index<CompleteIndex> = Index::new(
-            hk,
+            hk_count,
             hyperkmers,
             large_hyperkmers,
             CompleteIndex {
-                super_kmer_counts: SuperKmerCounts::new(),
-                discarded_minimizers: HashMap::new(),
+                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -654,12 +691,12 @@ mod tests {
         let m = 3;
 
         let empty_index: Index<CompleteIndex> = Index::new(
-            HKCount::new(),
+            Paralell::<HKCount>::new(HKCount::new),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: SuperKmerCounts::new(),
-                discarded_minimizers: HashMap::new(),
+                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -686,7 +723,6 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let mut hk: HKCount = HKCount::new();
         let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
         let count = 34;
 
@@ -735,20 +771,24 @@ mod tests {
             right.is_canonical() != superkmer.is_canonical_in_the_read(),
         );
 
-        hk.insert_new_entry_in_hyperkmer_count(
+        let hk_count = Paralell::<HKCount>::new(HKCount::new);
+        let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let mut hk_count_chunk = hk_count_chunk.write().unwrap();
+        hk_count_chunk.insert_new_entry_in_hyperkmer_count(
             &superkmer.get_minimizer(),
             &left_hk_metadata,
             &right_hk_metadata,
             count,
         );
+        drop(hk_count_chunk);
 
         let index: Index<CompleteIndex> = Index::new(
-            hk,
+            hk_count,
             hyperkmers,
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: SuperKmerCounts::new(),
-                discarded_minimizers: HashMap::new(),
+                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
