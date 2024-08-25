@@ -223,22 +223,22 @@ pub fn first_stage(
                     )
                 ));
 
-                let left_ext_hk = &get_subsequence_from_metadata(
-                    &hyperkmers,
-                    &large_hyperkmers,
-                    &left_hk_metadata,
-                )
-                .change_orientation_if(left_hk_metadata.get_change_orientation());
-
-                let right_ext_hk = &get_subsequence_from_metadata(
-                    &hyperkmers,
-                    &large_hyperkmers,
-                    &right_hk_metadata,
-                )
-                .change_orientation_if(right_hk_metadata.get_change_orientation());
-
                 #[cfg(debug_assertions)]
                 {
+                    let left_ext_hk = &get_subsequence_from_metadata(
+                        &hyperkmers,
+                        &large_hyperkmers,
+                        &left_hk_metadata,
+                    )
+                    .change_orientation_if(left_hk_metadata.get_change_orientation());
+
+                    let right_ext_hk = &get_subsequence_from_metadata(
+                        &hyperkmers,
+                        &large_hyperkmers,
+                        &right_hk_metadata,
+                    )
+                    .change_orientation_if(right_hk_metadata.get_change_orientation());
+
                     // extract candidate hyperkmers
                     let left_hyperkmer = &left_ext_hk
                         .subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
