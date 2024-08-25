@@ -6,14 +6,14 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
-pub const NB_PARALELL_CHUNK: usize = 255;
+pub const NB_PARALLEL_CHUNK: usize = 255;
 
-pub struct Paralell<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
-    data: [Arc<RwLock<T>>; NB_PARALELL_CHUNK],
+pub struct Parallel<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
+    data: [Arc<RwLock<T>>; NB_PARALLEL_CHUNK],
 }
 
-// Implement Serialize for Paralell
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Paralell<T> {
+// Implement Serialize for Parallel
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Parallel<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -29,8 +29,8 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Paralell<
     }
 }
 
-// Implement Deserialize for Paralell
-impl<'de, T> Deserialize<'de> for Paralell<T>
+// Implement Deserialize for Parallel
+impl<'de, T> Deserialize<'de> for Parallel<T>
 where
     T: PartialEq + Serialize + for<'a> Deserialize<'a>,
 {
@@ -38,37 +38,37 @@ where
     where
         D: Deserializer<'de>,
     {
-        struct ParalellVisitor<T>(PhantomData<T>);
+        struct ParallelVisitor<T>(PhantomData<T>);
 
-        impl<'de, T> Visitor<'de> for ParalellVisitor<T>
+        impl<'de, T> Visitor<'de> for ParallelVisitor<T>
         where
             T: PartialEq + Serialize + for<'a> Deserialize<'a>,
         {
-            type Value = Paralell<T>;
+            type Value = Parallel<T>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an array of length NB_PARALELL_CHUNK")
+                formatter.write_str("an array of length NB_PARALLEL_CHUNK")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                let data: [Arc<RwLock<T>>; NB_PARALELL_CHUNK] = std::array::from_fn(|_| {
+                let data: [Arc<RwLock<T>>; NB_PARALLEL_CHUNK] = std::array::from_fn(|_| {
                     Arc::new(RwLock::new(seq.next_element().unwrap().unwrap()))
                 });
 
-                Ok(Paralell { data })
+                Ok(Parallel { data })
             }
         }
 
-        deserializer.deserialize_seq(ParalellVisitor(PhantomData))
+        deserializer.deserialize_seq(ParallelVisitor(PhantomData))
     }
 }
 
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Paralell<T> {
-    fn eq(&self, other: &Paralell<T>) -> bool {
-        for i in 0..NB_PARALELL_CHUNK {
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Parallel<T> {
+    fn eq(&self, other: &Parallel<T>) -> bool {
+        for i in 0..NB_PARALLEL_CHUNK {
             // TODO get_unchecked
             let data = self.data[i].read().unwrap();
             let other_data = other.data[i].read().unwrap();
@@ -99,20 +99,20 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Paralell<
 //     pub(crate) use write_lock;
 // }
 
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Paralell<T> {
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Parallel<T> {
     pub fn new(function: fn() -> T) -> Self {
         let data = std::array::from_fn(|_i| Arc::new(RwLock::new(function())));
         Self { data }
     }
 
     pub fn get_from_minimizer(&self, minimizer: Minimizer) -> Arc<RwLock<T>> {
-        let index = minimizer % Minimizer::try_from(NB_PARALELL_CHUNK).unwrap();
+        let index = minimizer % Minimizer::try_from(NB_PARALLEL_CHUNK).unwrap();
         let index = usize::try_from(index).unwrap();
         // TODO unchecked
         self.data[index].clone()
     }
 
-    pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_PARALELL_CHUNK] {
+    pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_PARALLEL_CHUNK] {
         &self.data
     }
 }

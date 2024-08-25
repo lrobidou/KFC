@@ -17,7 +17,7 @@ use super::{
     components::{ExtendedHyperkmers, HKCount, SuperKmerCounts},
     parallel::{
         // mac::{read_lock, write_lock},
-        Paralell,
+        Parallel,
     },
 };
 
@@ -35,13 +35,13 @@ pub fn first_stage(
     m: usize,
     threshold: Count,
 ) -> (
-    Paralell<SuperKmerCounts>,
-    Paralell<HKCount>,
+    Parallel<SuperKmerCounts>,
+    Parallel<HKCount>,
     ExtendedHyperkmers,
     Vec<(usize, Vec<u8>)>,
 ) {
-    let sk_count = Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new);
-    let hk_count = Paralell::<HKCount>::new(HKCount::new);
+    let sk_count = Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new);
+    let hk_count = Parallel::<HKCount>::new(HKCount::new);
     let mut hyperkmers = ExtendedHyperkmers::new(k, 1000);
     let mut large_hyperkmers: Vec<(usize, Vec<u8>)> = Vec::new();
 
@@ -311,16 +311,16 @@ pub fn first_stage(
 
 // TODO "style" find a better name for the second stage function
 pub fn second_stage(
-    sk_count: &mut Paralell<SuperKmerCounts>,
-    hk_count: &mut Paralell<HKCount>,
+    sk_count: &mut Parallel<SuperKmerCounts>,
+    hk_count: &mut Parallel<HKCount>,
     hyperkmers: &ExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
     sequences: &Vec<&str>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-) -> Paralell<HashMap<Minimizer, Count>> {
-    let mut discarded_minimizers = Paralell::<HashMap<Minimizer, Count>>::new(|| HashMap::new());
+) -> Parallel<HashMap<Minimizer, Count>> {
+    let mut discarded_minimizers = Parallel::<HashMap<Minimizer, Count>>::new(|| HashMap::new());
 
     for sequence in sequences {
         let sequence = sequence.as_bytes();

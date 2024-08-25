@@ -1,4 +1,4 @@
-use crate::index::parallel::Paralell;
+use crate::index::parallel::Parallel;
 use crate::superkmer::SubsequenceMetadata;
 use std::collections::HashMap;
 use std::sync::RwLockReadGuard;
@@ -107,7 +107,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 // }
 
 pub struct KmerIterator<'a> {
-    hk_count: &'a Paralell<HKCount>,
+    hk_count: &'a Parallel<HKCount>,
     // minimizers_iter: MinimizerIter<'a>,
     minimizers_iter: std::collections::hash_set::IntoIter<u64>,
     hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
@@ -118,7 +118,7 @@ pub struct KmerIterator<'a> {
 
 impl<'a> KmerIterator<'a> {
     pub fn new(
-        hk_count: &'a Paralell<HKCount>,
+        hk_count: &'a Parallel<HKCount>,
         minimizers_iter: std::collections::hash_set::IntoIter<u64>,
         hyperkmers: RwLockReadGuard<'a, ExtendedHyperkmers>,
         large_hyperkmers: RwLockReadGuard<'a, Vec<(usize, Vec<u8>)>>,

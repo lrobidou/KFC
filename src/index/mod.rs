@@ -19,7 +19,7 @@ use computation::second_stage;
 use iterators::KmerIterator;
 use itertools::{Chunk, Itertools};
 // use parallel::mac::read_lock;
-use parallel::Paralell;
+use parallel::Parallel;
 use rayon::prelude::*;
 use serde::{
     de::{SeqAccess, Visitor},
@@ -43,8 +43,8 @@ pub trait FullIndexTrait: std::marker::Sync {}
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct CompleteIndex {
-    super_kmer_counts: Paralell<SuperKmerCounts>,
-    discarded_minimizers: Paralell<HashMap<Minimizer, u16>>,
+    super_kmer_counts: Parallel<SuperKmerCounts>,
+    discarded_minimizers: Parallel<HashMap<Minimizer, u16>>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -58,7 +58,7 @@ impl FullIndexTrait for StrippedIndex {}
 /// During contruction, the index also holds the counts of superkmers and information about minimizers.
 // #[derive(Serialize, Deserialize)]
 pub struct Index<FI: FullIndexTrait + Sync + Send + Serialize> {
-    hk_count: Paralell<HKCount>,
+    hk_count: Parallel<HKCount>,
     hyperkmers: Arc<RwLock<ExtendedHyperkmers>>,
     /// vector of larger extended hyperkmers // TODO document
     large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>, // TODO use slice
@@ -285,7 +285,7 @@ where
 {
     #[cfg(test)]
     pub fn new(
-        hk_count: Paralell<HKCount>,
+        hk_count: Parallel<HKCount>,
         hyperkmers: ExtendedHyperkmers,
         large_hyperkmers: Vec<(usize, Vec<u8>)>,
         superkmers_infos: FI,
@@ -426,9 +426,9 @@ where
         set
     }
 
-    // pub fn minimizers_sets(&self) -> [HashSet<u64>; NB_PARALELL_CHUNK] {
+    // pub fn minimizers_sets(&self) -> [HashSet<u64>; NB_PARALLEL_CHUNK] {
     //     let hk_count_chuncks = self.hk_count.chunks();
-    //     // [HashSet::<u64>; PARALELL_CHUNK_SIZE]
+    //     // [HashSet::<u64>; NB_PARALLEL_CHUNK]
     //     let sets = std::array::from_fn(|i| {
     //         let chunk = hk_count_chuncks[i].read().unwrap();
     //         let size = chunk.get_data().len();
@@ -579,12 +579,12 @@ mod tests {
 
         // nothing inserted => nothing is found
         let empty_index: Index<CompleteIndex> = Index::new(
-            Paralell::<HKCount>::new(HKCount::new),
+            Parallel::<HKCount>::new(HKCount::new),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
-                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
+                super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Parallel::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -658,7 +658,7 @@ mod tests {
             right.is_canonical() != superkmer.is_canonical_in_the_read(),
         );
 
-        let hk_count = Paralell::<HKCount>::new(HKCount::new);
+        let hk_count = Parallel::<HKCount>::new(HKCount::new);
         let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
         let mut hk_count_chunk = hk_count_chunk.write().unwrap();
         hk_count_chunk.insert_new_entry_in_hyperkmer_count(
@@ -674,8 +674,8 @@ mod tests {
             hyperkmers,
             large_hyperkmers,
             CompleteIndex {
-                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
-                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
+                super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Parallel::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -691,12 +691,12 @@ mod tests {
         let m = 3;
 
         let empty_index: Index<CompleteIndex> = Index::new(
-            Paralell::<HKCount>::new(HKCount::new),
+            Parallel::<HKCount>::new(HKCount::new),
             ExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
-                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
+                super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Parallel::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
@@ -771,7 +771,7 @@ mod tests {
             right.is_canonical() != superkmer.is_canonical_in_the_read(),
         );
 
-        let hk_count = Paralell::<HKCount>::new(HKCount::new);
+        let hk_count = Parallel::<HKCount>::new(HKCount::new);
         let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
         let mut hk_count_chunk = hk_count_chunk.write().unwrap();
         hk_count_chunk.insert_new_entry_in_hyperkmer_count(
@@ -787,8 +787,8 @@ mod tests {
             hyperkmers,
             Vec::new(),
             CompleteIndex {
-                super_kmer_counts: Paralell::<SuperKmerCounts>::new(SuperKmerCounts::new),
-                discarded_minimizers: Paralell::<HashMap<u64, u16>>::new(HashMap::new),
+                super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
+                discarded_minimizers: Parallel::<HashMap<u64, u16>>::new(HashMap::new),
             },
             k,
             m,
