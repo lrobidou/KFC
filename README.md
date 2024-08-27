@@ -2,19 +2,23 @@
 - [x] using &str instead of String to prevent copies
 - [x] using Vec<u8> instead of `String` in the data structures
 - [x] implement search
-- [] implement streaming search
+- [ ] implement streaming search
 - [x] use kff as possible output
 - [x] implement k-mer iterator
 - [x] streaming of k-mers
-- [] optimize iteration of minimizer for streaming of k-mers
-- [] discuss what to do when a single k-mer is indexed: there is no previous nor next k-mer
-- [] debug: we miss the first and last superkmer if t = 1 
-- [] use version of kff from the crate instead of my own 
-- [] make it possible to do a single pass 
-- [] allow non canonical k-mers (?)
-- [] reference the paper in the README
-- [] test large value of k
-- [] make a paper branch (?)
+- [ ] optimize iteration of minimizer for streaming of k-mers
+- [ ] discuss what to do when a single k-mer is indexed: there is no previous nor next k-mer
+- [ ] debug: we miss the first and last superkmer if t = 1 
+- [ ] use version of kff from the crate instead of my own 
+- [ ] make it possible to do a single pass 
+- [ ] allow non canonical k-mers (?)
+- [ ] reference the paper in the README
+- [ ] test large value of k
+- [ ] make a paper branch (?)
+- [ ] test nightly
+- [ ] self mut on MashMap::get_mut_iter ?
+- [ ] better parallelization than locking the whole minimizer bucket ?
+- [ ] do we clone Buckets or do we use Arc ?
 
 ## bug lefts
 We miss the first and last superkmers:
