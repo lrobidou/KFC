@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use bitvec::array::IntoIter;
 use fastxgz::fasta_reads;
 use itertools::Itertools;
 use log::warn;
@@ -22,10 +21,7 @@ use crate::{
 
 use super::{
     components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
-    parallel::{
-        // mac::{read_lock, write_lock},
-        Parallel,
-    },
+    parallel::Parallel,
 };
 
 // Branch prediction hint. This is currently only available on nightly but it
@@ -57,11 +53,7 @@ pub fn first_stage<P: AsRef<Path>>(
     let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
     let large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>> = Arc::new(RwLock::new(Vec::new()));
 
-    // TODO change and iterate over u8, and also not a vec
-    let sequences: Vec<String> = fasta_reads(path)
-        .unwrap()
-        .map(|rcstring| rcstring.to_string())
-        .collect();
+    let sequences = fasta_reads(path).unwrap();
 
     rayon::scope(|s| {
         let chunks = sequences.into_iter().chunks(100);
@@ -70,11 +62,12 @@ pub fn first_stage<P: AsRef<Path>>(
             let hk_count = hk_count.clone();
             let hyperkmers = hyperkmers.clone();
             let large_hyperkmers = large_hyperkmers.clone();
-            let lines: Vec<String> = chunk.into_iter().collect_vec();
-            let lines = Arc::new(Mutex::new(lines.clone()));
+            let lines = chunk.into_iter().collect_vec(); //TODO copy
+            let lines = Arc::new(Mutex::new(lines));
             s.spawn(move |_| {
+                let mut sequences = lines.lock().unwrap();
                 first_stage_for_a_chunck(
-                    lines,
+                    &mut sequences,
                     k,
                     m,
                     threshold,
@@ -94,7 +87,7 @@ pub fn second_stage<P: AsRef<Path>>(
     hk_count: &mut Parallel<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
-    path: P, // OPTIMIZE prendre un iterateur sur des &[u8] ?
+    path: P,
     k: usize,
     m: usize,
     threshold: Count,
@@ -102,10 +95,7 @@ pub fn second_stage<P: AsRef<Path>>(
     let discarded_minimizers: Parallel<HashMap<u64, u16>> =
         Parallel::<HashMap<Minimizer, Count>>::new(HashMap::new);
 
-    let sequences: Vec<String> = fasta_reads(path)
-        .unwrap()
-        .map(|rcstring| rcstring.to_string())
-        .collect();
+    let sequences = fasta_reads(path).unwrap();
 
     rayon::scope(|s| {
         let chunks = sequences.into_iter().chunks(100);
@@ -115,15 +105,16 @@ pub fn second_stage<P: AsRef<Path>>(
             let hyperkmers = hyperkmers.clone();
             let large_hyperkmers = large_hyperkmers.clone();
             let discarded_minimizers = discarded_minimizers.clone();
-            let lines: Vec<String> = chunk.into_iter().collect_vec();
-            let lines = Arc::new(Mutex::new(lines.clone()));
+            let lines = chunk.into_iter().collect_vec(); // TODO copy
+            let lines = Arc::new(Mutex::new(lines));
             s.spawn(move |_| {
+                let mut sequences = lines.lock().unwrap();
                 second_stage_for_a_chunk(
                     &sk_count,
                     &hk_count,
                     &hyperkmers,
                     &large_hyperkmers,
-                    lines,
+                    &mut sequences,
                     k,
                     m,
                     threshold,
@@ -137,7 +128,7 @@ pub fn second_stage<P: AsRef<Path>>(
 
 // TODO "style" find a better name for the first stage function
 pub fn first_stage_for_a_chunck(
-    sequences: Arc<Mutex<Vec<String>>>,
+    sequences: &mut Vec<Vec<u8>>,
     k: usize,
     m: usize,
     threshold: Count,
@@ -146,10 +137,11 @@ pub fn first_stage_for_a_chunck(
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
 ) {
-    let sequences = sequences.lock().unwrap();
-    for sequence in sequences.iter() {
-        let sequence = &sequence.as_bytes();
-        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
+    // let sequences = sequences.lock().unwrap();
+    // let sequences_iter = &sequences.into_iter();
+    for sequence in sequences.into_iter() {
+        // let sequence = &sequence.as_bytes();
+        let superkmers = match compute_superkmers_linear_streaming(&sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };
@@ -421,7 +413,7 @@ pub fn second_stage_for_a_chunk(
     hk_count: &Parallel<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
-    sequences: Arc<Mutex<Vec<String>>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
+    sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
@@ -429,10 +421,8 @@ pub fn second_stage_for_a_chunk(
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
-    let sequences = sequences.lock().unwrap();
-    for sequence in sequences.iter() {
-        let sequence = &sequence.as_bytes();
-        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
+    for sequence in sequences.into_iter() {
+        let superkmers = match compute_superkmers_linear_streaming(&sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };

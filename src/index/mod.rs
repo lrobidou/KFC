@@ -577,11 +577,11 @@ where
     }
 }
 
-pub struct MinimizerIter<'a> {
-    iter: Box<dyn Iterator<Item = &'a u64> + 'a>,
-    seen: HashSet<&'a u64>,
-    _lock: RwLockReadGuard<'a, HKCount>,
-}
+// pub struct MinimizerIter<'a> {
+//     iter: Box<dyn Iterator<Item = &'a u64> + 'a>,
+//     seen: HashSet<&'a u64>,
+//     _lock: RwLockReadGuard<'a, HKCount>,
+// }
 
 // impl<'a> MinimizerIter<'a> {
 //     pub fn new(
@@ -596,15 +596,15 @@ pub struct MinimizerIter<'a> {
 //     }
 // }
 
-impl<'a> Iterator for MinimizerIter<'a> {
-    type Item = &'a u64;
+// impl<'a> Iterator for MinimizerIter<'a> {
+//     type Item = &'a u64;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter
-            .by_ref()
-            .find(|&minimizer| self.seen.insert(minimizer))
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         self.iter
+//             .by_ref()
+//             .find(|&minimizer| self.seen.insert(minimizer))
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
