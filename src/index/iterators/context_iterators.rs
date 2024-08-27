@@ -1,14 +1,14 @@
 use crate::Count;
 
-use super::super::components::ExtendedHyperkmers;
 use super::super::components::HKCount;
 use super::super::components::HKMetadata;
+use super::super::components::ParallelExtendedHyperkmers;
 use super::extract_context;
 
 pub fn extract_context_if_not_large(
     entry: &(HKMetadata, HKMetadata, Count),
     m: usize,
-    hyperkmers: &ExtendedHyperkmers,
+    hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
 ) -> Option<(String, usize)> {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
@@ -22,7 +22,7 @@ pub fn extract_context_if_not_large(
 pub fn extract_context_if_large(
     entry: &(HKMetadata, HKMetadata, Count),
     m: usize,
-    hyperkmers: &ExtendedHyperkmers,
+    hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
 ) -> Option<(String, usize)> {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
@@ -96,7 +96,7 @@ pub fn extract_context_if_large(
 pub struct NormalContextsIterator<'a> {
     hk_count: &'a HKCount,
     minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-    hyperkmers: &'a ExtendedHyperkmers,
+    hyperkmers: &'a ParallelExtendedHyperkmers,
     large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
     // k: usize,
     m: usize,
@@ -110,7 +110,7 @@ impl<'a> NormalContextsIterator<'a> {
     pub fn new(
         hk_count: &'a HKCount,
         minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-        hyperkmers: &'a ExtendedHyperkmers,
+        hyperkmers: &'a ParallelExtendedHyperkmers,
         large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
         m: usize,
     ) -> Self {
@@ -164,7 +164,7 @@ impl<'a> Iterator for NormalContextsIterator<'a> {
 pub struct LargeContextsIterator<'a> {
     hk_count: &'a HKCount,
     minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-    hyperkmers: &'a ExtendedHyperkmers,
+    hyperkmers: &'a ParallelExtendedHyperkmers,
     large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
     m: usize,
     current_entry_iterator: Option<(
@@ -177,7 +177,7 @@ impl<'a> LargeContextsIterator<'a> {
     pub fn new(
         hk_count: &'a HKCount,
         minimizers_iter: std::collections::hash_set::IntoIter<&'a u64>,
-        hyperkmers: &'a ExtendedHyperkmers,
+        hyperkmers: &'a ParallelExtendedHyperkmers,
         large_hyperkmers: &'a Vec<(usize, Vec<u8>)>,
         m: usize,
     ) -> Self {

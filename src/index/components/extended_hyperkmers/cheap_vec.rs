@@ -74,13 +74,15 @@ impl SimpleVec {
         len: usize,
         start: usize,
         end: usize,
-        subseq: SubsequenceMetadata<'_, NoBitPacked>,
+        subseq: SubsequenceMetadata<NoBitPacked>,
     ) {
         let ptr = self.ptr.write().expect("could not acquire write lock");
         let slice: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(*ptr as *mut u8, len * 8) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
 
+    // DEBUG this lets the memory be accessed out of the lock (but not modified)
+    // How to prevent memory from being modified ?
     pub fn as_u64_slice(&self, len: usize) -> &[u64] {
         let ptr = self.ptr.read().expect("could not acquire read lock");
         unsafe { std::slice::from_raw_parts(*ptr, len) }

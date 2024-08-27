@@ -12,12 +12,12 @@ use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear_streaming,
 };
-use components::ExtendedHyperkmers;
 use components::HKCount;
+use components::ParallelExtendedHyperkmers;
 use components::SuperKmerCounts;
 use computation::first_stage;
 use computation::second_stage;
-use iterators::{extract_context, KmerIterator};
+use iterators::extract_context;
 use kff::Kff;
 // use parallel::mac::read_lock;
 use parallel::Parallel;
@@ -60,7 +60,7 @@ impl FullIndexTrait for StrippedIndex {}
 // #[derive(Serialize, Deserialize)]
 pub struct Index<FI: FullIndexTrait + Sync + Send + Serialize> {
     hk_count: Parallel<HKCount>,
-    hyperkmers: Arc<RwLock<ExtendedHyperkmers>>,
+    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
     /// vector of larger extended hyperkmers // TODO document
     large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>, // TODO use slice
     k: usize,
@@ -189,10 +189,10 @@ impl<FI: FullIndexTrait + PartialEq + Send + Sync + Serialize + Serialize> Parti
 impl Index<CompleteIndex> {
     /// Constructs a new `Index` indexing a set of sequences
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
-    pub fn index(k: usize, m: usize, threshold: Count, sequences: &Vec<&str>) -> Self {
+    pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: P) -> Self {
         let start_fisrt_step = Instant::now();
         let (mut super_kmer_counts, mut hk_count, hyperkmers, large_hyperkmers) =
-            first_stage(sequences, k, m, threshold);
+            first_stage(&path, k, m, threshold);
         println!(
             "time first stage: {} milliseconds",
             start_fisrt_step.elapsed().as_millis()
@@ -201,9 +201,9 @@ impl Index<CompleteIndex> {
         let discarded_minimizers = second_stage(
             &mut super_kmer_counts,
             &mut hk_count,
-            &hyperkmers,
-            &large_hyperkmers,
-            sequences,
+            hyperkmers.clone(),
+            large_hyperkmers.clone(),
+            &path,
             k,
             m,
             threshold,
@@ -212,9 +212,7 @@ impl Index<CompleteIndex> {
             "time second stage: {} milliseconds",
             start_second_stage.elapsed().as_millis()
         );
-        // let hk_count = Arc::new(RwLock::new(hk_count));
-        let hyperkmers = Arc::new(RwLock::new(hyperkmers));
-        let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
+
         Self {
             hk_count,
             hyperkmers,
@@ -243,10 +241,10 @@ impl Index<CompleteIndex> {
 impl Index<StrippedIndex> {
     /// Constructs a new `Index` indexing a set of sequences
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
-    pub fn index(k: usize, m: usize, threshold: Count, sequences: &Vec<&str>) -> Self {
+    pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: &P) -> Self {
         let start_fisrt_step = Instant::now();
         let (mut super_kmer_counts, mut hk_count, hyperkmers, large_hyperkmers) =
-            first_stage(sequences, k, m, threshold);
+            first_stage(path, k, m, threshold);
         println!(
             "time first stage: {} milliseconds",
             start_fisrt_step.elapsed().as_millis()
@@ -255,9 +253,9 @@ impl Index<StrippedIndex> {
         let _discarded_minimizers = second_stage(
             &mut super_kmer_counts,
             &mut hk_count,
-            &hyperkmers,
-            &large_hyperkmers,
-            sequences,
+            hyperkmers.clone(),
+            large_hyperkmers.clone(),
+            path,
             k,
             m,
             threshold,
@@ -266,9 +264,7 @@ impl Index<StrippedIndex> {
             "time second stage: {} milliseconds",
             start_second_stage.elapsed().as_millis()
         );
-        // let hk_count = Arc::new(RwLock::new(hk_count));
-        let hyperkmers = Arc::new(RwLock::new(hyperkmers));
-        let large_hyperkmers = Arc::new(RwLock::new(large_hyperkmers));
+
         Self {
             hk_count,
             hyperkmers,
@@ -287,7 +283,7 @@ where
     #[cfg(test)]
     pub fn new(
         hk_count: Parallel<HKCount>,
-        hyperkmers: ExtendedHyperkmers,
+        hyperkmers: ParallelExtendedHyperkmers,
         large_hyperkmers: Vec<(usize, Vec<u8>)>,
         superkmers_infos: FI,
         k: usize,
@@ -305,7 +301,7 @@ where
         }
     }
 
-    pub fn get_hyperkmers(&self) -> &Arc<RwLock<ExtendedHyperkmers>> {
+    pub fn get_hyperkmers(&self) -> &Arc<RwLock<ParallelExtendedHyperkmers>> {
         &self.hyperkmers
     }
 
@@ -342,23 +338,23 @@ where
         )
     }
 
-    pub fn iter_kmers(&self) -> KmerIterator {
-        let minimizers = self.iter_minimizers();
-        let hk_count = &self.hk_count;
-        let hyperkmers = self.hyperkmers.read().expect("could not acquire read lock");
-        let large_hyperkmers = self
-            .large_hyperkmers
-            .read()
-            .expect("could not acquire read lock");
-        KmerIterator::new(
-            hk_count,
-            minimizers,
-            hyperkmers,
-            large_hyperkmers,
-            self.k,
-            self.m,
-        )
-    }
+    // pub fn iter_kmers(&self) -> KmerIterator {
+    //     let minimizers = self.iter_minimizers();
+    //     let hk_count = &self.hk_count;
+    //     let hyperkmers = self.hyperkmers.read().expect("could not acquire read lock");
+    //     let large_hyperkmers = self
+    //         .large_hyperkmers
+    //         .read()
+    //         .expect("could not acquire read lock");
+    //     KmerIterator::new(
+    //         hk_count,
+    //         minimizers,
+    //         hyperkmers,
+    //         large_hyperkmers,
+    //         self.k,
+    //         self.m,
+    //     )
+    // }
 
     // pub fn par_iter_kmers(
     //     &self,
@@ -386,17 +382,17 @@ where
     //     })
     // }
 
-    pub fn iter_minimizers(&self) -> std::collections::hash_set::IntoIter<u64> {
-        let mut set: HashSet<u64> = HashSet::new();
-        self.hk_count.chunks().iter().for_each(|chunk| {
-            let chunk = chunk.read().unwrap(); // Acquire the read lock
-            for (minimizer, _v) in chunk.get_data().iter() {
-                set.insert(*minimizer);
-            }
-        });
+    // pub fn iter_minimizers(&self) -> std::collections::hash_set::IntoIter<u64> {
+    //     let mut set: HashSet<u64> = HashSet::new();
+    //     self.hk_count.chunks().iter().for_each(|chunk| {
+    //         let chunk = chunk.read().unwrap(); // Acquire the read lock
+    //         for (minimizer, _v) in chunk.get_data().iter() {
+    //             set.insert(*minimizer);
+    //         }
+    //     });
 
-        set.into_iter()
-    }
+    //     set.into_iter()
+    // }
 
     // pub fn iter_minimizers(&self) -> MinimizerIter {
     //     let hk_count = self.hk_count.read().unwrap(); // Acquire the read lock
@@ -633,7 +629,7 @@ mod tests {
         // nothing inserted => nothing is found
         let empty_index: Index<CompleteIndex> = Index::new(
             Parallel::<HKCount>::new(HKCount::new),
-            ExtendedHyperkmers::new(k, 5),
+            ParallelExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
                 super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
@@ -662,7 +658,7 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
+        let hyperkmers = ParallelExtendedHyperkmers::new(kmer.len(), 7);
         let large_hyperkmers = Vec::new();
         let count = 34;
 
@@ -745,7 +741,7 @@ mod tests {
 
         let empty_index: Index<CompleteIndex> = Index::new(
             Parallel::<HKCount>::new(HKCount::new),
-            ExtendedHyperkmers::new(k, 5),
+            ParallelExtendedHyperkmers::new(k, 5),
             Vec::new(),
             CompleteIndex {
                 super_kmer_counts: Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new),
@@ -776,7 +772,7 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let mut hyperkmers = ExtendedHyperkmers::new(kmer.len(), 7);
+        let hyperkmers = ParallelExtendedHyperkmers::new(kmer.len(), 7);
         let count = 34;
 
         // computing the left and right context to insert them in vector of hyperkmer
@@ -852,13 +848,13 @@ mod tests {
         assert!(index == bin::load(filename).unwrap());
     }
 
-    #[test]
-    fn test_iter_kmers_empty() {
-        let index: Index<CompleteIndex> = Index::<CompleteIndex>::index(21, 11, 1, &vec![]);
-        let kmers_iter = index.iter_kmers().flatten();
-        let kmers = kmers_iter.collect_vec();
-        assert_eq!(kmers, vec![]);
-    }
+    // #[test]
+    // fn test_iter_kmers_empty() {
+    //     let index: Index<CompleteIndex> = Index::<CompleteIndex>::index(21, 11, 1, &vec![]);
+    //     let kmers_iter = index.iter_kmers().flatten();
+    //     let kmers = kmers_iter.collect_vec();
+    //     assert_eq!(kmers, vec![]);
+    // }
 
     // #[test]
     // fn test_iter_kmers_one_element() {

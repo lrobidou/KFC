@@ -2,16 +2,16 @@ mod context_iterators;
 mod kmers_iterator;
 
 // pub use context_iterators::ContextsIterator;
-pub use kmers_iterator::{extract_kmers_from_contexts_associated_to_a_minimizer, KmerIterator};
+pub use kmers_iterator::extract_kmers_from_contexts_associated_to_a_minimizer;
 
 use crate::{index::components::get_subsequence_from_metadata, Count};
 
-use super::components::{ExtendedHyperkmers, HKMetadata};
+use super::components::{HKMetadata, ParallelExtendedHyperkmers};
 
 pub fn extract_context(
     entry: &(HKMetadata, HKMetadata, Count),
     m: usize,
-    hyperkmers: &ExtendedHyperkmers,
+    hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;

@@ -21,8 +21,8 @@ pub fn get_left_and_rigth_extended_hk<'a>(
     next_sk: &Superkmer<'a>,
     k: usize,
 ) -> (
-    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize, bool),
-    (SubsequenceMetadata<'a, NoBitPacked>, usize, usize, bool),
+    (SubsequenceMetadata<NoBitPacked<'a>>, usize, usize, bool),
+    (SubsequenceMetadata<NoBitPacked<'a>>, usize, usize, bool),
 ) {
     // Caution: the next and previous superkmer are given as they appear in the read.
     // * but still in the order they would appear if the current superkmer was canonical *
@@ -80,28 +80,60 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             // TODO review my code please
             debug_assert!(previous_sk.superkmer.start() < current_sk.superkmer.start());
 
+            let start_inclusion = std::cmp::min(
+                current_sk.superkmer.start(),
+                next_sk.start_of_minimizer() + 1,
+            );
+
+            let end_inclusion = std::cmp::max(
+                previous_sk.superkmer.end(),
+                current_sk.end_of_minimizer() - 1,
+            );
+
             let left_ext = SubsequenceMetadata::new(
                 previous_sk.read,
-                previous_sk.superkmer.start(),
-                current_sk.superkmer.end(),
+                start_inclusion,
+                end_inclusion,
                 current_sk.is_canonical_in_the_read(),
             );
 
-            let start = left_ext.len() - current_sk.superkmer.len();
-            (left_ext, start, start + current_left_sk.len(), true)
+            let nb_base_skip_start = current_sk.superkmer.start() - start_inclusion;
+
+            (
+                left_ext,
+                nb_base_skip_start,
+                nb_base_skip_start + current_left_sk.len(),
+                true,
+            )
         } else {
             // TODO review my code please
             debug_assert!(previous_sk.superkmer.start() > current_sk.superkmer.start());
 
+            let start_inclusion = std::cmp::min(
+                current_sk.start_of_minimizer() + 1,
+                previous_sk.superkmer.start(),
+            );
+
+            let end_inclusion = std::cmp::max(
+                current_sk.superkmer.end(),
+                previous_sk.start_of_minimizer() + 1,
+            );
+
             let left_ext = SubsequenceMetadata::new(
                 current_sk.read,
-                current_sk.superkmer.start(),
-                previous_sk.superkmer.end(),
+                start_inclusion,
+                end_inclusion,
                 current_sk.is_canonical_in_the_read(),
             );
 
-            let start = left_ext.len() - current_sk.superkmer.len();
-            (left_ext, start, start + current_left_sk.len(), true)
+            let start_pos_in_context = current_sk.superkmer.end() - end_inclusion;
+
+            (
+                left_ext,
+                start_pos_in_context,
+                start_pos_in_context + current_left_sk.len(),
+                true,
+            )
         }
     } else {
         unreachable!(
@@ -131,31 +163,60 @@ pub fn get_left_and_rigth_extended_hk<'a>(
         if current_sk.is_canonical_in_the_read() {
             // TODO review my code please
             debug_assert!(current_sk.superkmer.start() < (next_sk.superkmer.start()));
-
-            let right_ext = SubsequenceMetadata::new(
-                current_sk.read,
-                current_sk.superkmer.start(),
-                next_sk.superkmer.end(),
-                current_sk.is_canonical_in_the_read(),
+            let start_inclusion = std::cmp::min(
+                current_sk.start_of_minimizer() + 1,
+                next_sk.superkmer.start(),
             );
 
             let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
-            let start = current_left_sk.len() - m + 2;
+
+            let end_inclusion = std::cmp::max(
+                current_sk.superkmer.end(),
+                next_sk.start_of_minimizer() + m - 1,
+            );
+
+            let right_ext = SubsequenceMetadata::new(
+                current_sk.read,
+                start_inclusion,
+                end_inclusion,
+                current_sk.is_canonical_in_the_read(),
+            );
+
+            let start = (current_sk.start_of_minimizer() + 1) - start_inclusion;
+
             (right_ext, start, start + current_right_sk.len(), true)
         } else {
             // TODO review my code please
             debug_assert!(current_sk.superkmer.start() > (next_sk.superkmer.start()));
 
-            let right_ext = SubsequenceMetadata::new(
-                next_sk.read,
-                next_sk.superkmer.start(),
-                current_sk.superkmer.end(),
-                current_sk.is_canonical_in_the_read(),
+            let start_inclusion = std::cmp::min(
+                current_sk.superkmer.start(),
+                next_sk.start_of_minimizer() + 1,
             );
 
             let m = current_sk.end_of_minimizer() - current_sk.start_of_minimizer();
-            let start = current_left_sk.len() - m + 2;
-            (right_ext, start, start + current_right_sk.len(), true)
+
+            let end_inclusion = std::cmp::max(
+                next_sk.superkmer.end(),
+                current_sk.start_of_minimizer() + m - 1,
+            );
+
+            let right_ext = SubsequenceMetadata::new(
+                next_sk.read,
+                start_inclusion,
+                end_inclusion,
+                current_sk.is_canonical_in_the_read(),
+            );
+
+            let nb_base_at_the_end = start_inclusion - current_sk.superkmer.start();
+            let size_context = end_inclusion - start_inclusion;
+
+            (
+                right_ext,
+                size_context - nb_base_at_the_end - current_right_sk.len(),
+                size_context - nb_base_at_the_end,
+                true,
+            )
         }
     } else {
         unreachable!(
@@ -186,8 +247,8 @@ pub fn get_left_and_rigth_extended_hk<'a>(
 pub fn get_left_and_rigth_of_sk<'a>(
     superkmer: &Superkmer<'a>,
 ) -> (
-    SubsequenceMetadata<'a, NoBitPacked>,
-    SubsequenceMetadata<'a, NoBitPacked>,
+    SubsequenceMetadata<NoBitPacked<'a>>,
+    SubsequenceMetadata<NoBitPacked<'a>>,
 ) {
     let left = SubsequenceMetadata::new(
         superkmer.read,

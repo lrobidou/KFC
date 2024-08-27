@@ -12,6 +12,14 @@ pub struct Parallel<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
     data: [Arc<RwLock<T>>; NB_PARALLEL_CHUNK],
 }
 
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Clone for Parallel<T> {
+    fn clone(&self) -> Parallel<T> {
+        Parallel {
+            data: self.data.clone(),
+        }
+    }
+}
+
 // Implement Serialize for Parallel
 impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Parallel<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -100,7 +108,10 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Parallel<
 // }
 
 impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Parallel<T> {
-    pub fn new(function: fn() -> T) -> Self {
+    pub fn new<F>(function: F) -> Self
+    where
+        F: Fn() -> T,
+    {
         let data = std::array::from_fn(|_i| Arc::new(RwLock::new(function())));
         Self { data }
     }

@@ -1,9 +1,9 @@
 #![cfg_attr(feature = "nightly", feature(core_intrinsics))]
 use clap::{Args, Parser, Subcommand};
+use macros::p;
 use serde::bin;
 // TODO use better library
 use ::serde::Serialize;
-use fastxgz::fasta_reads;
 use index::{CompleteIndex, FullIndexTrait, Index, StrippedIndex};
 use itertools::Itertools;
 use mashmap::MashMap;
@@ -13,6 +13,8 @@ use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
 use superkmers_computation::is_canonical;
+
+use std::println as prt;
 
 type Minimizer = u64;
 type HashSuperKmer = u64;
@@ -39,7 +41,7 @@ mod macros {
         }};
     }
 
-    pub(crate) use debug_print;
+    pub(crate) use debug_print as p;
 }
 
 #[derive(Parser, Debug)]
@@ -115,16 +117,12 @@ fn stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(index: &Index
         .read()
         .expect("could not acquire read lock");
 
-    for i in 0..hyperkmers.get_nb_inserted() {
-        let slice = hyperkmers.get_hyperkmer_from_id(i);
-        assert_eq!(slice.len(), k - 1);
-    }
+    hyperkmers.check(index.get_k());
 
     let nb_base_in_large_hyperkmers: usize =
         large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
     let number_of_hyperkmers = hyperkmers.get_nb_inserted();
     let number_of_large_hyperkmers = large_hyperkmers.len();
-    use macros::debug_print as p;
     println!("===== stats =====");
     p!(number_of_hyperkmers);
     p!(number_of_large_hyperkmers);
@@ -168,6 +166,7 @@ fn compare_to_kmc<P: AsRef<Path>, FI: FullIndexTrait + Serialize + Sync + Send +
     println!("ok = {ok}\nko={ko}");
 }
 
+// TODO implement this in mashmap ?
 /// Checks it two `MashMap` are equal
 fn check_equal_mashmap<K: Ord, V: Ord>(map0: &MashMap<K, V>, map1: &MashMap<K, V>) -> bool {
     // OPTIMIZE this is a naive implementation
@@ -180,27 +179,21 @@ fn check_equal_mashmap<K: Ord, V: Ord>(map0: &MashMap<K, V>, map1: &MashMap<K, V
 
 fn main() {
     let args = Cli::parse();
-    simple_logger::SimpleLogger::new().env().init().unwrap();
+    // simple_logger::SimpleLogger::new().env().init().unwrap();
     match args.command {
         Command::Build(args) => {
-            let sequences: Vec<String> = fasta_reads(args.input)
-                .unwrap()
-                .map(|rcstring| rcstring.to_string())
-                .collect();
-            let sequences: Vec<&str> = sequences.iter().map(|s| s.as_ref()).collect();
-
             let k = args.k;
             let m = args.m;
             let threshold = args.threshold;
 
             // build the index
-            let index = Index::<CompleteIndex>::index(k, m, threshold, &sequences);
+            let index = Index::<CompleteIndex>::index(k, m, threshold, args.input);
             // use KMC's output as a query against the index
             if let Some(kmc_file) = args.check_kmc {
                 compare_to_kmc(&index, kmc_file, k, m, threshold);
             }
 
-            stats(&index, k);
+            // stats(&index, k);
 
             // write the index to disk
             if let Some(output_file) = args.output {
@@ -231,34 +224,6 @@ fn main() {
             let index: Index<StrippedIndex> = bin::load(&input).expect("unable to read the index");
             if let Some(kff_path) = args.output_kff {
                 serde::kff::dump(&index, kff_path.clone()).unwrap();
-
-                // // TODO remove
-                // // read kff and dump to txt
-                // let file = std::fs::File::open(kff_path.clone()).expect("unable to read kff file");
-                // let buffer = BufReader::new(file);
-                // let reader = kff::Kff::read(std::io::BufReader::new(buffer))
-                //     .expect("cannot open the kff file");
-                // // assert!(reader.check().unwrap());  // surprising behavior, "breaks" the reader
-                // println!("{:?}", reader.header());
-                // println!("{:?}", reader.values());
-                // let kmers = reader.kmers().map(|x| {
-                //     println!("{:?}", x);
-                //     let kmer = x.unwrap();
-                //     let seq = kmer.seq(0b00011110);
-                //     let mut data: [u8; 2] = [0, 0];
-                //     debug_assert_eq!(kmer.data().len(), 2);
-                //     data.copy_from_slice(kmer.data());
-
-                //     (
-                //         String::from_utf8(seq).expect("cannot parse utf-8"),
-                //         Count::from_le_bytes(data),
-                //     )
-                // });
-                // let file = std::fs::File::create("test_kff.txt").expect("unable to read kff file");
-                // let mut buffer = BufWriter::new(file);
-                // for (kmer, count) in kmers {
-                //     writeln!(buffer, "{}\t{}", kmer, count).unwrap();
-                // }
             }
             if let Some(plain_text_path) = args.output_text {
                 serde::plain_text::plain_text(&index, plain_text_path);

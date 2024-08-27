@@ -2,7 +2,7 @@ mod extended_hyperkmers;
 mod hyperkmers_counts;
 mod superkmers_count;
 
-pub use extended_hyperkmers::ExtendedHyperkmers;
+pub use extended_hyperkmers::ParallelExtendedHyperkmers;
 pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 pub use superkmers_count::SuperKmerCounts;
 
@@ -16,16 +16,17 @@ use core::convert::identity as likely;
 use core::intrinsics::likely;
 
 pub fn get_subsequence_from_metadata<'a>(
-    hyperkmers: &'a ExtendedHyperkmers,
+    hyperkmers: &'a ParallelExtendedHyperkmers,
     large_hyperkmers: &'a [(usize, Vec<u8>)],
     metadata: &HKMetadata,
-) -> SubsequenceMetadata<'a, BitPacked> {
+) -> SubsequenceMetadata<BitPacked> {
     let index = metadata.get_index();
     let is_large = metadata.get_is_large();
     if likely(!is_large) {
         hyperkmers.get_hyperkmer_from_id(index)
     } else {
         let (size, bytes) = &large_hyperkmers[index];
+        let bytes = bytes.clone();
         let subseq = crate::superkmer::SubsequenceMetadata::whole_bitpacked(bytes, *size);
         subseq
     }

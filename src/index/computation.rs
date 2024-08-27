@@ -1,5 +1,12 @@
-use std::collections::HashMap;
+use crate::{prt, superkmer::Superkmer};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex, RwLock},
+};
 
+use bitvec::array::IntoIter;
+use fastxgz::fasta_reads;
 use itertools::Itertools;
 use log::warn;
 
@@ -14,7 +21,7 @@ use crate::{
 };
 
 use super::{
-    components::{ExtendedHyperkmers, HKCount, SuperKmerCounts},
+    components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
     parallel::{
         // mac::{read_lock, write_lock},
         Parallel,
@@ -28,27 +35,120 @@ use core::convert::identity as likely;
 #[cfg(feature = "nightly")]
 use core::intrinsics::likely;
 
-// TODO "style" find a better name for the first stage function
-pub fn first_stage(
-    sequences: &Vec<&str>,
+fn is_sk_solid(sk_count: &Parallel<SuperKmerCounts>, sk: &Superkmer, threshold: Count) -> bool {
+    let sk_count = sk_count.get_from_minimizer(sk.get_minimizer());
+    let sk_count = sk_count.read().unwrap();
+    sk_count.get_count_superkmer(sk) >= threshold
+}
+
+pub fn first_stage<P: AsRef<Path>>(
+    path: P,
     k: usize,
     m: usize,
     threshold: Count,
 ) -> (
     Parallel<SuperKmerCounts>,
     Parallel<HKCount>,
-    ExtendedHyperkmers,
-    Vec<(usize, Vec<u8>)>,
+    Arc<RwLock<ParallelExtendedHyperkmers>>,
+    Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
 ) {
     let sk_count = Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Parallel::<HKCount>::new(HKCount::new);
-    let mut hyperkmers = ExtendedHyperkmers::new(k, 1000);
-    let mut large_hyperkmers: Vec<(usize, Vec<u8>)> = Vec::new();
+    let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
+    let large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>> = Arc::new(RwLock::new(Vec::new()));
 
-    for sequence in sequences {
+    // TODO change and iterate over u8, and also not a vec
+    let sequences: Vec<String> = fasta_reads(path)
+        .unwrap()
+        .map(|rcstring| rcstring.to_string())
+        .collect();
+
+    rayon::scope(|s| {
+        let chunks = sequences.into_iter().chunks(100);
+        for chunk in chunks.into_iter() {
+            let sk_count = sk_count.clone();
+            let hk_count = hk_count.clone();
+            let hyperkmers = hyperkmers.clone();
+            let large_hyperkmers = large_hyperkmers.clone();
+            let lines: Vec<String> = chunk.into_iter().collect_vec();
+            let lines = Arc::new(Mutex::new(lines.clone()));
+            s.spawn(move |_| {
+                first_stage_for_a_chunck(
+                    lines,
+                    k,
+                    m,
+                    threshold,
+                    &sk_count,
+                    &hk_count,
+                    &hyperkmers,
+                    &large_hyperkmers,
+                )
+            });
+        }
+    });
+    (sk_count, hk_count, hyperkmers, large_hyperkmers)
+}
+
+pub fn second_stage<P: AsRef<Path>>(
+    sk_count: &mut Parallel<SuperKmerCounts>,
+    hk_count: &mut Parallel<HKCount>,
+    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    path: P, // OPTIMIZE prendre un iterateur sur des &[u8] ?
+    k: usize,
+    m: usize,
+    threshold: Count,
+) -> Parallel<HashMap<u64, u16>> {
+    let discarded_minimizers: Parallel<HashMap<u64, u16>> =
+        Parallel::<HashMap<Minimizer, Count>>::new(HashMap::new);
+
+    let sequences: Vec<String> = fasta_reads(path)
+        .unwrap()
+        .map(|rcstring| rcstring.to_string())
+        .collect();
+
+    rayon::scope(|s| {
+        let chunks = sequences.into_iter().chunks(100);
+        for chunk in chunks.into_iter() {
+            let sk_count = sk_count.clone();
+            let hk_count = hk_count.clone();
+            let hyperkmers = hyperkmers.clone();
+            let large_hyperkmers = large_hyperkmers.clone();
+            let discarded_minimizers = discarded_minimizers.clone();
+            let lines: Vec<String> = chunk.into_iter().collect_vec();
+            let lines = Arc::new(Mutex::new(lines.clone()));
+            s.spawn(move |_| {
+                second_stage_for_a_chunk(
+                    &sk_count,
+                    &hk_count,
+                    &hyperkmers,
+                    &large_hyperkmers,
+                    lines,
+                    k,
+                    m,
+                    threshold,
+                    &discarded_minimizers,
+                )
+            });
+        }
+    });
+    discarded_minimizers
+}
+
+// TODO "style" find a better name for the first stage function
+pub fn first_stage_for_a_chunck(
+    sequences: Arc<Mutex<Vec<String>>>,
+    k: usize,
+    m: usize,
+    threshold: Count,
+    sk_count: &Parallel<SuperKmerCounts>,
+    hk_count: &Parallel<HKCount>,
+    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+) {
+    let sequences = sequences.lock().unwrap();
+    for sequence in sequences.iter() {
         let sequence = &sequence.as_bytes();
-        // let start_superkmers = Instant::now();
-        // let superkmers = compute_superkmers_linear(sequence, k, m);
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
@@ -65,25 +165,13 @@ pub fn first_stage(
             // compute now if the previous and/or next superkmer is solid
             // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
-            let previous_sk_count = sk_count.get_from_minimizer(previous_sk.get_minimizer());
-            let previous_sk_count = previous_sk_count.read().unwrap();
-
-            let next_sk_count = sk_count.get_from_minimizer(next_sk.get_minimizer());
-            let next_sk_count = next_sk_count.read().unwrap();
-
-            let previous_sk_is_solid =
-                previous_sk_count.get_count_superkmer(&previous_sk) >= threshold;
-            let next_sk_is_solid = next_sk_count.get_count_superkmer(&next_sk) >= threshold;
-
-            drop(previous_sk_count);
-            drop(next_sk_count);
+            let previous_sk_is_solid = is_sk_solid(sk_count, &previous_sk, threshold);
+            let next_sk_is_solid = is_sk_solid(sk_count, &next_sk, threshold);
 
             let current_sk_count = sk_count.get_from_minimizer(current_sk.get_minimizer());
             let mut current_sk_count = current_sk_count.write().unwrap();
             // OPTIMIZE est-il possible de stocker les counts pour ne pas les recalculer ?
-            // TODO why not write ???
             let current_count = current_sk_count.increase_count_superkmer(&current_sk);
-
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
             // so I tell clippy to shup up
             #[allow(clippy::comparison_chain)]
@@ -105,8 +193,8 @@ pub fn first_stage(
                     {
                         previous_hk_count
                             .get_extended_hyperkmer_right_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
+                                &hyperkmers.read().unwrap(),
+                                &large_hyperkmers.read().unwrap(),
                                 &previous_sk.get_minimizer(),
                                 &left_extended_hk.0,
                             )
@@ -114,8 +202,8 @@ pub fn first_stage(
                     } else {
                         previous_hk_count
                             .get_extended_hyperkmer_left_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
+                                &hyperkmers.read().unwrap(),
+                                &large_hyperkmers.read().unwrap(),
                                 &previous_sk.get_minimizer(),
                                 &left_extended_hk.0,
                             )
@@ -125,10 +213,19 @@ pub fn first_stage(
                     // previous sk is not solid => our hyperkmer is not already present
                     // let's add it
                     if likely(!left_extended_hk.3) {
-                        (hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0), false)
+                        (
+                            hyperkmers
+                                .read()
+                                .unwrap()
+                                .add_new_ext_hyperkmer(&left_extended_hk.0),
+                            false,
+                        )
                     } else {
                         (
-                            add_new_large_hyperkmer(&mut large_hyperkmers, &left_extended_hk.0),
+                            add_new_large_hyperkmer(
+                                &mut large_hyperkmers.write().unwrap(),
+                                &left_extended_hk.0,
+                            ),
                             true,
                         )
                     }
@@ -139,8 +236,8 @@ pub fn first_stage(
                     if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
                         next_hk_count
                             .get_extended_hyperkmer_left_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
+                                &hyperkmers.read().unwrap(),
+                                &large_hyperkmers.read().unwrap(),
                                 &next_sk.get_minimizer(),
                                 &right_extended_hk.0,
                             )
@@ -148,8 +245,8 @@ pub fn first_stage(
                     } else {
                         next_hk_count
                             .get_extended_hyperkmer_right_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
+                                &hyperkmers.read().unwrap(),
+                                &large_hyperkmers.read().unwrap(),
                                 &next_sk.get_minimizer(),
                                 &right_extended_hk.0,
                             )
@@ -160,12 +257,18 @@ pub fn first_stage(
                     // let's add it
                     if likely(!right_extended_hk.3) {
                         (
-                            hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0),
+                            hyperkmers
+                                .read()
+                                .unwrap()
+                                .add_new_ext_hyperkmer(&right_extended_hk.0),
                             false,
                         )
                     } else {
                         (
-                            add_new_large_hyperkmer(&mut large_hyperkmers, &right_extended_hk.0),
+                            add_new_large_hyperkmer(
+                                &mut large_hyperkmers.write().unwrap(),
+                                &right_extended_hk.0,
+                            ),
                             true,
                         )
                     }
@@ -192,7 +295,8 @@ pub fn first_stage(
                     is_large_right,
                     right_change_orientation,
                 );
-
+                let hyperkmers = hyperkmers.read().unwrap();
+                let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let candidate_left_ext_hk = &get_subsequence_from_metadata(
                     &hyperkmers,
                     &large_hyperkmers,
@@ -225,14 +329,14 @@ pub fn first_stage(
 
                 #[cfg(debug_assertions)]
                 {
-                    let left_ext_hk = &get_subsequence_from_metadata(
+                    let left_ext_hk = get_subsequence_from_metadata(
                         &hyperkmers,
                         &large_hyperkmers,
                         &left_hk_metadata,
                     )
                     .change_orientation_if(left_hk_metadata.get_change_orientation());
 
-                    let right_ext_hk = &get_subsequence_from_metadata(
+                    let right_ext_hk = get_subsequence_from_metadata(
                         &hyperkmers,
                         &large_hyperkmers,
                         &right_hk_metadata,
@@ -265,6 +369,8 @@ pub fn first_stage(
                 let current_hk_count = hk_count.get_from_minimizer(current_sk.get_minimizer());
                 let mut current_hk_count = current_hk_count.write().unwrap();
                 // TODO fusionnner les deux passes
+                let hyperkmers = hyperkmers.read().unwrap();
+                let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let found = current_hk_count.increase_count_if_exact_match(
                     &current_sk.get_minimizer(),
@@ -306,25 +412,26 @@ pub fn first_stage(
             }
         }
     }
-    (sk_count, hk_count, hyperkmers, large_hyperkmers) // TODO "style" renommer extended_hyperkmers
+    // (sk_count, hk_count, hyperkmers, large_hyperkmers) // TODO "style" renommer extended_hyperkmers
 }
 
 // TODO "style" find a better name for the second stage function
-pub fn second_stage(
-    sk_count: &mut Parallel<SuperKmerCounts>,
-    hk_count: &mut Parallel<HKCount>,
-    hyperkmers: &ExtendedHyperkmers,
-    large_hyperkmers: &[(usize, Vec<u8>)],
-    sequences: &Vec<&str>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
+pub fn second_stage_for_a_chunk(
+    sk_count: &Parallel<SuperKmerCounts>,
+    hk_count: &Parallel<HKCount>,
+    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    sequences: Arc<Mutex<Vec<String>>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-) -> Parallel<HashMap<Minimizer, Count>> {
-    let mut discarded_minimizers = Parallel::<HashMap<Minimizer, Count>>::new(|| HashMap::new());
-
-    for sequence in sequences {
-        let sequence = sequence.as_bytes();
-        // let superkmers = compute_superkmers_linear(sequence, k, m);
+    discarded_minimizers: &Parallel<HashMap<Minimizer, Count>>,
+) {
+    let hyperkmers = hyperkmers.read().unwrap();
+    let large_hyperkmers = large_hyperkmers.read().unwrap();
+    let sequences = sequences.lock().unwrap();
+    for sequence in sequences.iter() {
+        let sequence = &sequence.as_bytes();
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
@@ -364,8 +471,8 @@ pub fn second_stage(
 
             let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
             let match_metadata = hk_count.search_for_maximal_inclusion(
-                hyperkmers,
-                large_hyperkmers,
+                &hyperkmers,
+                &large_hyperkmers,
                 k,
                 m,
                 &minimizer,
@@ -384,5 +491,4 @@ pub fn second_stage(
             }
         }
     }
-    discarded_minimizers
 }

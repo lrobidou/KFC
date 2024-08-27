@@ -57,35 +57,37 @@ pub fn reverse_complement_no_copy(
 }
 
 // states of SubsequenceMetadata
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BitPacked {
     total_base_in_sequence: usize,
+    slice: Vec<u8>,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct NoBitPacked;
+pub struct NoBitPacked<'a> {
+    read: &'a [u8],
+}
 
 // OPTIMIZE duplication of `read` when used in Superkmer
 /// Represents a subsequence, possibly in reverse
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SubsequenceMetadata<'a, Packing> {
-    read: &'a [u8],
+pub struct SubsequenceMetadata<Packing> {
     start: usize,
     end: usize,
     same_orientation: bool,
     packing: Packing,
 }
 
-impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
+impl<'a> SubsequenceMetadata<NoBitPacked<'a>> {
     pub fn new(read: &'a [u8], start: usize, end: usize, same_orientation: bool) -> Self {
         debug_assert!(start <= read.len());
         debug_assert!(end <= read.len());
         debug_assert!(start <= end);
         Self {
-            read,
             start, // in base
             end,   // in base
             same_orientation,
-            packing: NoBitPacked {},
+            packing: NoBitPacked { read },
         }
     }
 
@@ -94,19 +96,18 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     // }
 
     pub fn is_canonical(&self) -> bool {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
         let is_original_subsequence_canonical = is_canonical(subsequence);
         self.same_orientation == is_original_subsequence_canonical
     }
 
     pub fn to_canonical(self) -> Self {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
 
         if is_canonical(subsequence) == self.same_orientation {
             self
         } else {
             Self {
-                read: self.read,
                 start: self.start,
                 end: self.end,
                 same_orientation: !self.same_orientation,
@@ -165,7 +166,7 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     // }
 
     pub fn dump_as_2bits(&self, slice: &mut [u8]) {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
         if self.same_orientation {
             let iter = two_bits::encode_2bits(subsequence.iter().copied(), self.len());
 
@@ -230,22 +231,22 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         other: &SubsequenceMetadata<BitPacked>,
     ) -> usize {
         if self.same_orientation && other.same_orientation {
-            let mut x = self.read[self.start..self.end].iter().copied();
+            let mut x = self.packing.read[self.start..self.end].iter().copied();
             let mut y = other.decode_2bits();
             iter_prefix_len(&mut x, &mut y)
         } else if self.same_orientation && !other.same_orientation {
-            let mut x = self.read[self.start..self.end].iter().copied();
+            let mut x = self.packing.read[self.start..self.end].iter().copied();
             let other_iterator = other.decode_2bits();
             let mut y = reverse_complement_no_copy(other_iterator);
             iter_prefix_len(&mut x, &mut y)
         } else if !self.same_orientation && other.same_orientation {
-            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
             let mut x = reverse_complement_no_copy(self_iterator);
             let mut y = other.decode_2bits();
             iter_prefix_len(&mut x, &mut y)
         } else {
             // !self.same_orientation && !other.same_orientation
-            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
             let mut x = reverse_complement_no_copy(self_iterator);
             let other_iterator = other.decode_2bits();
             let mut y = reverse_complement_no_copy(other_iterator);
@@ -258,22 +259,22 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
         other: &SubsequenceMetadata<BitPacked>,
     ) -> usize {
         if self.same_orientation && other.same_orientation {
-            let mut x = self.read[self.start..self.end].iter().copied();
+            let mut x = self.packing.read[self.start..self.end].iter().copied();
             let mut y = other.decode_2bits();
             iter_suffix_len(&mut x, &mut y)
         } else if self.same_orientation && !other.same_orientation {
-            let mut x = self.read[self.start..self.end].iter().copied();
+            let mut x = self.packing.read[self.start..self.end].iter().copied();
             let other_iterator = other.decode_2bits();
             let mut y = reverse_complement_no_copy(other_iterator);
             iter_suffix_len(&mut x, &mut y)
         } else if !self.same_orientation && other.same_orientation {
-            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
             let mut x = reverse_complement_no_copy(self_iterator);
             let mut y = other.decode_2bits();
             iter_suffix_len(&mut x, &mut y)
         } else {
             // !self.same_orientation && !other.same_orientation
-            let self_iterator = self.read[self.start..self.end].iter().copied();
+            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
             let mut x = reverse_complement_no_copy(self_iterator);
             let other_iterator = other.decode_2bits();
             let mut y = reverse_complement_no_copy(other_iterator);
@@ -290,7 +291,7 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     }
 
     pub fn hash(&self) -> u64 {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
         if self.same_orientation {
             xxh3_64(subsequence)
         } else {
@@ -301,9 +302,9 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
     }
 }
 
-impl<'a> std::fmt::Display for SubsequenceMetadata<'a, NoBitPacked> {
+impl<'a> std::fmt::Display for SubsequenceMetadata<NoBitPacked<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
         let string = if self.same_orientation {
             String::from_utf8(Vec::from(subsequence)).unwrap()
         } else {
@@ -313,9 +314,9 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, NoBitPacked> {
     }
 }
 
-impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
+impl<'a> SubsequenceMetadata<NoBitPacked<'a>> {
     pub fn as_vec(&self) -> Vec<u8> {
-        let subsequence = &self.read[self.start..self.end];
+        let subsequence = &self.packing.read[self.start..self.end];
         if self.same_orientation {
             Vec::from(subsequence)
         } else {
@@ -337,16 +338,16 @@ impl<'a> SubsequenceMetadata<'a, NoBitPacked> {
 //     }
 // }
 
-impl<'a> SubsequenceMetadata<'a, BitPacked> {
-    pub fn whole_bitpacked(bytes: &'a [u8], nb_bases: usize) -> Self {
+impl<'a> SubsequenceMetadata<BitPacked> {
+    pub fn whole_bitpacked(bytes: Vec<u8>, nb_bases: usize) -> Self {
         debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == bytes.len());
         Self {
-            read: bytes,
             start: 0,
             end: nb_bases,
             same_orientation: true,
             packing: BitPacked {
                 total_base_in_sequence: nb_bases,
+                slice: bytes,
             },
         }
     }
@@ -367,22 +368,22 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
         }
     }
 
-    pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + 'a {
+    pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + '_ {
         debug_assert!(self.end <= self.packing.total_base_in_sequence);
-        debug_assert!(self.read.len() * 4 >= self.packing.total_base_in_sequence);
+        debug_assert!(self.packing.slice.len() * 4 >= self.packing.total_base_in_sequence);
         #[cfg(debug_assertions)]
         {
             // test to check that the reverse is working
             // TODO do more check and tests for the reverse decoding
             let truth = decode_2bits(
-                self.read.iter().cloned(),
+                self.packing.slice.iter().cloned(),
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
             )
             .collect_vec();
             let what_i_made = decode_2bits(
-                self.read.iter().cloned(),
+                self.packing.slice.iter().cloned(),
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
@@ -399,7 +400,7 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
             debug_assert_eq!(truth, what_i_made);
         }
         decode_2bits(
-            self.read.iter().cloned(),
+            self.packing.slice.iter().cloned(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -407,10 +408,10 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
     }
 }
 
-impl<'a> std::fmt::Display for SubsequenceMetadata<'a, BitPacked> {
+impl<'a> std::fmt::Display for SubsequenceMetadata<BitPacked> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let iter = decode_2bits(
-            self.read.iter().copied(),
+            self.packing.slice.iter().copied(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -425,10 +426,11 @@ impl<'a> std::fmt::Display for SubsequenceMetadata<'a, BitPacked> {
     }
 }
 
-impl<'a> SubsequenceMetadata<'a, BitPacked> {
+// TODO no copy (?)
+impl<'a> SubsequenceMetadata<BitPacked> {
     pub fn as_vec(&self) -> Vec<u8> {
         let iter = decode_2bits(
-            self.read.iter().copied(),
+            self.packing.slice.iter().copied(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -442,13 +444,12 @@ impl<'a> SubsequenceMetadata<'a, BitPacked> {
     }
 }
 
-impl<'a, Packing> SubsequenceMetadata<'a, Packing>
-where
-    Packing: Copy,
+impl<'a, Packing> SubsequenceMetadata<Packing>
+// where
+// Packing: Copy,
 {
-    pub fn change_orientation(&self) -> Self {
+    pub fn change_orientation(self) -> Self {
         Self {
-            read: self.read,
             start: self.start,
             end: self.end,
             same_orientation: !self.same_orientation,
@@ -456,17 +457,16 @@ where
         }
     }
 
-    pub fn change_orientation_if(&self, cond: bool) -> Self {
+    pub fn change_orientation_if(self, cond: bool) -> Self {
         if cond {
             Self {
-                read: self.read,
                 start: self.start,
                 end: self.end,
                 same_orientation: !self.same_orientation,
                 packing: self.packing,
             }
         } else {
-            *self
+            self
         }
     }
 
@@ -485,10 +485,9 @@ where
     /// ```
     /// Self::whole_string(self.to_string()[start..end])
     /// ```
-    pub fn subsequence(&self, start: usize, end: usize) -> SubsequenceMetadata<Packing> {
+    pub fn subsequence(self, start: usize, end: usize) -> SubsequenceMetadata<Packing> {
         if self.same_orientation {
             Self {
-                read: self.read,
                 start: self.start + start,
                 end: self.start + end,
                 same_orientation: self.same_orientation,
@@ -496,7 +495,6 @@ where
             }
         } else {
             Self {
-                read: self.read,
                 start: self.end - end,
                 end: self.end - start,
                 same_orientation: self.same_orientation,
@@ -541,7 +539,7 @@ pub struct Superkmer<'a> {
     minimizer: u64,
     start_mini: usize,
     end_mini: usize,
-    pub superkmer: SubsequenceMetadata<'a, NoBitPacked>,
+    pub superkmer: SubsequenceMetadata<NoBitPacked<'a>>,
 }
 
 impl<'a> Superkmer<'a> {
