@@ -84,7 +84,7 @@ impl SuperKmerCounts {
     /// Returns 0 if the superkmer is not found.
     pub fn get_count_superkmer(&self, superkmer: &Superkmer) -> Count {
         let superkmer_hash = superkmer.hash_superkmer();
-        for (hash, count) in self.data.get_mut_iter(&superkmer.get_minimizer()) {
+        for (hash, count) in self.data.get_iter(&superkmer.get_minimizer()) {
             if *hash == superkmer_hash {
                 return *count;
             }

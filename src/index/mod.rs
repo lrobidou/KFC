@@ -460,19 +460,18 @@ where
             let large_hyperkmers = self.large_hyperkmers.read().unwrap();
             let hk_count_chunk = chunk.read().unwrap();
 
-            let minimizers = hk_count_chunk.minimizer_set();
+            let mut km_counts_grouped_by_key =
+                hk_count_chunk.get_data().iter_group_by_key().peekable();
 
+            // OPTIMIZE: possibility to change this allocation
             let mut kmers_and_count = Vec::with_capacity(hk_count_chunk.get_data().len());
-            for minimizer in minimizers {
-                let kmers = extract_kmers_from_contexts_associated_to_a_minimizer(
-                    &hk_count_chunk,
-                    &minimizer,
-                    &hyperkmers,
-                    &large_hyperkmers,
-                    &k,
-                    &m,
-                );
-
+            while let Some(kmers) = extract_kmers_from_contexts_associated_to_a_minimizer(
+                &mut km_counts_grouped_by_key,
+                &hyperkmers,
+                &large_hyperkmers,
+                &k,
+                &m,
+            ) {
                 for kmer_and_count in kmers {
                     kmers_and_count.push(kmer_and_count);
                 }

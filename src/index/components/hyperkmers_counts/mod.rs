@@ -184,7 +184,7 @@ impl HKCount {
     /// If so, increase the count of the occurence and return `true`
     /// Else, return false
     pub fn increase_count_if_exact_match(
-        &self,
+        &mut self,
         minimizer: &Minimizer,
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
@@ -221,7 +221,7 @@ impl HKCount {
     ) -> Option<(HKMetadata, HKMetadata)> {
         let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
-            self.data.get_mut_iter(&minimizer)
+            self.data.get_iter(&minimizer)
         {
             // get sequences as they would appear if the current superkmer was canonical
             let is_large_left = candidate_left_ext_hk_metadata.get_is_large();
