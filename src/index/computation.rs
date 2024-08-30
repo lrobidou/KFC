@@ -38,6 +38,9 @@ fn is_sk_solid(sk_count: &Buckets<SuperKmerCounts>, sk: &Superkmer, threshold: C
     sk_count.get_count_superkmer(sk) >= threshold
 }
 
+/// First stage of the construction of the KFC index.
+///
+/// Splits each line of the input into chunks, then performs the first stage on each chunk in parallel.  
 pub fn first_stage<P: AsRef<Path>>(
     path: P,
     k: usize,
@@ -83,6 +86,10 @@ pub fn first_stage<P: AsRef<Path>>(
     (sk_count, hk_count, hyperkmers, large_hyperkmers)
 }
 
+/// Second stage of the construction of the KFC index.
+///
+/// Splits each line of the input into chunks, then performs the second stage on each chunk in parallel.  
+#[allow(clippy::too_many_arguments)]
 pub fn second_stage<P: AsRef<Path>>(
     sk_count: &mut Buckets<SuperKmerCounts>,
     hk_count: &mut Buckets<HKCount>,
@@ -127,7 +134,8 @@ pub fn second_stage<P: AsRef<Path>>(
 }
 
 // TODO "style" find a better name for the first stage function
-pub fn first_stage_for_a_chunck(
+#[allow(clippy::too_many_arguments)]
+fn first_stage_for_a_chunck(
     sequences: &mut Vec<Vec<u8>>,
     k: usize,
     m: usize,
@@ -137,10 +145,7 @@ pub fn first_stage_for_a_chunck(
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
-    // let sequences = sequences.lock().unwrap();
-    // let sequences_iter = &sequences.into_iter();
     for sequence in sequences {
-        // let sequence = &sequence.as_bytes();
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
@@ -404,11 +409,11 @@ pub fn first_stage_for_a_chunck(
             }
         }
     }
-    // (sk_count, hk_count, hyperkmers, large_hyperkmers) // TODO "style" renommer extended_hyperkmers
 }
 
 // TODO "style" find a better name for the second stage function
-pub fn second_stage_for_a_chunk(
+#[allow(clippy::too_many_arguments)]
+fn second_stage_for_a_chunk(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,

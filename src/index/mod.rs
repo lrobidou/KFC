@@ -12,7 +12,6 @@ use crate::{
 };
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 
-// components
 use components::{HKCount, LargeExtendedHyperkmers, ParallelExtendedHyperkmers, SuperKmerCounts};
 
 use crate::buckets::Buckets;
@@ -298,7 +297,7 @@ where
         &self.hyperkmers
     }
 
-    pub fn get_large_hyperkmers(&self) -> &Arc<RwLock<Vec<(usize, Vec<u8>)>>> {
+    pub fn get_large_hyperkmers(&self) -> &Arc<RwLock<LargeExtendedHyperkmers>> {
         &self.large_hyperkmers
     }
 

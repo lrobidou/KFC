@@ -3,7 +3,6 @@ use crate::subsequence::Subsequence;
 use crate::Minimizer;
 
 use super::two_bits;
-use itertools::Itertools;
 use std::iter::Map;
 use std::iter::Rev;
 
@@ -107,6 +106,7 @@ impl<'a> Superkmer<'a> {
 
     #[cfg(debug_assertions)]
     pub fn minimizer_string(&self) -> String {
+        use itertools::Itertools;
         if self.is_canonical_in_the_read() {
             String::from_utf8(
                 self.read[self.start_of_minimizer()..self.end_of_minimizer()]

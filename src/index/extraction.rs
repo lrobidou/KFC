@@ -88,8 +88,6 @@ pub fn extract_context(
         x
     };
 
-    // clearer with a name
-    #[allow(clippy::let_and_return)]
     (
         String::from_utf8(whole_context).expect("could not parse utf-8"),
         minimizer_pos,

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Contains values packed in a single u64 value.
+///
 /// Values are:
 /// index: the index of a extended hyperkmer in the vector
 /// start: the start of the hyperkmer in the extended hyperkmer whose index is `index`
@@ -46,9 +47,12 @@ impl HKMetadata {
     }
 }
 
+/// Contains values packed in a single u64 value.
+///
+/// This is not publicly available, as specifying the size of every field everywhere is cumbersome and error prone.
+/// Use `HKMetadata` instead.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
-pub struct HKMetadataInner<const SIZE_INDEX: usize, const SIZE_START: usize, const SIZE_END: usize>
-{
+struct HKMetadataInner<const SIZE_INDEX: usize, const SIZE_START: usize, const SIZE_END: usize> {
     data: usize,
 }
 
