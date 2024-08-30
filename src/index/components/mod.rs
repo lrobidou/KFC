@@ -5,8 +5,9 @@ mod superkmers_count;
 pub use extended_hyperkmers::ParallelExtendedHyperkmers;
 pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 pub use superkmers_count::SuperKmerCounts;
+pub type LargeExtendedHyperkmers = Vec<(usize, Vec<u8>)>; // TODO use slice ?
 
-use crate::superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata};
+use crate::subsequence::{BitPacked, NoBitPacked, Subsequence};
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -19,7 +20,7 @@ pub fn get_subsequence_from_metadata<'a>(
     hyperkmers: &'a ParallelExtendedHyperkmers,
     large_hyperkmers: &'a [(usize, Vec<u8>)],
     metadata: &HKMetadata,
-) -> SubsequenceMetadata<BitPacked> {
+) -> Subsequence<BitPacked> {
     let index = metadata.get_index();
     let is_large = metadata.get_is_large();
     if likely(!is_large) {
@@ -27,14 +28,13 @@ pub fn get_subsequence_from_metadata<'a>(
     } else {
         let (size, bytes) = &large_hyperkmers[index];
         let bytes = bytes.clone();
-        let subseq = crate::superkmer::SubsequenceMetadata::whole_bitpacked(bytes, *size);
-        subseq
+        Subsequence::whole_bitpacked(bytes, *size)
     }
 }
 
 pub fn add_new_large_hyperkmer(
     large_hyperkmers: &mut Vec<(usize, Vec<u8>)>,
-    new_ext_hyperkmer: &SubsequenceMetadata<NoBitPacked>,
+    new_ext_hyperkmer: &Subsequence<NoBitPacked>,
 ) -> usize {
     let nb_base = new_ext_hyperkmer.len();
 

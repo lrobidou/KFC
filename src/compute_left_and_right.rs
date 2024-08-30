@@ -1,4 +1,4 @@
-use crate::superkmer::{NoBitPacked, SubsequenceMetadata};
+use crate::subsequence::{NoBitPacked, Subsequence};
 use crate::Superkmer;
 
 // Branch prediction hint. This is currently only available on nightly but it
@@ -21,8 +21,8 @@ pub fn get_left_and_rigth_extended_hk<'a>(
     next_sk: &Superkmer<'a>,
     k: usize,
 ) -> (
-    (SubsequenceMetadata<NoBitPacked<'a>>, usize, usize, bool),
-    (SubsequenceMetadata<NoBitPacked<'a>>, usize, usize, bool),
+    (Subsequence<NoBitPacked<'a>>, usize, usize, bool),
+    (Subsequence<NoBitPacked<'a>>, usize, usize, bool),
 ) {
     // Caution: the next and previous superkmer are given as they appear in the read.
     // * but still in the order they would appear if the current superkmer was canonical *
@@ -90,7 +90,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
                 current_sk.end_of_minimizer() - 1,
             );
 
-            let left_ext = SubsequenceMetadata::new(
+            let left_ext = Subsequence::new(
                 previous_sk.read,
                 start_inclusion,
                 end_inclusion,
@@ -119,7 +119,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
                 previous_sk.start_of_minimizer() + 1,
             );
 
-            let left_ext = SubsequenceMetadata::new(
+            let left_ext = Subsequence::new(
                 current_sk.read,
                 start_inclusion,
                 end_inclusion,
@@ -175,7 +175,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
                 next_sk.start_of_minimizer() + m - 1,
             );
 
-            let right_ext = SubsequenceMetadata::new(
+            let right_ext = Subsequence::new(
                 current_sk.read,
                 start_inclusion,
                 end_inclusion,
@@ -201,7 +201,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
                 current_sk.start_of_minimizer() + m - 1,
             );
 
-            let right_ext = SubsequenceMetadata::new(
+            let right_ext = Subsequence::new(
                 next_sk.read,
                 start_inclusion,
                 end_inclusion,
@@ -246,17 +246,14 @@ pub fn get_left_and_rigth_extended_hk<'a>(
 // left and right part of the canonical superkmer
 pub fn get_left_and_rigth_of_sk<'a>(
     superkmer: &Superkmer<'a>,
-) -> (
-    SubsequenceMetadata<NoBitPacked<'a>>,
-    SubsequenceMetadata<NoBitPacked<'a>>,
-) {
-    let left = SubsequenceMetadata::new(
+) -> (Subsequence<NoBitPacked<'a>>, Subsequence<NoBitPacked<'a>>) {
+    let left = Subsequence::new(
         superkmer.read,
         superkmer.superkmer.start(),
         superkmer.end_of_minimizer() - 1,
         superkmer.is_canonical_in_the_read(),
     );
-    let right = SubsequenceMetadata::new(
+    let right = Subsequence::new(
         superkmer.read,
         superkmer.start_of_minimizer() + 1,
         superkmer.superkmer.end(),

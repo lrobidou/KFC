@@ -2,7 +2,7 @@ use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::rc::Rc;
 use std::sync::RwLock;
 
-use crate::superkmer::{NoBitPacked, SubsequenceMetadata};
+use crate::subsequence::{NoBitPacked, Subsequence};
 
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
@@ -69,13 +69,7 @@ impl SimpleVec {
         unsafe { std::slice::from_raw_parts(*ptr as *mut u8, len * 8) }
     }
 
-    pub fn dump(
-        &mut self,
-        len: usize,
-        start: usize,
-        end: usize,
-        subseq: SubsequenceMetadata<NoBitPacked>,
-    ) {
+    pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
         let ptr = self.ptr.write().expect("could not acquire write lock");
         let slice: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(*ptr as *mut u8, len * 8) };
         subseq.dump_as_2bits(&mut slice[start..end]);

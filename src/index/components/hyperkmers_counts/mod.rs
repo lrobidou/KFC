@@ -1,4 +1,3 @@
-use crate::prt;
 use std::collections::HashSet;
 
 use super::extended_hyperkmers::ParallelExtendedHyperkmers;
@@ -6,7 +5,7 @@ use super::get_subsequence_from_metadata;
 use crate::Superkmer;
 use crate::{
     check_equal_mashmap,
-    superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
+    subsequence::{BitPacked, NoBitPacked, Subsequence},
     Count, Minimizer,
 };
 mod hyperkmer_metadata;
@@ -114,7 +113,7 @@ impl HKCount {
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
-        extended_hyperkmer_left: &SubsequenceMetadata<NoBitPacked>,
+        extended_hyperkmer_left: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, bool)> {
         let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
 
@@ -143,7 +142,7 @@ impl HKCount {
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
-        extended_hyperkmer_right: &SubsequenceMetadata<NoBitPacked>,
+        extended_hyperkmer_right: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, bool)> {
         let canonical_extended_hyperkmer_right = extended_hyperkmer_right.to_canonical();
         for (_candidate_left_hk_metadata, candidate_right_hk_metadata, _count) in
@@ -188,8 +187,8 @@ impl HKCount {
         minimizer: &Minimizer,
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
-        left_hk: &SubsequenceMetadata<NoBitPacked>,
-        right_hk: &SubsequenceMetadata<NoBitPacked>,
+        left_hk: &Subsequence<NoBitPacked>,
+        right_hk: &Subsequence<NoBitPacked>,
     ) -> bool {
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
             //DEBUG why not self mut ?
@@ -216,8 +215,8 @@ impl HKCount {
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
         superkmer: &Superkmer,
-        left_sk: &SubsequenceMetadata<NoBitPacked>,
-        right_sk: &SubsequenceMetadata<NoBitPacked>,
+        left_sk: &Subsequence<NoBitPacked>,
+        right_sk: &Subsequence<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let minimizer = superkmer.get_minimizer();
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
@@ -230,7 +229,7 @@ impl HKCount {
                 large_hyperkmers,
                 candidate_left_ext_hk_metadata,
             );
-            let candidate_left_ext_hk: SubsequenceMetadata<BitPacked> = subseq_left
+            let candidate_left_ext_hk: Subsequence<BitPacked> = subseq_left
                 .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
 
             let is_large_right = candidate_right_ext_hk_metadata.get_is_large();
@@ -239,7 +238,7 @@ impl HKCount {
                 large_hyperkmers,
                 candidate_right_ext_hk_metadata,
             );
-            let candidate_right_ext_hk: SubsequenceMetadata<BitPacked> = subseq_right
+            let candidate_right_ext_hk: Subsequence<BitPacked> = subseq_right
                 .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
 
             let match_start_left = candidate_left_ext_hk.starts_with_nobitpacked(left_sk);
@@ -305,8 +304,8 @@ impl HKCount {
         k: usize,
         m: usize,
         minimizer: &Minimizer,
-        left_sk: &SubsequenceMetadata<NoBitPacked>,
-        right_sk: &SubsequenceMetadata<NoBitPacked>,
+        left_sk: &Subsequence<NoBitPacked>,
+        right_sk: &Subsequence<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let mut match_size = k - 1;
         let mut match_metadata = None;
@@ -319,7 +318,7 @@ impl HKCount {
                 large_hyperkmers,
                 candidate_left_ext_hk_metadata,
             );
-            let candidate_left_ext_hk: SubsequenceMetadata<BitPacked> = subseq_left
+            let candidate_left_ext_hk: Subsequence<BitPacked> = subseq_left
                 .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
 
             let subseq_right = get_subsequence_from_metadata(
@@ -327,7 +326,7 @@ impl HKCount {
                 large_hyperkmers,
                 candidate_right_ext_hk_metadata,
             );
-            let candidate_right_ext_hk: SubsequenceMetadata<BitPacked> = subseq_right
+            let candidate_right_ext_hk: Subsequence<BitPacked> = subseq_right
                 .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
 
             // extract candidate hyperkmers
@@ -380,8 +379,8 @@ impl HKCount {
         hyperkmers: &ParallelExtendedHyperkmers,
         large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
-        left_context: &SubsequenceMetadata<NoBitPacked>,
-        right_context: &SubsequenceMetadata<NoBitPacked>,
+        left_context: &Subsequence<NoBitPacked>,
+        right_context: &Subsequence<NoBitPacked>,
         k: usize,
         m: usize,
     ) -> Count {
@@ -439,33 +438,30 @@ impl HKCount {
 pub fn search_exact_hyperkmer_match(
     hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &[(usize, Vec<u8>)],
-    left_hk: &SubsequenceMetadata<NoBitPacked>,
-    right_hk: &SubsequenceMetadata<NoBitPacked>,
-    candidate_left_ext_hk_metadata: &HKMetadata,
-    candidate_right_ext_hk_metadata: &HKMetadata,
+    left_hk: &Subsequence<NoBitPacked>,
+    right_hk: &Subsequence<NoBitPacked>,
+    left_ext_hk_metadata: &HKMetadata,
+    right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
     // get sequences as they would appear if the current superkmer was canonical
-    let candidate_left_hyperkmer =
-        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, candidate_left_ext_hk_metadata)
-            .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
-    let candidate_left_hyperkmer = candidate_left_hyperkmer.subsequence(
-        candidate_left_ext_hk_metadata.get_start(),
-        candidate_left_ext_hk_metadata.get_end(),
+    let left_hyperkmer =
+        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, left_ext_hk_metadata)
+            .change_orientation_if(left_ext_hk_metadata.get_change_orientation());
+    let left_hyperkmer = left_hyperkmer.subsequence(
+        left_ext_hk_metadata.get_start(),
+        left_ext_hk_metadata.get_end(),
     );
 
-    let candidate_right_hyperkmer = get_subsequence_from_metadata(
-        hyperkmers,
-        large_hyperkmers,
-        candidate_right_ext_hk_metadata,
-    )
-    .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
-    let candidate_right_hyperkmer = candidate_right_hyperkmer.subsequence(
-        candidate_right_ext_hk_metadata.get_start(),
-        candidate_right_ext_hk_metadata.get_end(),
+    let right_hyperkmer =
+        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, right_ext_hk_metadata)
+            .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
+    let right_hyperkmer = right_hyperkmer.subsequence(
+        right_ext_hk_metadata.get_start(),
+        right_ext_hk_metadata.get_end(),
     );
 
-    let match_left = left_hk.equal_bitpacked(&candidate_left_hyperkmer);
-    let match_right = right_hk.equal_bitpacked(&candidate_right_hyperkmer);
+    let match_left = left_hk.equal_bitpacked(&left_hyperkmer);
+    let match_right = right_hk.equal_bitpacked(&right_hyperkmer);
 
     match_left && match_right
 }

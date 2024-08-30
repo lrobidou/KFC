@@ -1,4 +1,4 @@
-use crate::{prt, superkmer::Superkmer};
+use crate::superkmer::Superkmer;
 use std::{
     collections::HashMap,
     path::Path,
@@ -10,6 +10,7 @@ use itertools::Itertools;
 use log::warn;
 
 use crate::{
+    buckets::Buckets,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::components::{
         add_new_large_hyperkmer, get_subsequence_from_metadata, search_exact_hyperkmer_match,
@@ -21,7 +22,7 @@ use crate::{
 
 use super::{
     components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
-    parallel::Parallel,
+    LargeExtendedHyperkmers,
 };
 
 // Branch prediction hint. This is currently only available on nightly but it
@@ -31,7 +32,7 @@ use core::convert::identity as likely;
 #[cfg(feature = "nightly")]
 use core::intrinsics::likely;
 
-fn is_sk_solid(sk_count: &Parallel<SuperKmerCounts>, sk: &Superkmer, threshold: Count) -> bool {
+fn is_sk_solid(sk_count: &Buckets<SuperKmerCounts>, sk: &Superkmer, threshold: Count) -> bool {
     let sk_count = sk_count.get_from_minimizer(sk.get_minimizer());
     let sk_count = sk_count.read().unwrap();
     sk_count.get_count_superkmer(sk) >= threshold
@@ -43,15 +44,15 @@ pub fn first_stage<P: AsRef<Path>>(
     m: usize,
     threshold: Count,
 ) -> (
-    Parallel<SuperKmerCounts>,
-    Parallel<HKCount>,
+    Buckets<SuperKmerCounts>,
+    Buckets<HKCount>,
     Arc<RwLock<ParallelExtendedHyperkmers>>,
-    Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
-    let sk_count = Parallel::<SuperKmerCounts>::new(SuperKmerCounts::new);
-    let hk_count = Parallel::<HKCount>::new(HKCount::new);
+    let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
+    let hk_count = Buckets::<HKCount>::new(HKCount::new);
     let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
-    let large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>> = Arc::new(RwLock::new(Vec::new()));
+    let large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>> = Arc::new(RwLock::new(Vec::new()));
 
     let sequences = fasta_reads(path).unwrap();
 
@@ -83,17 +84,16 @@ pub fn first_stage<P: AsRef<Path>>(
 }
 
 pub fn second_stage<P: AsRef<Path>>(
-    sk_count: &mut Parallel<SuperKmerCounts>,
-    hk_count: &mut Parallel<HKCount>,
+    sk_count: &mut Buckets<SuperKmerCounts>,
+    hk_count: &mut Buckets<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
     path: P,
     k: usize,
     m: usize,
     threshold: Count,
-) -> Parallel<HashMap<u64, u16>> {
-    let discarded_minimizers: Parallel<HashMap<u64, u16>> =
-        Parallel::<HashMap<Minimizer, Count>>::new(HashMap::new);
+) -> Buckets<HashMap<u64, u16>> {
+    let discarded_minimizers = Buckets::<HashMap<Minimizer, Count>>::new(HashMap::new);
 
     let sequences = fasta_reads(path).unwrap();
 
@@ -132,16 +132,16 @@ pub fn first_stage_for_a_chunck(
     k: usize,
     m: usize,
     threshold: Count,
-    sk_count: &Parallel<SuperKmerCounts>,
-    hk_count: &Parallel<HKCount>,
+    sk_count: &Buckets<SuperKmerCounts>,
+    hk_count: &Buckets<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
     // let sequences = sequences.lock().unwrap();
     // let sequences_iter = &sequences.into_iter();
-    for sequence in sequences.into_iter() {
+    for sequence in sequences {
         // let sequence = &sequence.as_bytes();
-        let superkmers = match compute_superkmers_linear_streaming(&sequence, k, m) {
+        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };
@@ -409,20 +409,20 @@ pub fn first_stage_for_a_chunck(
 
 // TODO "style" find a better name for the second stage function
 pub fn second_stage_for_a_chunk(
-    sk_count: &Parallel<SuperKmerCounts>,
-    hk_count: &Parallel<HKCount>,
+    sk_count: &Buckets<SuperKmerCounts>,
+    hk_count: &Buckets<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<Vec<(usize, Vec<u8>)>>>,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-    discarded_minimizers: &Parallel<HashMap<Minimizer, Count>>,
+    discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
-    for sequence in sequences.into_iter() {
-        let superkmers = match compute_superkmers_linear_streaming(&sequence, k, m) {
+    for sequence in sequences {
+        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };

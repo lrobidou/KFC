@@ -15,16 +15,16 @@ use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
 use superkmers_computation::is_canonical;
 
-use std::println as prt;
-
 type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
 
+mod buckets;
 mod compute_left_and_right;
 mod index;
 mod minimizer_iter;
 mod serde;
+mod subsequence;
 mod superkmer;
 mod superkmers_computation;
 mod two_bits;
@@ -83,6 +83,9 @@ struct BuildArgs {
     /// Dump full index, with superkmer informations (partial dump by default)
     #[arg(short, long)]
     fulldump: bool,
+    /// Print some statistics about the index (no print by default)
+    #[arg(short, long)]
+    print_stats: bool,
 }
 
 #[derive(Args, Debug)]
@@ -109,7 +112,10 @@ struct KFFDumpArgs {
 }
 
 /// Prints some statistics about the index
-fn stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(index: &Index<FI>, k: usize) {
+fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
+    index: &Index<FI>,
+    k: usize,
+) {
     let hyperkmers = index.get_hyperkmers();
     let hyperkmers = hyperkmers.read().expect("could not acquire read lock");
 
@@ -194,11 +200,12 @@ fn main() {
                 compare_to_kmc(&index, kmc_file, k, m, threshold);
             }
 
-            // stats(&index, k);
+            if args.print_stats {
+                print_stats(&index, k);
+            }
 
             // write the index to disk
             if let Some(output_file) = args.output {
-                println!("fulldump : {}", args.fulldump);
                 if args.fulldump {
                     serde::bin::dump(&index, &output_file).expect("impossible to dump");
 

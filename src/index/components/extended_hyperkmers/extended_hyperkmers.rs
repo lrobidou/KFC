@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use crate::{
-    index::parallel::{Parallel, NB_PARALLEL_CHUNK},
-    superkmer::{BitPacked, NoBitPacked, SubsequenceMetadata},
+    buckets::{Buckets, NB_BUCKETS},
+    subsequence::{BitPacked, NoBitPacked, Subsequence},
 };
 use rand::Rng;
 use serde::{
@@ -15,7 +13,7 @@ use super::cheap_vec::SimpleVec;
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ParallelExtendedHyperkmers {
-    data: Parallel<ExtendedHyperkmers>,
+    data: Buckets<ExtendedHyperkmers>,
 }
 fn merge_ids(id_in_chunk: usize, id_of_chunk: usize) -> usize {
     (id_in_chunk << 8) + id_of_chunk
@@ -31,18 +29,18 @@ fn split_ids(id: usize) -> (usize, usize) {
 impl ParallelExtendedHyperkmers {
     pub fn new(k: usize, nb_hk_in_a_buffer: usize) -> Self {
         Self {
-            data: Parallel::new(|| ExtendedHyperkmers::new(k, nb_hk_in_a_buffer)),
+            data: Buckets::new(|| ExtendedHyperkmers::new(k, nb_hk_in_a_buffer)),
         }
     }
 
-    pub fn get_hyperkmer_from_id(&self, id: usize) -> SubsequenceMetadata<BitPacked> {
+    pub fn get_hyperkmer_from_id(&self, id: usize) -> Subsequence<BitPacked> {
         let (id_in_chunk, id_of_chunk) = split_ids(id);
         let extended_hk = self.data.get_from_minimizer(id_of_chunk as u64); // TODO tres mal nommé
         let extended_hk = extended_hk.read().unwrap();
 
         let slice = extended_hk.get_slice_from_id(id_in_chunk);
         let slice = slice.to_vec(); // TODO copy :(
-        SubsequenceMetadata::whole_bitpacked(slice, extended_hk.k - 1)
+        Subsequence::whole_bitpacked(slice, extended_hk.k - 1)
     }
 
     pub fn check(&self, k: usize) {
@@ -57,12 +55,9 @@ impl ParallelExtendedHyperkmers {
 
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
-    pub fn add_new_ext_hyperkmer(
-        &self,
-        new_ext_hyperkmer: &SubsequenceMetadata<NoBitPacked>,
-    ) -> usize {
+    pub fn add_new_ext_hyperkmer(&self, new_ext_hyperkmer: &Subsequence<NoBitPacked>) -> usize {
         let mut rng = rand::thread_rng();
-        let id_of_chunk: usize = rng.gen_range(0..NB_PARALLEL_CHUNK); // TODO can we use a different number of chunk here
+        let id_of_chunk: usize = rng.gen_range(0..NB_BUCKETS); // TODO can we use a different number of chunk here
 
         let extended_hk = self.data.get_from_minimizer(id_of_chunk as u64); // TODO tres mal nommé
         let mut extended_hk = extended_hk.write().unwrap();
@@ -258,28 +253,17 @@ impl ExtendedHyperkmers {
         }
     }
 
-    pub fn get_hyperkmer_from_id(&self, id: usize) -> SubsequenceMetadata<BitPacked> {
+    pub fn get_hyperkmer_from_id(&self, id: usize) -> Subsequence<BitPacked> {
         let slice = self.get_slice_from_id(id);
         let slice = slice.to_vec();
-        SubsequenceMetadata::whole_bitpacked(slice, self.k - 1)
+        Subsequence::whole_bitpacked(slice, self.k - 1)
     }
 
     pub fn len(&self) -> usize {
         self.nb_inserted
     }
 
-    // fn get_mut_slice_from_id(&mut self, id: usize) -> &mut [u8] {
-    //     debug_assert!(id < self.nb_inserted);
-    //     let id_buffer = id / self.nb_hk_in_a_buffer;
-    //     let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
-    //     let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
-    //     let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
-
-    //     let buffer = &mut self.ext_hyperkmers_buffers[id_buffer];
-    //     &mut buffer.as_mut_slice(self.buffer_size)[start..end]
-    // }
-
-    fn dump_hk(&mut self, id: usize, subseq: SubsequenceMetadata<NoBitPacked>) {
+    fn dump_hk(&mut self, id: usize, subseq: Subsequence<NoBitPacked>) {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_a_buffer;
         let pos_in_buffer = id % self.nb_hk_in_a_buffer; // which hyperkmer is it from the buffer `id_buffer`?
@@ -303,10 +287,7 @@ impl ExtendedHyperkmers {
 
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
-    pub fn add_new_ext_hyperkmer(
-        &mut self,
-        new_ext_hyperkmer: &SubsequenceMetadata<NoBitPacked>,
-    ) -> usize {
+    pub fn add_new_ext_hyperkmer(&mut self, new_ext_hyperkmer: &Subsequence<NoBitPacked>) -> usize {
         let is_full = self.nb_inserted % self.nb_hk_in_a_buffer == 0;
 
         // allocates memory

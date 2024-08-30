@@ -6,22 +6,22 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
-pub const NB_PARALLEL_CHUNK: usize = 255;
+pub const NB_BUCKETS: usize = 255;
 
-pub struct Parallel<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
-    data: [Arc<RwLock<T>>; NB_PARALLEL_CHUNK],
+pub struct Buckets<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
+    data: [Arc<RwLock<T>>; NB_BUCKETS],
 }
 
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Clone for Parallel<T> {
-    fn clone(&self) -> Parallel<T> {
-        Parallel {
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Clone for Buckets<T> {
+    fn clone(&self) -> Buckets<T> {
+        Buckets {
             data: self.data.clone(),
         }
     }
 }
 
-// Implement Serialize for Parallel
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Parallel<T> {
+// Implement Serialize for Buckets
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Buckets<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -37,8 +37,8 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Parallel<
     }
 }
 
-// Implement Deserialize for Parallel
-impl<'de, T> Deserialize<'de> for Parallel<T>
+// Implement Deserialize for Buckets
+impl<'de, T> Deserialize<'de> for Buckets<T>
 where
     T: PartialEq + Serialize + for<'a> Deserialize<'a>,
 {
@@ -46,37 +46,37 @@ where
     where
         D: Deserializer<'de>,
     {
-        struct ParallelVisitor<T>(PhantomData<T>);
+        struct BucketsVisitor<T>(PhantomData<T>);
 
-        impl<'de, T> Visitor<'de> for ParallelVisitor<T>
+        impl<'de, T> Visitor<'de> for BucketsVisitor<T>
         where
             T: PartialEq + Serialize + for<'a> Deserialize<'a>,
         {
-            type Value = Parallel<T>;
+            type Value = Buckets<T>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("an array of length NB_PARALLEL_CHUNK")
+                formatter.write_str("an array of length NB_BUCKETS")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
-                let data: [Arc<RwLock<T>>; NB_PARALLEL_CHUNK] = std::array::from_fn(|_| {
+                let data: [Arc<RwLock<T>>; NB_BUCKETS] = std::array::from_fn(|_| {
                     Arc::new(RwLock::new(seq.next_element().unwrap().unwrap()))
                 });
 
-                Ok(Parallel { data })
+                Ok(Buckets { data })
             }
         }
 
-        deserializer.deserialize_seq(ParallelVisitor(PhantomData))
+        deserializer.deserialize_seq(BucketsVisitor(PhantomData))
     }
 }
 
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Parallel<T> {
-    fn eq(&self, other: &Parallel<T>) -> bool {
-        for i in 0..NB_PARALLEL_CHUNK {
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Buckets<T> {
+    fn eq(&self, other: &Buckets<T>) -> bool {
+        for i in 0..NB_BUCKETS {
             // TODO get_unchecked
             let data = self.data[i].read().unwrap();
             let other_data = other.data[i].read().unwrap();
@@ -88,26 +88,7 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Parallel<
     }
 }
 
-// pub mod mac {
-//     macro_rules! read_lock {
-//         ($var:expr, $minimizer:expr) => {{
-//             let chunk = $var.get_from_minimizer($minimizer);
-//             let lock = chunk.read().unwrap();
-//             lock
-//         }};
-//     }
-
-//     macro_rules! write_lock {
-//         ($var:expr, $minimizer:expr) => {{
-//             $var.get_from_minimizer($minimizer).write().unwrap()
-//         }};
-//     }
-
-//     pub(crate) use read_lock;
-//     pub(crate) use write_lock;
-// }
-
-impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Parallel<T> {
+impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
     pub fn new<F>(function: F) -> Self
     where
         F: Fn() -> T,
@@ -117,13 +98,13 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Parallel<T> {
     }
 
     pub fn get_from_minimizer(&self, minimizer: Minimizer) -> Arc<RwLock<T>> {
-        let index = minimizer % Minimizer::try_from(NB_PARALLEL_CHUNK).unwrap();
+        let index = minimizer % Minimizer::try_from(NB_BUCKETS).unwrap();
         let index = usize::try_from(index).unwrap();
         // TODO unchecked
         self.data[index].clone()
     }
 
-    pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_PARALLEL_CHUNK] {
+    pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_BUCKETS] {
         &self.data
     }
 }
