@@ -39,7 +39,6 @@ macro_rules! kff_cast_error {
     };
 }
 
-// TODO report errors instead of panicking ?
 pub fn build_values<FI>(index: &Index<FI>) -> Result<kff::section::Values, KFFError>
 where
     FI: FullIndexTrait + Serialize + Sync + Send,

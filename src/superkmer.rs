@@ -50,7 +50,6 @@ pub fn reverse_complement_no_copy(
 #[derive(Debug, Clone, Copy, PartialEq)]
 
 pub struct Superkmer<'a> {
-    pub read: &'a [u8],
     minimizer: u64,
     start_mini: usize,
     end_mini: usize,
@@ -76,7 +75,6 @@ impl<'a> Superkmer<'a> {
         };
 
         Self {
-            read,
             minimizer,
             start_mini,
             end_mini,
@@ -104,19 +102,23 @@ impl<'a> Superkmer<'a> {
         self.superkmer.same_orientation()
     }
 
+    pub fn get_read(&self) -> &[u8] {
+        self.superkmer.get_read()
+    }
+
     #[cfg(debug_assertions)]
     pub fn minimizer_string(&self) -> String {
         use itertools::Itertools;
         if self.is_canonical_in_the_read() {
             String::from_utf8(
-                self.read[self.start_of_minimizer()..self.end_of_minimizer()]
+                self.get_read()[self.start_of_minimizer()..self.end_of_minimizer()]
                     .iter()
                     .copied()
                     .collect_vec(),
             )
             .unwrap()
         } else {
-            reverse_complement(&self.read[self.start_of_minimizer()..self.end_of_minimizer()])
+            reverse_complement(&self.get_read()[self.start_of_minimizer()..self.end_of_minimizer()])
         }
     }
 }

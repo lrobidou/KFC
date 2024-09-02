@@ -76,7 +76,6 @@ where
 impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> PartialEq for Buckets<T> {
     fn eq(&self, other: &Buckets<T>) -> bool {
         for i in 0..NB_BUCKETS {
-            // TODO get_unchecked
             let data = self.data[i].read().unwrap();
             let other_data = other.data[i].read().unwrap();
             if *data != *other_data {

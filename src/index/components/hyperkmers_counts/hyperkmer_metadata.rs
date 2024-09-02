@@ -83,10 +83,10 @@ impl<
         change_orientation: bool,
     ) -> Self {
         debug_assert_eq!(SIZE_BUCKET_ID + SIZE_INDEX + SIZE_START + SIZE_END + 2, 64);
-        debug_assert!(bucket_id < 2usize.pow((SIZE_BUCKET_ID + 1) as u32));
-        debug_assert!(index < 2usize.pow((SIZE_INDEX + 1) as u32));
-        debug_assert!(start < 2usize.pow((SIZE_START + 1) as u32));
-        debug_assert!(end < 2usize.pow((SIZE_END + 1) as u32));
+        assert!(bucket_id < 2usize.pow((SIZE_BUCKET_ID + 1) as u32));
+        assert!(index < 2usize.pow((SIZE_INDEX + 1) as u32));
+        assert!(start < 2usize.pow((SIZE_START + 1) as u32));
+        assert!(end < 2usize.pow((SIZE_END + 1) as u32));
         let data = bucket_id << (SIZE_INDEX + SIZE_START + SIZE_END + 2);
         let data = data + (index << (SIZE_BUCKET_ID + SIZE_START + SIZE_END + 2) >> SIZE_BUCKET_ID);
         let data = data
@@ -99,18 +99,18 @@ impl<
         let data = data + change_orientation as usize;
 
         let me = Self { data };
-        // TODO debug assert ?
-        assert_eq!(me.get_bucket_id(), bucket_id);
-        assert_eq!(me.get_index(), index);
-        assert_eq!(me.get_start(), start);
-        assert_eq!(me.get_end(), end);
-        assert_eq!(me.get_is_large(), is_large);
-        assert_eq!(me.get_change_orientation(), change_orientation);
+
+        debug_assert_eq!(me.get_bucket_id(), bucket_id);
+        debug_assert_eq!(me.get_index(), index);
+        debug_assert_eq!(me.get_start(), start);
+        debug_assert_eq!(me.get_end(), end);
+        debug_assert_eq!(me.get_is_large(), is_large);
+        debug_assert_eq!(me.get_change_orientation(), change_orientation);
+
         me
     }
 
     pub fn get_bucket_id(&self) -> usize {
-        // TODO
         // first N bits
         let shift_amount = 64 - SIZE_BUCKET_ID;
         self.data >> shift_amount

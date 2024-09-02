@@ -1,13 +1,12 @@
 #![cfg_attr(feature = "nightly", feature(core_intrinsics))]
 
-use clap::{Args, Parser, Subcommand};
-use macros::p;
-use serde::bin;
-// TODO use better library
 use ::serde::Serialize;
+use clap::{Args, Parser, Subcommand};
 use index::{CompleteIndex, FullIndexTrait, Index, StrippedIndex};
 use itertools::Itertools;
+use macros::p;
 use mashmap::MashMap;
+use serde::bin;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;

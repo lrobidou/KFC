@@ -45,9 +45,9 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
         }
     }
 
-    // pub fn whole_string(read: &'a [u8]) -> Self {
-    //     Self::new(read, 0, read.len(), true)
-    // }
+    pub fn get_read(&self) -> &[u8] {
+        &self.packing.read
+    }
 
     pub fn is_canonical(&self) -> bool {
         let subsequence = &self.packing.read[self.start..self.end];

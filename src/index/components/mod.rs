@@ -5,7 +5,7 @@ mod superkmers_count;
 pub use extended_hyperkmers::{ExtendedHyperkmers, ParallelExtendedHyperkmers};
 pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 pub use superkmers_count::SuperKmerCounts;
-pub type LargeExtendedHyperkmers = Vec<(usize, Vec<u8>)>; // TODO use slice ?
+pub type LargeExtendedHyperkmers = Vec<(usize, Vec<u8>)>;
 
 use crate::subsequence::{BitPacked, NoBitPacked, Subsequence};
 

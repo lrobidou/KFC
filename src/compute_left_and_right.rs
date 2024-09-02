@@ -16,9 +16,9 @@ use core::intrinsics::unlikely;
 /// (i.e. as if the the current superkmer was in its canonical form in the read)
 /// returned tuple is (left, right)
 pub fn get_left_and_rigth_extended_hk<'a>(
-    previous_sk: &Superkmer<'a>,
-    current_sk: &Superkmer<'a>,
-    next_sk: &Superkmer<'a>,
+    previous_sk: &'a Superkmer<'a>,
+    current_sk: &'a Superkmer<'a>,
+    next_sk: &'a Superkmer<'a>,
     k: usize,
 ) -> (
     (Subsequence<NoBitPacked<'a>>, usize, usize, bool),
@@ -91,7 +91,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             );
 
             let left_ext = Subsequence::new(
-                previous_sk.read,
+                previous_sk.get_read(),
                 start_inclusion,
                 end_inclusion,
                 current_sk.is_canonical_in_the_read(),
@@ -120,7 +120,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             );
 
             let left_ext = Subsequence::new(
-                current_sk.read,
+                current_sk.get_read(),
                 start_inclusion,
                 end_inclusion,
                 current_sk.is_canonical_in_the_read(),
@@ -176,7 +176,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             );
 
             let right_ext = Subsequence::new(
-                current_sk.read,
+                current_sk.get_read(),
                 start_inclusion,
                 end_inclusion,
                 current_sk.is_canonical_in_the_read(),
@@ -202,7 +202,7 @@ pub fn get_left_and_rigth_extended_hk<'a>(
             );
 
             let right_ext = Subsequence::new(
-                next_sk.read,
+                next_sk.superkmer.get_read(),
                 start_inclusion,
                 end_inclusion,
                 current_sk.is_canonical_in_the_read(),
@@ -245,16 +245,16 @@ pub fn get_left_and_rigth_extended_hk<'a>(
 
 // left and right part of the canonical superkmer
 pub fn get_left_and_rigth_of_sk<'a>(
-    superkmer: &Superkmer<'a>,
+    superkmer: &'a Superkmer<'a>,
 ) -> (Subsequence<NoBitPacked<'a>>, Subsequence<NoBitPacked<'a>>) {
     let left = Subsequence::new(
-        superkmer.read,
+        superkmer.get_read(),
         superkmer.superkmer.start(),
         superkmer.end_of_minimizer() - 1,
         superkmer.is_canonical_in_the_read(),
     );
     let right = Subsequence::new(
-        superkmer.read,
+        superkmer.get_read(),
         superkmer.start_of_minimizer() + 1,
         superkmer.superkmer.end(),
         superkmer.is_canonical_in_the_read(),
