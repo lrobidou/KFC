@@ -12,9 +12,9 @@ use super::superkmers_computation::is_canonical;
 
 // states of Subsequence
 #[derive(Debug, Clone, PartialEq)]
-pub struct BitPacked {
+pub struct BitPacked<'a> {
     total_base_in_sequence: usize,
-    slice: Vec<u8>,
+    read: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -182,16 +182,20 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     }
 }
 
-impl Subsequence<BitPacked> {
-    pub fn whole_bitpacked(bytes: Vec<u8>, nb_bases: usize) -> Self {
-        debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == bytes.len());
+impl<'a> Subsequence<BitPacked<'a>> {
+    pub fn whole_bitpacked(read: &'a [u8], nb_bases: usize) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            // let read = lock.get_slice_from_internal_id(id);
+            debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == read.len());
+        }
         Self {
             start: 0,
             end: nb_bases,
             same_orientation: true,
             packing: BitPacked {
                 total_base_in_sequence: nb_bases,
-                slice: bytes,
+                read,
             },
         }
     }
@@ -214,20 +218,20 @@ impl Subsequence<BitPacked> {
 
     pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + '_ {
         debug_assert!(self.end <= self.packing.total_base_in_sequence);
-        debug_assert!(self.packing.slice.len() * 4 >= self.packing.total_base_in_sequence);
+        debug_assert!(self.packing.read.len() * 4 >= self.packing.total_base_in_sequence);
         #[cfg(debug_assertions)]
         {
             // test to check that the reverse is working
             // TODO do more check and tests for the reverse decoding
             let truth = decode_2bits(
-                self.packing.slice.iter().cloned(),
+                self.packing.read.iter().cloned(),
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
             )
             .collect_vec();
             let what_i_made = decode_2bits(
-                self.packing.slice.iter().cloned(),
+                self.packing.read.iter().cloned(),
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
@@ -244,7 +248,7 @@ impl Subsequence<BitPacked> {
             debug_assert_eq!(truth, what_i_made);
         }
         decode_2bits(
-            self.packing.slice.iter().cloned(),
+            self.packing.read.iter().cloned(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -252,10 +256,10 @@ impl Subsequence<BitPacked> {
     }
 }
 
-impl std::fmt::Display for Subsequence<BitPacked> {
+impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let iter = decode_2bits(
-            self.packing.slice.iter().copied(),
+            self.packing.read.iter().copied(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -271,10 +275,10 @@ impl std::fmt::Display for Subsequence<BitPacked> {
 }
 
 // TODO no copy (?)
-impl Subsequence<BitPacked> {
+impl<'a> Subsequence<BitPacked<'a>> {
     pub fn as_vec(&self) -> Vec<u8> {
         let iter = decode_2bits(
-            self.packing.slice.iter().copied(),
+            self.packing.read.iter().copied(),
             self.start,
             self.end,
             self.packing.total_base_in_sequence,

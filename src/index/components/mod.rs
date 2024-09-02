@@ -2,7 +2,7 @@ mod extended_hyperkmers;
 mod hyperkmers_counts;
 mod superkmers_count;
 
-pub use extended_hyperkmers::ParallelExtendedHyperkmers;
+pub use extended_hyperkmers::{ExtendedHyperkmers, ParallelExtendedHyperkmers};
 pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 pub use superkmers_count::SuperKmerCounts;
 pub type LargeExtendedHyperkmers = Vec<(usize, Vec<u8>)>; // TODO use slice ?
@@ -17,21 +17,23 @@ use core::convert::identity as likely;
 use core::intrinsics::likely;
 
 pub fn get_subsequence_from_metadata<'a>(
-    hyperkmers: &'a ParallelExtendedHyperkmers,
+    hyperkmers: &'a ExtendedHyperkmers,
     large_hyperkmers: &'a [(usize, Vec<u8>)],
     metadata: &HKMetadata,
-) -> Subsequence<BitPacked> {
+) -> Subsequence<BitPacked<'a>> {
     let index = metadata.get_index();
     let is_large = metadata.get_is_large();
     if likely(!is_large) {
         hyperkmers.get_hyperkmer_from_id(index)
     } else {
         let (size, bytes) = &large_hyperkmers[index];
-        let bytes = bytes.clone();
         Subsequence::whole_bitpacked(bytes, *size)
     }
 }
 
+/// Adds `new_ext_hyperkmer` into `large_hyperkmers`.
+///
+/// Returns the position of `new_ext_hyperkmer` in `large_hyperkmers`)
 pub fn add_new_large_hyperkmer(
     large_hyperkmers: &mut Vec<(usize, Vec<u8>)>,
     new_ext_hyperkmer: &Subsequence<NoBitPacked>,

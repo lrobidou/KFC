@@ -309,10 +309,12 @@ where
 
         let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
 
-        let hk_count_for_minimizer = self.hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let hk_count_for_minimizer = self.hk_count.get_from_id_u64(superkmer.get_minimizer());
+
         let hk_count_for_minimizer = hk_count_for_minimizer
             .read()
             .expect("could not acquire read lock");
+
         let hyperkmers = self.hyperkmers.read().expect("could not acquire read lock");
         let large_hyperkmers = self
             .large_hyperkmers
@@ -522,10 +524,11 @@ mod tests {
         let right = Subsequence::new(right.as_bytes(), 0, right.len(), true);
 
         // inserting the hyperkmers
-        let index_left = hyperkmers.add_new_ext_hyperkmer(&left);
-        let index_right = hyperkmers.add_new_ext_hyperkmer(&right);
+        let (bucket_left, index_left) = hyperkmers.add_new_ext_hyperkmer(&left);
+        let (bucket_right, index_right) = hyperkmers.add_new_ext_hyperkmer(&right);
 
         let left_hk_metadata = HKMetadata::new(
+            bucket_left,
             index_left,
             0,
             size_left,
@@ -534,6 +537,7 @@ mod tests {
         );
 
         let right_hk_metadata = HKMetadata::new(
+            bucket_right,
             index_right,
             0,
             size_right,
@@ -542,7 +546,7 @@ mod tests {
         );
 
         let hk_count = Buckets::<HKCount>::new(HKCount::new);
-        let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let hk_count_chunk = hk_count.get_from_id_u64(superkmer.get_minimizer());
         let mut hk_count_chunk = hk_count_chunk.write().unwrap();
         hk_count_chunk.insert_new_entry_in_hyperkmer_count(
             &superkmer.get_minimizer(),
@@ -635,10 +639,11 @@ mod tests {
         let right = Subsequence::new(right.as_bytes(), 0, right.len(), true);
 
         // inserting the hyperkmers
-        let index_left = hyperkmers.add_new_ext_hyperkmer(&left);
-        let index_right = hyperkmers.add_new_ext_hyperkmer(&right);
+        let (bucket_left, index_left) = hyperkmers.add_new_ext_hyperkmer(&left);
+        let (bucket_right, index_right) = hyperkmers.add_new_ext_hyperkmer(&right);
 
         let left_hk_metadata = HKMetadata::new(
+            bucket_left,
             index_left,
             0,
             size_left,
@@ -647,6 +652,7 @@ mod tests {
         );
 
         let right_hk_metadata = HKMetadata::new(
+            bucket_right,
             index_right,
             0,
             size_right,
@@ -655,7 +661,7 @@ mod tests {
         );
 
         let hk_count = Buckets::<HKCount>::new(HKCount::new);
-        let hk_count_chunk = hk_count.get_from_minimizer(superkmer.get_minimizer());
+        let hk_count_chunk = hk_count.get_from_id_u64(superkmer.get_minimizer());
         let mut hk_count_chunk = hk_count_chunk.write().unwrap();
         hk_count_chunk.insert_new_entry_in_hyperkmer_count(
             &superkmer.get_minimizer(),

@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use crate::{
     buckets::{Buckets, NB_BUCKETS},
     subsequence::{BitPacked, NoBitPacked, Subsequence},
@@ -13,77 +15,62 @@ use super::cheap_vec::SimpleVec;
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ParallelExtendedHyperkmers {
-    data: Buckets<ExtendedHyperkmers>,
-}
-fn merge_ids(id_in_chunk: usize, id_of_chunk: usize) -> usize {
-    (id_in_chunk << 8) + id_of_chunk
-}
-
-fn split_ids(id: usize) -> (usize, usize) {
-    const MASK: usize = 0b1111_1111;
-    let id_of_chunk = id & MASK;
-    let id_in_chunk = id >> 8;
-    (id_in_chunk, id_of_chunk)
+    buckets: Buckets<ExtendedHyperkmers>,
 }
 
 impl ParallelExtendedHyperkmers {
     pub fn new(k: usize, nb_hk_in_a_buffer: usize) -> Self {
         Self {
-            data: Buckets::new(|| ExtendedHyperkmers::new(k, nb_hk_in_a_buffer)),
+            buckets: Buckets::new(|| ExtendedHyperkmers::new(k, nb_hk_in_a_buffer)),
         }
     }
 
-    pub fn get_hyperkmer_from_id(&self, id: usize) -> Subsequence<BitPacked> {
-        let (id_in_chunk, id_of_chunk) = split_ids(id);
-        let extended_hk = self.data.get_from_minimizer(id_of_chunk as u64); // TODO tres mal nommé
-        let extended_hk = extended_hk.read().unwrap();
-
-        let slice = extended_hk.get_slice_from_id(id_in_chunk);
-        let slice = slice.to_vec(); // TODO copy :(
-        Subsequence::whole_bitpacked(slice, extended_hk.k - 1)
-    }
-
     pub fn check(&self, k: usize) {
-        self.data.chunks().iter().for_each(|hyperkmers| {
+        self.buckets.chunks().iter().for_each(|hyperkmers| {
             let hyperkmers = hyperkmers.read().unwrap();
             for i in 0..hyperkmers.get_nb_inserted() {
-                let slice = hyperkmers.get_hyperkmer_from_id(i);
-                assert_eq!(slice.len(), k - 1);
+                let subsequence = hyperkmers.get_hyperkmer_from_id(i);
+                assert_eq!(subsequence.len(), k - 1);
             }
         })
     }
 
+    pub fn get_bucket_from_id_usize(&self, bucket_id: usize) -> Arc<RwLock<ExtendedHyperkmers>> {
+        // cloning Arc is cheap
+        self.buckets.get_from_id_u64(bucket_id.try_into().unwrap())
+    }
+
+    pub fn get_bucket_from_id_u64(&self, bucket_id: u64) -> Arc<RwLock<ExtendedHyperkmers>> {
+        self.buckets.get_from_id_u64(bucket_id)
+    }
+
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
-    pub fn add_new_ext_hyperkmer(&self, new_ext_hyperkmer: &Subsequence<NoBitPacked>) -> usize {
+    pub fn add_new_ext_hyperkmer(
+        &self,
+        new_ext_hyperkmer: &Subsequence<NoBitPacked>,
+    ) -> (usize, usize) {
         let mut rng = rand::thread_rng();
         let id_of_chunk: usize = rng.gen_range(0..NB_BUCKETS); // TODO can we use a different number of chunk here
 
-        let extended_hk = self.data.get_from_minimizer(id_of_chunk as u64); // TODO tres mal nommé
+        let extended_hk = self.buckets.get_from_id_usize(id_of_chunk);
         let mut extended_hk = extended_hk.write().unwrap();
 
         let id_in_this_chunk = extended_hk.add_new_ext_hyperkmer(new_ext_hyperkmer);
 
         drop(extended_hk);
-        #[cfg(debug_assertions)]
-        {
-            let id = merge_ids(id_in_this_chunk, id_of_chunk);
-            let (id_in_this_chunk_copy, id_of_chunk_copy) = split_ids(id);
-            debug_assert_eq!(id_in_this_chunk, id_in_this_chunk_copy);
-            debug_assert_eq!(id_of_chunk, id_of_chunk_copy);
-        }
-        merge_ids(id_in_this_chunk, id_of_chunk)
+        (id_of_chunk, id_in_this_chunk)
     }
 
     pub fn get_nb_inserted(&self) -> usize {
-        self.data
+        self.buckets
             .chunks()
             .iter()
             .map(|chunk| chunk.read().unwrap().get_nb_inserted())
             .sum()
     }
 }
-impl ParallelExtendedHyperkmers {}
+
 pub struct ExtendedHyperkmers {
     /// the `k` value
     k: usize,
@@ -255,7 +242,6 @@ impl ExtendedHyperkmers {
 
     pub fn get_hyperkmer_from_id(&self, id: usize) -> Subsequence<BitPacked> {
         let slice = self.get_slice_from_id(id);
-        let slice = slice.to_vec();
         Subsequence::whole_bitpacked(slice, self.k - 1)
     }
 

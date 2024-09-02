@@ -114,22 +114,25 @@ impl HKCount {
         large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
         extended_hyperkmer_left: &Subsequence<NoBitPacked>,
-    ) -> Option<(usize, bool)> {
+    ) -> Option<(usize, usize, bool)> {
         let canonical_extended_hyperkmer_left = extended_hyperkmer_left.to_canonical();
 
         for (candidate_left_hk_metadata, _candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
+            let bucket_id = candidate_left_hk_metadata.get_bucket_id();
             let index = candidate_left_hk_metadata.get_index();
             let is_large = candidate_left_hk_metadata.get_is_large();
+            let hyperkmers = hyperkmers.get_bucket_from_id_usize(bucket_id);
+            let hyperkmers = hyperkmers.read().unwrap();
             let subseq = get_subsequence_from_metadata(
-                hyperkmers,
+                &hyperkmers,
                 large_hyperkmers,
                 candidate_left_hk_metadata,
             );
 
             if canonical_extended_hyperkmer_left.equal_bitpacked(&subseq) {
-                return Some((index, is_large));
+                return Some((bucket_id, index, is_large));
             }
         }
         None
@@ -143,22 +146,25 @@ impl HKCount {
         large_hyperkmers: &[(usize, Vec<u8>)],
         minimizer: &Minimizer,
         extended_hyperkmer_right: &Subsequence<NoBitPacked>,
-    ) -> Option<(usize, bool)> {
+    ) -> Option<(usize, usize, bool)> {
         let canonical_extended_hyperkmer_right = extended_hyperkmer_right.to_canonical();
         for (_candidate_left_hk_metadata, candidate_right_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
+            let bucket_id = candidate_right_hk_metadata.get_bucket_id();
             let index = candidate_right_hk_metadata.get_index();
             let is_large = candidate_right_hk_metadata.get_is_large();
+            let hyperkmers = hyperkmers.get_bucket_from_id_usize(bucket_id);
+            let hyperkmers = hyperkmers.read().unwrap();
 
             let subseq = get_subsequence_from_metadata(
-                hyperkmers,
+                &hyperkmers,
                 large_hyperkmers,
                 candidate_right_hk_metadata,
             );
 
             if canonical_extended_hyperkmer_right.equal_bitpacked(&subseq) {
-                return Some((index, is_large));
+                return Some((bucket_id, index, is_large));
             }
         }
         None
@@ -224,8 +230,11 @@ impl HKCount {
         {
             // get sequences as they would appear if the current superkmer was canonical
             let is_large_left = candidate_left_ext_hk_metadata.get_is_large();
+            let left_hyperkmers =
+                hyperkmers.get_bucket_from_id_usize(candidate_left_ext_hk_metadata.get_bucket_id());
+            let left_hyperkmers = left_hyperkmers.read().unwrap();
             let subseq_left = get_subsequence_from_metadata(
-                hyperkmers,
+                &left_hyperkmers,
                 large_hyperkmers,
                 candidate_left_ext_hk_metadata,
             );
@@ -233,8 +242,11 @@ impl HKCount {
                 .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
 
             let is_large_right = candidate_right_ext_hk_metadata.get_is_large();
+            let right_hyperkmers = hyperkmers
+                .get_bucket_from_id_usize(candidate_right_ext_hk_metadata.get_bucket_id());
+            let right_hyperkmers = right_hyperkmers.read().unwrap();
             let subseq_right = get_subsequence_from_metadata(
-                hyperkmers,
+                &right_hyperkmers,
                 large_hyperkmers,
                 candidate_right_ext_hk_metadata,
             );
@@ -270,6 +282,7 @@ impl HKCount {
 
                 return Some((
                     HKMetadata::new(
+                        candidate_left_ext_hk_metadata.get_bucket_id(),
                         candidate_left_ext_hk_metadata.get_index(),
                         start_left,
                         end_left,
@@ -277,6 +290,7 @@ impl HKCount {
                         candidate_left_ext_hk_metadata.get_change_orientation(),
                     ),
                     HKMetadata::new(
+                        candidate_right_ext_hk_metadata.get_bucket_id(),
                         candidate_right_ext_hk_metadata.get_index(),
                         start_right,
                         end_right,
@@ -313,16 +327,22 @@ impl HKCount {
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
             self.data.get_iter(minimizer)
         {
+            let left_bucket_id = candidate_left_ext_hk_metadata.get_bucket_id();
+            let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(left_bucket_id);
+            let left_hyperkmers = left_hyperkmers.read().unwrap();
             let subseq_left = get_subsequence_from_metadata(
-                hyperkmers,
+                &left_hyperkmers,
                 large_hyperkmers,
                 candidate_left_ext_hk_metadata,
             );
             let candidate_left_ext_hk: Subsequence<BitPacked> = subseq_left
                 .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
 
+            let right_bucket_id = candidate_right_ext_hk_metadata.get_bucket_id();
+            let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(right_bucket_id);
+            let right_hyperkmers = right_hyperkmers.read().unwrap();
             let subseq_right = get_subsequence_from_metadata(
-                hyperkmers,
+                &right_hyperkmers,
                 large_hyperkmers,
                 candidate_right_ext_hk_metadata,
             );
@@ -354,6 +374,7 @@ impl HKCount {
                 match_metadata = Some((
                     // same suffix => same end, but different start
                     HKMetadata::new(
+                        left_bucket_id,
                         candidate_left_ext_hk_metadata.get_index(),
                         candidate_left_ext_hk_metadata.get_end() - len_current_match_left,
                         candidate_left_ext_hk_metadata.get_end(),
@@ -362,6 +383,7 @@ impl HKCount {
                     ),
                     // same prefix => same start, but different end
                     HKMetadata::new(
+                        right_bucket_id,
                         candidate_right_ext_hk_metadata.get_index(),
                         candidate_right_ext_hk_metadata.get_start(),
                         candidate_right_ext_hk_metadata.get_start() + len_current_match_right,
@@ -388,9 +410,12 @@ impl HKCount {
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count) in
             self.data.get_iter(minimizer)
         {
+            let left_hyperkmers_bucket_id = candidate_left_ext_hk_metadata.get_bucket_id();
+            let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(left_hyperkmers_bucket_id);
+            let left_hyperkmers = left_hyperkmers.read().unwrap();
             // get sequences as they would appear if the current superkmer was canonical
             let candidate_left_hyperkmer = get_subsequence_from_metadata(
-                hyperkmers,
+                &left_hyperkmers,
                 large_hyperkmers,
                 candidate_left_ext_hk_metadata,
             )
@@ -400,8 +425,11 @@ impl HKCount {
                 candidate_left_ext_hk_metadata.get_end(),
             );
 
+            let right_hyperkmers_bucket_id = candidate_right_ext_hk_metadata.get_bucket_id();
+            let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(right_hyperkmers_bucket_id);
+            let right_hyperkmers = right_hyperkmers.read().unwrap();
             let candidate_right_hyperkmer = get_subsequence_from_metadata(
-                hyperkmers,
+                &right_hyperkmers,
                 large_hyperkmers,
                 candidate_right_ext_hk_metadata,
             )
@@ -443,17 +471,23 @@ pub fn search_exact_hyperkmer_match(
     left_ext_hk_metadata: &HKMetadata,
     right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
+    let left_bucket_id = left_ext_hk_metadata.get_bucket_id();
+    let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(left_bucket_id);
+    let left_hyperkmers = left_hyperkmers.read().unwrap();
     // get sequences as they would appear if the current superkmer was canonical
     let left_hyperkmer =
-        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, left_ext_hk_metadata)
+        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata)
             .change_orientation_if(left_ext_hk_metadata.get_change_orientation());
     let left_hyperkmer = left_hyperkmer.subsequence(
         left_ext_hk_metadata.get_start(),
         left_ext_hk_metadata.get_end(),
     );
 
+    let right_bucket_id = right_ext_hk_metadata.get_bucket_id();
+    let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(right_bucket_id);
+    let right_hyperkmers = right_hyperkmers.read().unwrap();
     let right_hyperkmer =
-        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, right_ext_hk_metadata)
+        get_subsequence_from_metadata(&right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
             .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
     let right_hyperkmer = right_hyperkmer.subsequence(
         right_ext_hk_metadata.get_start(),

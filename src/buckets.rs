@@ -1,4 +1,3 @@
-use crate::Minimizer;
 use serde::de::{SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -97,11 +96,14 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
         Self { data }
     }
 
-    pub fn get_from_minimizer(&self, minimizer: Minimizer) -> Arc<RwLock<T>> {
-        let index = minimizer % Minimizer::try_from(NB_BUCKETS).unwrap();
-        let index = usize::try_from(index).unwrap();
-        // TODO unchecked
-        self.data[index].clone()
+    pub fn get_from_id_usize(&self, id: usize) -> Arc<RwLock<T>> {
+        let id = id % NB_BUCKETS;
+        self.data[id].clone()
+    }
+
+    pub fn get_from_id_u64(&self, id: u64) -> Arc<RwLock<T>> {
+        let id = usize::try_from(id).unwrap();
+        self.get_from_id_usize(id)
     }
 
     pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_BUCKETS] {

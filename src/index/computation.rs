@@ -33,7 +33,7 @@ use core::convert::identity as likely;
 use core::intrinsics::likely;
 
 fn is_sk_solid(sk_count: &Buckets<SuperKmerCounts>, sk: &Superkmer, threshold: Count) -> bool {
-    let sk_count = sk_count.get_from_minimizer(sk.get_minimizer());
+    let sk_count = sk_count.get_from_id_u64(sk.get_minimizer());
     let sk_count = sk_count.read().unwrap();
     sk_count.get_count_superkmer(sk) >= threshold
 }
@@ -145,6 +145,7 @@ fn first_stage_for_a_chunck(
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
+    let hyperkmers = hyperkmers.read().unwrap();
     for sequence in sequences {
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
@@ -165,7 +166,7 @@ fn first_stage_for_a_chunck(
             let previous_sk_is_solid = is_sk_solid(sk_count, &previous_sk, threshold);
             let next_sk_is_solid = is_sk_solid(sk_count, &next_sk, threshold);
 
-            let current_sk_count = sk_count.get_from_minimizer(current_sk.get_minimizer());
+            let current_sk_count = sk_count.get_from_id_u64(current_sk.get_minimizer());
             let mut current_sk_count = current_sk_count.write().unwrap();
             // OPTIMIZE est-il possible de stocker les counts pour ne pas les recalculer ?
             let current_count = current_sk_count.increase_count_superkmer(&current_sk);
@@ -181,27 +182,31 @@ fn first_stage_for_a_chunck(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
-                let (id_left_hk, is_large_left) = if previous_sk_is_solid {
-                    let previous_hk_count =
-                        hk_count.get_from_minimizer(previous_sk.get_minimizer());
+                let (id_left_bucket, id_left_hk, is_large_left) = if previous_sk_is_solid {
+                    // used to access buckets and compute hyperkmer id
+                    let previous_minimizer = previous_sk.get_minimizer();
+                    // read hk_count table associated with the previous minimizer
+                    let previous_hk_count = hk_count.get_from_id_u64(previous_minimizer);
                     let previous_hk_count = previous_hk_count.read().unwrap();
+                    let large_hyperkmers = large_hyperkmers.read().unwrap();
                     if previous_sk.is_canonical_in_the_read()
                         == current_sk.is_canonical_in_the_read()
                     {
+                        // bug here
                         previous_hk_count
                             .get_extended_hyperkmer_right_id(
-                                &hyperkmers.read().unwrap(),
-                                &large_hyperkmers.read().unwrap(),
-                                &previous_sk.get_minimizer(),
+                                &hyperkmers,
+                                &large_hyperkmers,
+                                &previous_minimizer,
                                 &left_extended_hk.0,
                             )
                             .expect("Hash collision on superkmers. Please change your seed.")
                     } else {
                         previous_hk_count
                             .get_extended_hyperkmer_left_id(
-                                &hyperkmers.read().unwrap(),
-                                &large_hyperkmers.read().unwrap(),
-                                &previous_sk.get_minimizer(),
+                                &hyperkmers,
+                                &large_hyperkmers,
+                                &previous_minimizer,
                                 &left_extended_hk.0,
                             )
                             .expect("Hash collision on superkmers. Please change your seed.")
@@ -210,15 +215,12 @@ fn first_stage_for_a_chunck(
                     // previous sk is not solid => our hyperkmer is not already present
                     // let's add it
                     if likely(!left_extended_hk.3) {
-                        (
-                            hyperkmers
-                                .read()
-                                .unwrap()
-                                .add_new_ext_hyperkmer(&left_extended_hk.0),
-                            false,
-                        )
+                        let (id_left_bucket, id_left_hk) =
+                            hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0);
+                        (id_left_bucket, id_left_hk, false)
                     } else {
                         (
+                            0, // I need an integer here to please the compiler, let's choose 0
                             add_new_large_hyperkmer(
                                 &mut large_hyperkmers.write().unwrap(),
                                 &left_extended_hk.0,
@@ -227,23 +229,29 @@ fn first_stage_for_a_chunck(
                         )
                     }
                 };
-                let (id_right_hk, is_large_right) = if next_sk_is_solid {
-                    let next_hk_count = hk_count.get_from_minimizer(next_sk.get_minimizer());
+                debug_assert!(id_left_bucket < 255);
+                let (id_right_bucket, id_right_hk, is_large_right) = if next_sk_is_solid {
+                    // used to access buckets and compute hyperkmer id
+                    let next_minimizer = next_sk.get_minimizer();
+                    // read hk_count table associated with the next minimizer
+                    let next_hk_count = hk_count.get_from_id_u64(next_minimizer);
                     let next_hk_count = next_hk_count.read().unwrap();
+
+                    let large_hyperkmers = large_hyperkmers.read().unwrap();
                     if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
                         next_hk_count
                             .get_extended_hyperkmer_left_id(
-                                &hyperkmers.read().unwrap(),
-                                &large_hyperkmers.read().unwrap(),
-                                &next_sk.get_minimizer(),
+                                &hyperkmers,
+                                &large_hyperkmers,
+                                &next_minimizer,
                                 &right_extended_hk.0,
                             )
                             .expect("Hash collision on superkmers. Please change your seed.")
                     } else {
                         next_hk_count
                             .get_extended_hyperkmer_right_id(
-                                &hyperkmers.read().unwrap(),
-                                &large_hyperkmers.read().unwrap(),
+                                &hyperkmers,
+                                &large_hyperkmers,
                                 &next_sk.get_minimizer(),
                                 &right_extended_hk.0,
                             )
@@ -253,15 +261,12 @@ fn first_stage_for_a_chunck(
                     // previous sk is not solid => our hyperkmer is not already present
                     // let's add it
                     if likely(!right_extended_hk.3) {
-                        (
-                            hyperkmers
-                                .read()
-                                .unwrap()
-                                .add_new_ext_hyperkmer(&right_extended_hk.0),
-                            false,
-                        )
+                        let (id_left_bucket, id_left_hk) =
+                            hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0);
+                        (id_left_bucket, id_left_hk, false)
                     } else {
                         (
+                            0, // I need an integer here to please the compiler, let's choose 0
                             add_new_large_hyperkmer(
                                 &mut large_hyperkmers.write().unwrap(),
                                 &right_extended_hk.0,
@@ -270,6 +275,7 @@ fn first_stage_for_a_chunck(
                         )
                     }
                 };
+                debug_assert!(id_right_bucket < 255);
 
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
@@ -278,6 +284,7 @@ fn first_stage_for_a_chunck(
                 let right_change_orientation = !right_extended_hk.0.is_canonical();
 
                 let left_hk_metadata = HKMetadata::new(
+                    id_left_bucket,
                     id_left_hk,
                     left_extended_hk.1,
                     left_extended_hk.2,
@@ -286,22 +293,28 @@ fn first_stage_for_a_chunck(
                 );
 
                 let right_hk_metadata = HKMetadata::new(
+                    id_right_bucket,
                     id_right_hk,
                     right_extended_hk.1,
                     right_extended_hk.2,
                     is_large_right,
                     right_change_orientation,
                 );
-                let hyperkmers = hyperkmers.read().unwrap();
+                // read hyperkmers buckets
+                let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_left_bucket);
+                let left_hyperkmers = left_hyperkmers.read().unwrap();
+                let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_right_bucket);
+                let right_hyperkmers = right_hyperkmers.read().unwrap();
                 let large_hyperkmers = large_hyperkmers.read().unwrap();
+
                 let candidate_left_ext_hk = &get_subsequence_from_metadata(
-                    &hyperkmers,
+                    &left_hyperkmers,
                     &large_hyperkmers,
                     &left_hk_metadata,
                 )
                 .change_orientation_if(left_change_orientation);
                 let candidate_right_ext_hk = &get_subsequence_from_metadata(
-                    &hyperkmers,
+                    &right_hyperkmers,
                     &large_hyperkmers,
                     &right_hk_metadata,
                 )
@@ -311,14 +324,14 @@ fn first_stage_for_a_chunck(
                 debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
                 debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
                     &get_subsequence_from_metadata(
-                        &hyperkmers,
+                        &left_hyperkmers,
                         &large_hyperkmers,
                         &left_hk_metadata,
                     )
                 ));
                 debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
                     &get_subsequence_from_metadata(
-                        &hyperkmers,
+                        &right_hyperkmers,
                         &large_hyperkmers,
                         &right_hk_metadata,
                     )
@@ -327,14 +340,14 @@ fn first_stage_for_a_chunck(
                 #[cfg(debug_assertions)]
                 {
                     let left_ext_hk = get_subsequence_from_metadata(
-                        &hyperkmers,
+                        &left_hyperkmers,
                         &large_hyperkmers,
                         &left_hk_metadata,
                     )
                     .change_orientation_if(left_hk_metadata.get_change_orientation());
 
                     let right_ext_hk = get_subsequence_from_metadata(
-                        &hyperkmers,
+                        &right_hyperkmers,
                         &large_hyperkmers,
                         &right_hk_metadata,
                     )
@@ -354,7 +367,7 @@ fn first_stage_for_a_chunck(
                         right_string[0..(m - 2)]
                     );
                 }
-                let current_hk_count = hk_count.get_from_minimizer(current_sk.get_minimizer());
+                let current_hk_count = hk_count.get_from_id_u64(current_sk.get_minimizer());
                 let mut current_hk_count = current_hk_count.write().unwrap();
                 current_hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),
@@ -363,10 +376,9 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
-                let current_hk_count = hk_count.get_from_minimizer(current_sk.get_minimizer());
+                let current_hk_count = hk_count.get_from_id_u64(current_sk.get_minimizer());
                 let mut current_hk_count = current_hk_count.write().unwrap();
                 // TODO fusionnner les deux passes
-                let hyperkmers = hyperkmers.read().unwrap();
                 let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let found = current_hk_count.increase_count_if_exact_match(
@@ -433,17 +445,17 @@ fn second_stage_for_a_chunk(
         };
         for superkmer in superkmers {
             let minimizer = superkmer.get_minimizer();
-            let sk_count = sk_count.get_from_minimizer(minimizer);
+            let sk_count = sk_count.get_from_id_u64(minimizer);
             let sk_count = sk_count.read().unwrap();
 
             if sk_count.get_count_superkmer(&superkmer) >= threshold {
                 continue;
             }
 
-            let hk_count = hk_count.get_from_minimizer(minimizer);
+            let hk_count = hk_count.get_from_id_u64(minimizer);
             let mut hk_count = hk_count.write().unwrap();
 
-            let discarded_minimizers = discarded_minimizers.get_from_minimizer(minimizer);
+            let discarded_minimizers = discarded_minimizers.get_from_id_u64(minimizer);
             let mut discarded_minimizers = discarded_minimizers.write().unwrap();
             if !hk_count.contains_minimizer(&minimizer) {
                 // increase count, set to 1 if it was 0

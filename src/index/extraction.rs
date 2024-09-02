@@ -55,12 +55,18 @@ pub fn extract_context(
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
     // get sequences as they would appear if the current superkmer was canonical
+    let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(left_ext_hk_metadata.get_bucket_id());
+    let left_hyperkmers = left_hyperkmers.read().unwrap();
+    let right_hyperkmers =
+        hyperkmers.get_bucket_from_id_usize(right_ext_hk_metadata.get_bucket_id());
+    let right_hyperkmers = right_hyperkmers.read().unwrap();
+
     let left_ext_hk =
-        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, left_ext_hk_metadata)
+        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata)
             .change_orientation_if(left_ext_hk_metadata.get_change_orientation());
 
     let right_ext_hk =
-        get_subsequence_from_metadata(hyperkmers, large_hyperkmers, right_ext_hk_metadata)
+        get_subsequence_from_metadata(&right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
             .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
 
     // extract candidate hyperkmers
