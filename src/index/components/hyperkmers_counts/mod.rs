@@ -499,3 +499,45 @@ pub fn search_exact_hyperkmer_match(
 
     match_left && match_right
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hyperkmer_contains_minimizer() {
+        let minimizer: u64 = 56;
+        let mut hk_count = HKCount::new();
+        assert!(!hk_count.contains_minimizer(&minimizer));
+        hk_count.insert_new_entry_in_hyperkmer_count(
+            &minimizer,
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            7,
+        );
+        hk_count.insert_new_entry_in_hyperkmer_count(
+            &minimizer,
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            7,
+        );
+        hk_count.insert_new_entry_in_hyperkmer_count(
+            &(minimizer + 3),
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            7,
+        );
+        hk_count.insert_new_entry_in_hyperkmer_count(
+            &minimizer,
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            &HKMetadata::new(0, 0, 0, 5, true, false),
+            7,
+        );
+        assert_eq!(
+            hk_count.minimizer_set(),
+            HashSet::from_iter(vec![minimizer, minimizer + 3])
+        );
+
+        assert!(!hk_count.get_data().is_empty());
+    }
+}

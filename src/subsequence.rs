@@ -22,7 +22,6 @@ pub struct NoBitPacked<'a> {
     read: &'a [u8],
 }
 
-// OPTIMIZE duplication of `read` when used in Superkmer
 /// Represents a subsequence, possibly in reverse
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Subsequence<Packing> {
@@ -46,7 +45,7 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     }
 
     pub fn get_read(&self) -> &[u8] {
-        &self.packing.read
+        self.packing.read
     }
 
     pub fn is_canonical(&self) -> bool {
@@ -274,7 +273,6 @@ impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     }
 }
 
-// TODO no copy (?)
 impl<'a> Subsequence<BitPacked<'a>> {
     pub fn as_vec(&self) -> Vec<u8> {
         let iter = decode_2bits(
@@ -385,4 +383,24 @@ fn iter_suffix_len(
         }
     }
     length
+}
+
+#[cfg(test)]
+mod tests {
+    use two_bits::encode_2bits;
+
+    use super::*;
+
+    #[test]
+    pub fn test_dump() {
+        let read = "ACTGAGCTA";
+        let bytes = read.as_bytes();
+        let hk = Subsequence::new(bytes, 0, bytes.len(), true);
+
+        let dest = &mut [0, 0, 0];
+        hk.to_canonical().dump_as_2bits(dest);
+
+        let expected: Vec<u8> = encode_2bits(bytes.iter().copied(), read.len()).collect();
+        assert_eq!(dest, expected.as_slice())
+    }
 }

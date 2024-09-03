@@ -82,6 +82,7 @@ pub fn extract_context(
     let left_string = left_hyperkmer.as_vec();
     let right_string = right_hyperkmer.as_vec();
 
+    // TODO there might be a way to prevent copy here
     debug_assert_eq!(
         left_string[(left_string.len() - (m - 2))..left_string.len()],
         right_string[0..(m - 2)]

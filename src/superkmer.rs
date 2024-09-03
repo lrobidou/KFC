@@ -125,20 +125,35 @@ impl<'a> Superkmer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use two_bits::encode_2bits;
-
     use super::*;
 
     #[test]
-    pub fn test_dump() {
+    fn test_reverse_complement() {
         let read = "ACTGAGCTA";
         let bytes = read.as_bytes();
-        let hk = Subsequence::new(bytes, 0, bytes.len(), true);
+        let revcomp = reverse_complement(bytes);
+        assert_eq!(revcomp, String::from("TAGCTCAGT"));
+    }
 
-        let dest = &mut [0, 0, 0];
-        hk.to_canonical().dump_as_2bits(dest);
+    #[test]
+    fn test_reverse_complement_ascii_to_ascii() {
+        let read = "ACTGAGCTA";
+        let bytes = read.as_bytes();
+        let revcomp = reverse_complement_ascii_to_ascii(bytes);
+        assert_eq!(revcomp, String::from("TAGCTCAGT").as_bytes());
+    }
 
-        let expected: Vec<u8> = encode_2bits(bytes.iter().copied(), read.len()).collect();
-        assert_eq!(dest, expected.as_slice())
+    #[test]
+    fn test_get_minimizer() {
+        let read = "ACTGAGCTA";
+        let bytes = read.as_bytes();
+        let sk = Superkmer::new(bytes, 1, 4, 1, 6, true);
+        assert_eq!(sk.minimizer_string(), String::from("CTG"));
+        let sk = Superkmer::new(bytes, 1, 4, 1, 6, false);
+        assert_eq!(sk.minimizer_string(), String::from("CAG"));
+
+        // TODO weird case: the minimizer is allowed to be outside of the superkmer
+        let sk = Superkmer::new(bytes, 1, 4, 2, 6, false);
+        assert_eq!(sk.minimizer_string(), String::from("CAG"));
     }
 }

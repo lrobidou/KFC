@@ -50,3 +50,30 @@ pub fn add_new_large_hyperkmer(
     large_hyperkmers.push((nb_base, dest_slice));
     large_hyperkmers.len() - 1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_large_hyperkmer() {
+        let k = 5;
+        let nb_hk_in_a_buffer = 13;
+        let hyperkmers = ExtendedHyperkmers::new(k, nb_hk_in_a_buffer);
+        let mut large_hyperkmers = Vec::<(usize, Vec<u8>)>::new();
+
+        let read: Vec<u8> = vec![65, 67, 67, 65, 67, 65, 65, 65, 65, 65, 65];
+        let start = 1;
+        let end = 8;
+        let is_large = true;
+        let change_orientation = false;
+        let large_hk = Subsequence::new(&read, start, end, !change_orientation);
+        let id = add_new_large_hyperkmer(&mut large_hyperkmers, &large_hk);
+        assert_eq!(id, 0);
+        assert_eq!(large_hyperkmers.len(), 1);
+        let metadata = &HKMetadata::new(0, id, start, end, is_large, change_orientation);
+        let large_hk_queried =
+            get_subsequence_from_metadata(&hyperkmers, &large_hyperkmers, metadata);
+        assert!(large_hk.equal_bitpacked(&large_hk_queried));
+    }
+}

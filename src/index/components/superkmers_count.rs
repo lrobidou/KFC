@@ -119,7 +119,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_count_superkmer() {
+    fn test_get_count_and_eq_superkmer() {
         let m = 10;
         // read: ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC
         //       ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGG                 (AATCGTCATCCGAAACGTCA, 7)
@@ -133,17 +133,69 @@ mod tests {
         let sk3 = Superkmer::new(read, 21, 21 + m, 20, 20 + 32, true);
 
         let mut sk_count = SuperKmerCounts::new();
+        let mut sk_count_copy = SuperKmerCounts::new();
+        assert!(sk_count == sk_count_copy);
 
-        for sk in vec![sk0, sk1, sk2, sk3] {
-            assert_eq!(sk_count.get_count_superkmer(&sk), 0);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 1);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 2);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 3);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 4);
-            assert_eq!(sk_count.get_count_superkmer(&sk), 4);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 5);
-            assert_eq!(sk_count.increase_count_superkmer(&sk), 6);
-            assert_eq!(sk_count.get_count_superkmer(&sk), 6);
+        for a_sk_count in [&mut sk_count, &mut sk_count_copy] {
+            for sk in vec![sk0, sk1, sk2, sk3] {
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 0);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 1);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 2);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 3);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 4);
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 4);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 5);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 6);
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 6);
+            }
         }
+
+        assert!(sk_count == sk_count_copy);
+        sk_count_copy.increase_count_superkmer(&sk0);
+        assert!(sk_count != sk_count_copy);
+
+        // serialize and deserialize sk_count
+        let mut buffer: Vec<u8> = Vec::new();
+        bincode::serialize_into(&mut buffer, &sk_count).unwrap();
+        let sk_count_loaded: SuperKmerCounts =
+            bincode::deserialize_from(buffer.as_slice()).unwrap();
+        assert!(sk_count == sk_count_loaded);
+    }
+
+    #[test]
+    fn test_serde_superkmer() {
+        let m = 10;
+        // read: ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC
+        //       ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGG                 (AATCGTCATCCGAAACGTCA, 7)
+        //               GACGTTTCGGATGACGATTGTACGTGACGGTG               (ACAATCGTCATCCGAAACGT, 9)
+        //                 CGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATG     (ACCGTCACGTACAATCGTCA, 19)
+        //                           GACGATTGTACGTGACGGTGCGTCCGGATGAC   (ACGATTGTACGTGACGGTGC, 21)
+        let read = "ACGTACGTGACGTTTCGGATGACGATTGTACGTGACGGTGCGTCCGGATGAC".as_bytes();
+        let sk0 = Superkmer::new(read, 7, 7 + m, 0, 38, false);
+        let sk1 = Superkmer::new(read, 9, 9 + m, 9, 9 + 32, false);
+        let sk2 = Superkmer::new(read, 19, 19 + m, 10, 10 + 40, false);
+        let sk3 = Superkmer::new(read, 21, 21 + m, 20, 20 + 32, true);
+
+        let mut sk_count = SuperKmerCounts::new();
+        let mut sk_count_copy = SuperKmerCounts::new();
+        assert!(sk_count == sk_count_copy);
+
+        for a_sk_count in [&mut sk_count, &mut sk_count_copy] {
+            for sk in vec![sk0, sk1, sk2, sk3] {
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 0);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 1);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 2);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 3);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 4);
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 4);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 5);
+                assert_eq!(a_sk_count.increase_count_superkmer(&sk), 6);
+                assert_eq!(a_sk_count.get_count_superkmer(&sk), 6);
+            }
+        }
+
+        assert!(sk_count == sk_count_copy);
+        sk_count_copy.increase_count_superkmer(&sk0);
+        assert!(sk_count != sk_count_copy);
     }
 }

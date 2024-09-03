@@ -123,8 +123,6 @@ fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
         .read()
         .expect("could not acquire read lock");
 
-    hyperkmers.check(index.get_k());
-
     let nb_base_in_large_hyperkmers: usize =
         large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
     let number_of_hyperkmers = hyperkmers.get_nb_inserted();

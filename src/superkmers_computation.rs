@@ -15,6 +15,8 @@ const REVCOMP_TAB: [u8; 255] = {
     tab
 };
 
+// TODO should we do something else instead of using this complex type?
+#[allow(clippy::type_complexity)]
 fn reverse_complement<'a>(seq: &'a [u8]) -> Map<Rev<Iter<'a, u8>>, fn(&'a u8) -> u8> {
     seq.iter()
         .rev()

@@ -25,23 +25,9 @@ impl ParallelExtendedHyperkmers {
         }
     }
 
-    pub fn check(&self, k: usize) {
-        self.buckets.chunks().iter().for_each(|hyperkmers| {
-            let hyperkmers = hyperkmers.read().unwrap();
-            for i in 0..hyperkmers.get_nb_inserted() {
-                let subsequence = hyperkmers.get_hyperkmer_from_id(i);
-                assert_eq!(subsequence.len(), k - 1);
-            }
-        })
-    }
-
     pub fn get_bucket_from_id_usize(&self, bucket_id: usize) -> Arc<RwLock<ExtendedHyperkmers>> {
         // cloning Arc is cheap
         self.buckets.get_from_id_u64(bucket_id.try_into().unwrap())
-    }
-
-    pub fn get_bucket_from_id_u64(&self, bucket_id: u64) -> Arc<RwLock<ExtendedHyperkmers>> {
-        self.buckets.get_from_id_u64(bucket_id)
     }
 
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
@@ -301,5 +287,53 @@ impl Drop for ExtendedHyperkmers {
         for ext_hyperkmer in self.ext_hyperkmers_buffers.iter_mut() {
             ext_hyperkmer.dealloc(self.k - 1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extended_hk_get_nb_inserted() {
+        let k = 31;
+        let nb_hk_in_a_buffer = 7;
+        let read: Vec<u8> = vec![3, 8, 7];
+        let mut ext_hk = ExtendedHyperkmers::new(k, nb_hk_in_a_buffer);
+        for _ in 0..10 {
+            ext_hk.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
+        }
+        assert_eq!(ext_hk.get_nb_inserted(), 10);
+    }
+
+    #[test]
+    fn test_parallel_extended_hk_get_nb_inserted() {
+        let k = 31;
+        let nb_hk_in_a_buffer = 7;
+
+        let ext_hks = ParallelExtendedHyperkmers::new(k, nb_hk_in_a_buffer);
+
+        let ext_hk_6 = ext_hks.get_bucket_from_id_usize(6);
+        let mut ext_hk_6 = ext_hk_6.write().unwrap();
+        let ext_hk_8 = ext_hks.get_bucket_from_id_usize(8);
+        let mut ext_hk_8 = ext_hk_8.write().unwrap();
+        let ext_hk_9: Arc<RwLock<ExtendedHyperkmers>> = ext_hks.get_bucket_from_id_usize(9);
+        let mut ext_hk_9 = ext_hk_9.write().unwrap();
+        let read: Vec<u8> = vec![3, 8, 7];
+        for _ in 0..10 {
+            ext_hk_6.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
+        }
+        let read: Vec<u8> = vec![3, 8, 7, 9, 0, 7];
+        for _ in 0..10 {
+            ext_hk_8.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
+        }
+        let read: Vec<u8> = vec![0, 3, 8, 7, 0];
+        for _ in 0..10 {
+            ext_hk_9.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
+        }
+        drop(ext_hk_6);
+        drop(ext_hk_8);
+        drop(ext_hk_9);
+        assert_eq!(ext_hks.get_nb_inserted(), 30);
     }
 }

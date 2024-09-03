@@ -230,44 +230,6 @@ impl Index<CompleteIndex> {
     }
 }
 
-impl Index<StrippedIndex> {
-    /// Constructs a new `Index` indexing a set of sequences
-    #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
-    pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: &P) -> Self {
-        let start_fisrt_step = Instant::now();
-        let (mut super_kmer_counts, mut hk_count, hyperkmers, large_hyperkmers) =
-            first_stage(path, k, m, threshold);
-        println!(
-            "time first stage: {} milliseconds",
-            start_fisrt_step.elapsed().as_millis()
-        );
-        let start_second_stage = Instant::now();
-        let _discarded_minimizers = second_stage(
-            &mut super_kmer_counts,
-            &mut hk_count,
-            hyperkmers.clone(),
-            large_hyperkmers.clone(),
-            path,
-            k,
-            m,
-            threshold,
-        );
-        println!(
-            "time second stage: {} milliseconds",
-            start_second_stage.elapsed().as_millis()
-        );
-
-        Self {
-            hk_count,
-            hyperkmers,
-            large_hyperkmers,
-            superkmers_infos: StrippedIndex {},
-            k,
-            m,
-        }
-    }
-}
-
 impl<FI> Index<FI>
 where
     FI: FullIndexTrait + Serialize + Sync + Send + Serialize,
