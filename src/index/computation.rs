@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use fastxgz::fasta_reads;
+use fastxgz::{fasta_reads, fastq_reads};
 use itertools::Itertools;
 use log::warn;
 
@@ -24,6 +24,13 @@ use super::{
     components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
     LargeExtendedHyperkmers,
 };
+
+/// detects if a file is fastq or not
+fn is_fastq<P: AsRef<Path>>(path: P) -> bool {
+    // TODO test if the file contains ">" ?
+    let p = path.as_ref().to_str().unwrap();
+    p.ends_with("fastq.gz") || p.ends_with("fq.gz") || p.ends_with("fq") || p.ends_with("fastq")
+}
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -52,37 +59,40 @@ pub fn first_stage<P: AsRef<Path>>(
     Arc<RwLock<ParallelExtendedHyperkmers>>,
     Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
-    let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
+    let sk_count: Buckets<SuperKmerCounts> = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Buckets::<HKCount>::new(HKCount::new);
     let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
     let large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>> = Arc::new(RwLock::new(Vec::new()));
 
-    let sequences = fasta_reads(path).unwrap();
+    let args = (
+        k,
+        m,
+        threshold,
+        sk_count.clone(),
+        hk_count.clone(),
+        hyperkmers.clone(),
+        large_hyperkmers.clone(),
+    );
 
-    rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
-        for chunk in chunks.into_iter() {
-            let sk_count = sk_count.clone();
-            let hk_count = hk_count.clone();
-            let hyperkmers = hyperkmers.clone();
-            let large_hyperkmers = large_hyperkmers.clone();
-            let lines = chunk.into_iter().collect_vec(); //TODO copy
-            let lines = Arc::new(Mutex::new(lines));
-            s.spawn(move |_| {
-                let mut sequences = lines.lock().unwrap();
-                first_stage_for_a_chunck(
-                    &mut sequences,
-                    k,
-                    m,
-                    threshold,
-                    &sk_count,
-                    &hk_count,
-                    &hyperkmers,
-                    &large_hyperkmers,
-                )
-            });
-        }
-    });
+    if is_fastq(&path) {
+        let path = path.as_ref().to_owned();
+        rayon::scope(|s| {
+            let sequences = fastq_reads(path).unwrap();
+            let chunks = sequences.into_iter().chunks(100);
+            for chunk in chunks.into_iter() {
+                launch_a_chunk_first_stage(s, chunk.into_iter(), args.clone());
+            }
+        });
+    } else {
+        let path = path.as_ref().to_owned();
+        rayon::scope(|s: &rayon::Scope<'_>| {
+            let sequences = fasta_reads(path).unwrap();
+            let chunks = sequences.into_iter().chunks(100);
+            for chunk in chunks.into_iter() {
+                launch_a_chunk_first_stage(s, chunk.into_iter(), args.clone());
+            }
+        });
+    };
     (sk_count, hk_count, hyperkmers, large_hyperkmers)
 }
 
@@ -91,8 +101,8 @@ pub fn first_stage<P: AsRef<Path>>(
 /// Splits each line of the input into chunks, then performs the second stage on each chunk in parallel.  
 #[allow(clippy::too_many_arguments)]
 pub fn second_stage<P: AsRef<Path>>(
-    sk_count: &mut Buckets<SuperKmerCounts>,
-    hk_count: &mut Buckets<HKCount>,
+    sk_count: Buckets<SuperKmerCounts>,
+    hk_count: Buckets<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
     path: P,
@@ -102,35 +112,103 @@ pub fn second_stage<P: AsRef<Path>>(
 ) -> Buckets<HashMap<u64, u16>> {
     let discarded_minimizers = Buckets::<HashMap<Minimizer, Count>>::new(HashMap::new);
 
-    let sequences = fasta_reads(path).unwrap();
+    let args = (
+        sk_count,
+        hk_count,
+        hyperkmers,
+        large_hyperkmers,
+        k,
+        m,
+        threshold,
+        discarded_minimizers.clone(),
+    );
 
-    rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
-        for chunk in chunks.into_iter() {
-            let sk_count = sk_count.clone();
-            let hk_count = hk_count.clone();
-            let hyperkmers = hyperkmers.clone();
-            let large_hyperkmers = large_hyperkmers.clone();
-            let discarded_minimizers = discarded_minimizers.clone();
-            let lines = chunk.into_iter().collect_vec(); // TODO copy
-            let lines = Arc::new(Mutex::new(lines));
-            s.spawn(move |_| {
-                let mut sequences = lines.lock().unwrap();
-                second_stage_for_a_chunk(
-                    &sk_count,
-                    &hk_count,
-                    &hyperkmers,
-                    &large_hyperkmers,
-                    &mut sequences,
-                    k,
-                    m,
-                    threshold,
-                    &discarded_minimizers,
-                )
-            });
-        }
-    });
+    if is_fastq(&path) {
+        let path = path.as_ref().to_owned();
+        rayon::scope(|s| {
+            let sequences = fastq_reads(path).unwrap();
+            let chunks = sequences.into_iter().chunks(100);
+            for chunk in chunks.into_iter() {
+                launch_a_chunk_second_stage(s, chunk.into_iter(), args.clone());
+            }
+        });
+    } else {
+        let path = path.as_ref().to_owned();
+        rayon::scope(|s: &rayon::Scope<'_>| {
+            let sequences = fasta_reads(path).unwrap();
+            let chunks = sequences.into_iter().chunks(100);
+            for chunk in chunks.into_iter() {
+                launch_a_chunk_second_stage(s, chunk.into_iter(), args.clone());
+            }
+        });
+    };
     discarded_minimizers
+}
+
+fn launch_a_chunk_first_stage<I>(
+    s: &rayon::Scope<'_>,
+    chunk: I,
+    args: (
+        usize,
+        usize,
+        Count,
+        Buckets<SuperKmerCounts>,
+        Buckets<HKCount>,
+        Arc<RwLock<ParallelExtendedHyperkmers>>,
+        Arc<RwLock<LargeExtendedHyperkmers>>,
+    ),
+) where
+    I: IntoIterator<Item = Vec<u8>>,
+{
+    let lines = chunk.into_iter().collect_vec(); //TODO copy
+    let lines = Arc::new(Mutex::new(lines));
+    s.spawn(move |_| {
+        let mut sequences = lines.lock().unwrap();
+        first_stage_for_a_chunck(
+            &mut sequences,
+            args.0,
+            args.1,
+            args.2,
+            args.3,
+            args.4,
+            args.5,
+            args.6,
+        )
+    });
+}
+
+fn launch_a_chunk_second_stage<I>(
+    s: &rayon::Scope<'_>,
+    chunk: I,
+    args: (
+        Buckets<SuperKmerCounts>,
+        Buckets<HKCount>,
+        Arc<RwLock<ParallelExtendedHyperkmers>>,
+        Arc<RwLock<LargeExtendedHyperkmers>>,
+        usize,
+        usize,
+        Count,
+        Buckets<HashMap<Minimizer, Count>>,
+    ),
+) where
+    I: IntoIterator<Item = Vec<u8>>,
+{
+    let lines = chunk.into_iter().collect_vec(); //TODO copy
+    let lines = Arc::new(Mutex::new(lines));
+    s.spawn(move |_| {
+        let mut sequences = lines.lock().unwrap();
+        second_stage_for_a_chunk(
+            args.0,
+            args.1,
+            args.2,
+            args.3,
+            &mut sequences,
+            args.4,
+            args.5,
+            args.6,
+            args.7,
+        )
+    });
 }
 
 // TODO "style" find a better name for the first stage function
@@ -140,10 +218,10 @@ fn first_stage_for_a_chunck(
     k: usize,
     m: usize,
     threshold: Count,
-    sk_count: &Buckets<SuperKmerCounts>,
-    hk_count: &Buckets<HKCount>,
-    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    sk_count: Buckets<SuperKmerCounts>,
+    hk_count: Buckets<HKCount>,
+    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     for sequence in sequences {
@@ -163,8 +241,8 @@ fn first_stage_for_a_chunck(
             // compute now if the previous and/or next superkmer is solid
             // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
-            let previous_sk_is_solid = is_sk_solid(sk_count, &previous_sk, threshold);
-            let next_sk_is_solid = is_sk_solid(sk_count, &next_sk, threshold);
+            let previous_sk_is_solid = is_sk_solid(&sk_count, &previous_sk, threshold);
+            let next_sk_is_solid = is_sk_solid(&sk_count, &next_sk, threshold);
 
             let current_sk_count = sk_count.get_from_id_u64(current_sk.get_minimizer());
             let mut current_sk_count = current_sk_count.write().unwrap();
@@ -426,15 +504,15 @@ fn first_stage_for_a_chunck(
 // TODO "style" find a better name for the second stage function
 #[allow(clippy::too_many_arguments)]
 fn second_stage_for_a_chunk(
-    sk_count: &Buckets<SuperKmerCounts>,
-    hk_count: &Buckets<HKCount>,
-    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    sk_count: Buckets<SuperKmerCounts>,
+    hk_count: Buckets<HKCount>,
+    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-    discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
+    discarded_minimizers: Buckets<HashMap<Minimizer, Count>>,
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();

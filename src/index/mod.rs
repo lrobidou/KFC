@@ -183,7 +183,7 @@ impl Index<CompleteIndex> {
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
     pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: P) -> Self {
         let start_fisrt_step = Instant::now();
-        let (mut super_kmer_counts, mut hk_count, hyperkmers, large_hyperkmers) =
+        let (super_kmer_counts, hk_count, hyperkmers, large_hyperkmers) =
             first_stage(&path, k, m, threshold);
         println!(
             "time first stage: {} milliseconds",
@@ -191,8 +191,8 @@ impl Index<CompleteIndex> {
         );
         let start_second_stage = Instant::now();
         let discarded_minimizers = second_stage(
-            &mut super_kmer_counts,
-            &mut hk_count,
+            super_kmer_counts.clone(),
+            hk_count.clone(),
             hyperkmers.clone(),
             large_hyperkmers.clone(),
             &path,
