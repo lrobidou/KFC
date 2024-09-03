@@ -6,17 +6,17 @@ use crate::subsequence::{NoBitPacked, Subsequence};
 
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
-pub struct SimpleVec {
+pub struct ArrayOfHyperkmer {
     ptr: Rc<RwLock<*mut u64>>,
 
     #[cfg(debug_assertions)]
     is_dealloc: bool,
 }
 
-unsafe impl Send for SimpleVec {}
-unsafe impl Sync for SimpleVec {}
+unsafe impl Send for ArrayOfHyperkmer {}
+unsafe impl Sync for ArrayOfHyperkmer {}
 
-impl SimpleVec {
+impl ArrayOfHyperkmer {
     /// Creates a new `Self` of a given `size`.
     /// `size` should be the number of `u64` fitting into `Self`.
     pub fn new(size: usize) -> Self {
@@ -34,7 +34,7 @@ impl SimpleVec {
         let ptr = ptr as *mut u64;
         let ptr = Rc::new(RwLock::new(ptr));
 
-        SimpleVec {
+        ArrayOfHyperkmer {
             ptr,
             #[cfg(debug_assertions)]
             is_dealloc: false,
@@ -99,7 +99,7 @@ impl SimpleVec {
     }
 }
 
-impl Drop for SimpleVec {
+impl Drop for ArrayOfHyperkmer {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         {
@@ -117,6 +117,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn forgot_alloc() {
-        SimpleVec::new(100);
+        ArrayOfHyperkmer::new(100);
     }
 }
