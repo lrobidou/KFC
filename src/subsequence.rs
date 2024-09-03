@@ -223,31 +223,29 @@ impl<'a> Subsequence<BitPacked<'a>> {
             // test to check that the reverse is working
             // TODO do more check and tests for the reverse decoding
             let truth = decode_2bits(
-                self.packing.read.iter().cloned(),
+                self.packing.read,
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
             )
             .collect_vec();
             let what_i_made = decode_2bits(
-                self.packing.read.iter().cloned(),
+                self.packing.read,
                 self.start,
                 self.end,
                 self.packing.total_base_in_sequence,
             )
             .rev()
-            .collect_vec()
-            .iter()
-            .rev()
-            .copied()
             .collect_vec();
+            debug_assert_eq!(truth.len(), what_i_made.len());
+            let what_i_made = what_i_made.iter().rev().copied().collect_vec();
 
             debug_assert_eq!(truth.len(), self.end - self.start);
-
+            debug_assert_eq!(truth.len(), what_i_made.len());
             debug_assert_eq!(truth, what_i_made);
         }
         decode_2bits(
-            self.packing.read.iter().cloned(),
+            self.packing.read,
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -258,7 +256,7 @@ impl<'a> Subsequence<BitPacked<'a>> {
 impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let iter = decode_2bits(
-            self.packing.read.iter().copied(),
+            self.packing.read,
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
@@ -276,7 +274,7 @@ impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
 impl<'a> Subsequence<BitPacked<'a>> {
     pub fn as_vec(&self) -> Vec<u8> {
         let iter = decode_2bits(
-            self.packing.read.iter().copied(),
+            self.packing.read,
             self.start,
             self.end,
             self.packing.total_base_in_sequence,
