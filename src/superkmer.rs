@@ -6,12 +6,13 @@ use super::two_bits;
 use std::iter::Map;
 use std::iter::Rev;
 
-const REVCOMP_TAB_CHAR: [char; 255] = {
+pub const REVCOMP_TAB_CHAR: [char; 255] = {
     let mut tab = ['A'; 255];
     tab[b'A' as usize] = 'T';
     tab[b'T' as usize] = 'A';
     tab[b'C' as usize] = 'G';
     tab[b'G' as usize] = 'C';
+    tab[b'N' as usize] = 'T';
     tab
 };
 
@@ -30,12 +31,13 @@ pub fn reverse_complement_ascii_to_ascii(seq: &[u8]) -> Vec<u8> {
 }
 
 // TODO duplication: move to a module
-const REVCOMP_TAB: [u8; 255] = {
+pub const REVCOMP_TAB: [u8; 255] = {
     let mut tab = [0; 255];
     tab[b'A' as usize] = b'T';
     tab[b'T' as usize] = b'A';
     tab[b'C' as usize] = b'G';
     tab[b'G' as usize] = b'C';
+    tab[b'N' as usize] = b'T'; // N is A, so its complement is T
     tab
 };
 

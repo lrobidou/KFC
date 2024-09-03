@@ -46,6 +46,11 @@ impl<'a, T: PrimInt + Hash> CanonicalMinimizerIterator<'a, T> {
         rc_encoding.swap(b'a' as usize, b't' as usize);
         rc_encoding.swap(b'C' as usize, b'G' as usize);
         rc_encoding.swap(b'c' as usize, b'g' as usize);
+
+        encoding[b'N' as usize] = 0b00;
+        encoding[b'n' as usize] = 0b00;
+        rc_encoding[b'N' as usize] = 0b11;
+        rc_encoding[b'n' as usize] = 0b11;
         Self {
             seq,
             queue,

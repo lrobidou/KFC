@@ -1,19 +1,15 @@
-pub fn char_to_u64(c: u8) -> u64 {
-    (u64::from(c) >> 1) & 3
-}
+const CHAR_TO_2BIT: [u8; 255] = {
+    let mut tab = [0; 255];
+    tab[b'A' as usize] = 0;
+    tab[b'T' as usize] = 2;
+    tab[b'C' as usize] = 1;
+    tab[b'G' as usize] = 3;
+    tab[b'N' as usize] = 0; // N is A
+    tab
+};
 
-// // get unchecked
-// pub fn u64_to_char(c: u8) -> u8 {
-//     match c {
-//         0 => b'A',
-//         1 => b'C',
-//         2 => b'T',
-//         _ => b'G',
-//     }
-// }
-
-pub fn char_to_u8(c: u8) -> u8 {
-    (c >> 1) & 3
+pub fn char_to_2bit(c: u8) -> u8 {
+    unsafe { *CHAR_TO_2BIT.get_unchecked(c as usize) }
 }
 
 const TAB_U8_TO_CHAR: [u8; 4] = [b'A', b'C', b'T', b'G'];
@@ -25,11 +21,11 @@ pub fn u8_to_char(c: u8) -> u8 {
 pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
     const NB_BASES_MAX: usize = 64 / 2;
     let mut nb_base = 0;
-    let mut result = 0;
+    let mut result: u64 = 0;
     for ascii_letter in bytes.into_iter() {
         nb_base += 1;
         result <<= 2;
-        result += char_to_u64(ascii_letter);
+        result += u64::from(char_to_2bit(ascii_letter));
     }
     assert!(
         nb_base <= NB_BASES_MAX,
@@ -47,7 +43,7 @@ pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
 //     let mut result: Vec<u8> = vec![0; (len / 4) + usize::from(add_one)];
 //     for (i, ascii_letter) in bytes.into_iter().enumerate() {
 //         let shift = (3 - i % 4) * 2;
-//         result[i / 4] += char_to_u8(ascii_letter) << shift;
+//         result[i / 4] += char_to_2bit(ascii_letter) << shift;
 //     }
 //     result
 // }
@@ -91,7 +87,7 @@ where
         while self.buffer_len < 8 && self.index < self.len {
             if let Some(ascii_letter) = self.bytes.next() {
                 let shift = (3 - self.index % 4) * 2;
-                self.buffer |= char_to_u8(ascii_letter) << shift;
+                self.buffer |= char_to_2bit(ascii_letter) << shift;
                 self.buffer_len += 2;
                 self.index += 1;
             } else {
@@ -182,10 +178,10 @@ mod tests {
         let c = b'C';
         let t = b'T';
         let g = b'G';
-        assert_eq!(char_to_u8(a), 0);
-        assert_eq!(char_to_u8(c), 1);
-        assert_eq!(char_to_u8(t), 2);
-        assert_eq!(char_to_u8(g), 3);
+        assert_eq!(char_to_2bit(a), 0);
+        assert_eq!(char_to_2bit(c), 1);
+        assert_eq!(char_to_2bit(t), 2);
+        assert_eq!(char_to_2bit(g), 3);
     }
 
     #[test]
