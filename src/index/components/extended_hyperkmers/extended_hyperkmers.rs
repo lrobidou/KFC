@@ -298,7 +298,7 @@ mod tests {
     fn test_extended_hk_get_nb_inserted() {
         let k = 31;
         let nb_hk_in_an_array = 7;
-        let read: Vec<u8> = vec![3, 8, 7];
+        let read: Vec<u8> = vec![65, 65, 65];
         let mut ext_hk = ExtendedHyperkmers::new(k, nb_hk_in_an_array);
         for _ in 0..10 {
             ext_hk.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
@@ -319,15 +319,15 @@ mod tests {
         let mut ext_hk_8 = ext_hk_8.write().unwrap();
         let ext_hk_9: Arc<RwLock<ExtendedHyperkmers>> = ext_hks.get_bucket_from_id_usize(9);
         let mut ext_hk_9 = ext_hk_9.write().unwrap();
-        let read: Vec<u8> = vec![3, 8, 7];
+        let read: Vec<u8> = vec![b'N', b'A', b'A'];
         for _ in 0..10 {
             ext_hk_6.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
         }
-        let read: Vec<u8> = vec![3, 8, 7, 9, 0, 7];
+        let read: Vec<u8> = vec![b'N', b'A', b'A', b'N', b'A', b'A'];
         for _ in 0..10 {
             ext_hk_8.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
         }
-        let read: Vec<u8> = vec![0, 3, 8, 7, 0];
+        let read: Vec<u8> = vec![b'A', b'A', b'N', b'A'];
         for _ in 0..10 {
             ext_hk_9.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
         }
