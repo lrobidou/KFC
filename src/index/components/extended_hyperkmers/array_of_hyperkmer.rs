@@ -70,7 +70,7 @@ impl ArrayOfHyperkmer {
     }
 
     pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
-        let ptr = self.ptr.write().expect("could not acquire write lock");
+        let ptr = self.ptr.read().expect("could not acquire write lock");
         let slice: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(*ptr as *mut u8, len * 8) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
@@ -87,7 +87,7 @@ impl ArrayOfHyperkmer {
         let layout = Layout::array::<u8>(size).expect("Failed to create layout");
 
         // Deallocate the memory
-        let ptr = self.ptr.write().expect("could not acquire write lock");
+        let ptr = self.ptr.read().expect("could not acquire write lock");
         unsafe {
             dealloc(*ptr as *mut u8, layout);
         }

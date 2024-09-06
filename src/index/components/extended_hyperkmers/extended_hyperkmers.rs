@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use crate::{
     buckets::{Buckets, NB_BUCKETS},
@@ -30,6 +30,17 @@ impl ParallelExtendedHyperkmers {
         self.buckets.get_from_id_u64(bucket_id.try_into().unwrap())
     }
 
+    pub fn acquire_two_locks_read_mode(
+        &self,
+        bucket_id0: usize,
+        bucket_id1: usize,
+    ) -> (
+        RwLockReadGuard<'_, ExtendedHyperkmers>,
+        Option<RwLockReadGuard<'_, ExtendedHyperkmers>>,
+    ) {
+        self.buckets
+            .acquire_two_locks_read_mode(bucket_id0, bucket_id1)
+    }
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
     pub fn add_new_ext_hyperkmer(
@@ -312,6 +323,10 @@ mod tests {
         let nb_hk_in_a_buffer = 7;
 
         let ext_hks = ParallelExtendedHyperkmers::new(k, nb_hk_in_a_buffer);
+
+        // caution: to prevent deadlock, the locks are acquired in ascending order.
+        // so this test might deadlock if the number of buckets is smaller than 9
+        assert!(ext_hks.buckets.len() > 9);
 
         let ext_hk_6 = ext_hks.get_bucket_from_id_usize(6);
         let mut ext_hk_6 = ext_hk_6.write().unwrap();

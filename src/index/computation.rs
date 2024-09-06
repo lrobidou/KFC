@@ -1,13 +1,17 @@
-use crate::superkmer::Superkmer;
+use crate::{
+    buckets::LockPosition,
+    subsequence::{NoBitPacked, Subsequence},
+    superkmer::Superkmer,
+};
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use fastxgz::{fasta_reads, fastq_reads};
 use itertools::Itertools;
 use log::warn;
+use needletail::{parse_fastx_file, FastxReader};
 
 use crate::{
     buckets::Buckets,
@@ -25,25 +29,12 @@ use super::{
     LargeExtendedHyperkmers,
 };
 
-/// detects if a file is fastq or not
-fn is_fastq<P: AsRef<Path>>(path: P) -> bool {
-    // TODO test if the file contains ">" ?
-    let p = path.as_ref().to_str().unwrap();
-    p.ends_with("fastq.gz") || p.ends_with("fq.gz") || p.ends_with("fq") || p.ends_with("fastq")
-}
-
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
 #[cfg(not(feature = "nightly"))]
 use core::convert::identity as likely;
 #[cfg(feature = "nightly")]
 use core::intrinsics::likely;
-
-fn is_sk_solid(sk_count: &Buckets<SuperKmerCounts>, sk: &Superkmer, threshold: Count) -> bool {
-    let sk_count = sk_count.get_from_id_u64(sk.get_minimizer());
-    let sk_count = sk_count.read().unwrap();
-    sk_count.get_count_superkmer(sk) >= threshold
-}
 
 /// First stage of the construction of the KFC index.
 ///
@@ -59,40 +50,38 @@ pub fn first_stage<P: AsRef<Path>>(
     Arc<RwLock<ParallelExtendedHyperkmers>>,
     Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
-    let sk_count: Buckets<SuperKmerCounts> = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
+    let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Buckets::<HKCount>::new(HKCount::new);
     let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
     let large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>> = Arc::new(RwLock::new(Vec::new()));
 
-    let args = (
-        k,
-        m,
-        threshold,
-        sk_count.clone(),
-        hk_count.clone(),
-        hyperkmers.clone(),
-        large_hyperkmers.clone(),
-    );
+    let sequences = parse_fastx_file(path).unwrap();
+    let sequences = LinesIter::new(sequences);
 
-    if is_fastq(&path) {
-        let path = path.as_ref().to_owned();
-        rayon::scope(|s| {
-            let sequences = fastq_reads(path).unwrap();
-            let chunks = sequences.into_iter().chunks(100);
-            for chunk in chunks.into_iter() {
-                launch_a_chunk_first_stage(s, chunk.into_iter(), args.clone());
-            }
-        });
-    } else {
-        let path = path.as_ref().to_owned();
-        rayon::scope(|s: &rayon::Scope<'_>| {
-            let sequences = fasta_reads(path).unwrap();
-            let chunks = sequences.into_iter().chunks(100);
-            for chunk in chunks.into_iter() {
-                launch_a_chunk_first_stage(s, chunk.into_iter(), args.clone());
-            }
-        });
-    };
+    rayon::scope(|s| {
+        let chunks = sequences.into_iter().chunks(100);
+        for chunk in chunks.into_iter() {
+            let sk_count = sk_count.clone();
+            let hk_count = hk_count.clone();
+            let hyperkmers = hyperkmers.clone();
+            let large_hyperkmers = large_hyperkmers.clone();
+            let lines = chunk.into_iter().collect_vec(); //TODO copy
+            let lines = Arc::new(Mutex::new(lines));
+            s.spawn(move |_| {
+                let mut sequences = lines.lock().unwrap();
+                first_stage_for_a_chunck(
+                    &mut sequences,
+                    k,
+                    m,
+                    threshold,
+                    &sk_count,
+                    &hk_count,
+                    &hyperkmers,
+                    &large_hyperkmers,
+                )
+            });
+        }
+    });
     (sk_count, hk_count, hyperkmers, large_hyperkmers)
 }
 
@@ -101,8 +90,8 @@ pub fn first_stage<P: AsRef<Path>>(
 /// Splits each line of the input into chunks, then performs the second stage on each chunk in parallel.  
 #[allow(clippy::too_many_arguments)]
 pub fn second_stage<P: AsRef<Path>>(
-    sk_count: Buckets<SuperKmerCounts>,
-    hk_count: Buckets<HKCount>,
+    sk_count: &Buckets<SuperKmerCounts>,
+    hk_count: &Buckets<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
     large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
     path: P,
@@ -112,105 +101,308 @@ pub fn second_stage<P: AsRef<Path>>(
 ) -> Buckets<HashMap<u64, u16>> {
     let discarded_minimizers = Buckets::<HashMap<Minimizer, Count>>::new(HashMap::new);
 
-    let args = (
-        sk_count,
-        hk_count,
-        hyperkmers,
-        large_hyperkmers,
-        k,
-        m,
-        threshold,
-        discarded_minimizers.clone(),
-    );
+    let sequences = parse_fastx_file(path).unwrap();
+    let sequences = LinesIter::new(sequences);
 
-    if is_fastq(&path) {
-        let path = path.as_ref().to_owned();
-        rayon::scope(|s| {
-            let sequences = fastq_reads(path).unwrap();
-            let chunks = sequences.into_iter().chunks(100);
-            for chunk in chunks.into_iter() {
-                launch_a_chunk_second_stage(s, chunk.into_iter(), args.clone());
-            }
-        });
-    } else {
-        let path = path.as_ref().to_owned();
-        rayon::scope(|s: &rayon::Scope<'_>| {
-            let sequences = fasta_reads(path).unwrap();
-            let chunks = sequences.into_iter().chunks(100);
-            for chunk in chunks.into_iter() {
-                launch_a_chunk_second_stage(s, chunk.into_iter(), args.clone());
-            }
-        });
-    };
+    rayon::scope(|s| {
+        let chunks = sequences.into_iter().chunks(100);
+        for chunk in chunks.into_iter() {
+            let sk_count = sk_count.clone();
+            let hk_count = hk_count.clone();
+            let hyperkmers = hyperkmers.clone();
+            let large_hyperkmers = large_hyperkmers.clone();
+            let discarded_minimizers = discarded_minimizers.clone();
+            let lines = chunk.into_iter().collect_vec(); // TODO copy
+            let lines = Arc::new(Mutex::new(lines));
+
+            s.spawn(move |_| {
+                let mut sequences = lines.lock().unwrap();
+                second_stage_for_a_chunk(
+                    &sk_count,
+                    &hk_count,
+                    &hyperkmers,
+                    &large_hyperkmers,
+                    &mut sequences,
+                    k,
+                    m,
+                    threshold,
+                    &discarded_minimizers,
+                )
+            });
+        }
+    });
     discarded_minimizers
 }
-
-fn launch_a_chunk_first_stage<I>(
-    s: &rayon::Scope<'_>,
-    chunk: I,
-    args: (
-        usize,
-        usize,
-        Count,
-        Buckets<SuperKmerCounts>,
-        Buckets<HKCount>,
-        Arc<RwLock<ParallelExtendedHyperkmers>>,
-        Arc<RwLock<LargeExtendedHyperkmers>>,
-    ),
-) where
-    I: IntoIterator<Item = Vec<u8>>,
-{
-    let lines = chunk.into_iter().collect_vec(); //TODO copy
-    let lines = Arc::new(Mutex::new(lines));
-    s.spawn(move |_| {
-        let mut sequences = lines.lock().unwrap();
-        first_stage_for_a_chunck(
-            &mut sequences,
-            args.0,
-            args.1,
-            args.2,
-            args.3,
-            args.4,
-            args.5,
-            args.6,
-        )
-    });
+struct LinesIter {
+    data: Box<dyn FastxReader>,
 }
 
-fn launch_a_chunk_second_stage<I>(
-    s: &rayon::Scope<'_>,
-    chunk: I,
-    args: (
-        Buckets<SuperKmerCounts>,
-        Buckets<HKCount>,
-        Arc<RwLock<ParallelExtendedHyperkmers>>,
-        Arc<RwLock<LargeExtendedHyperkmers>>,
-        usize,
-        usize,
-        Count,
-        Buckets<HashMap<Minimizer, Count>>,
-    ),
-) where
-    I: IntoIterator<Item = Vec<u8>>,
-{
-    let lines = chunk.into_iter().collect_vec(); //TODO copy
-    let lines = Arc::new(Mutex::new(lines));
-    s.spawn(move |_| {
-        let mut sequences = lines.lock().unwrap();
-        second_stage_for_a_chunk(
-            args.0,
-            args.1,
-            args.2,
-            args.3,
-            &mut sequences,
-            args.4,
-            args.5,
-            args.6,
-            args.7,
-        )
-    });
+impl LinesIter {
+    fn new(data: Box<dyn FastxReader>) -> Self {
+        Self { data }
+    }
 }
 
+impl Iterator for LinesIter {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let record = self.data.next()?.unwrap();
+        let sequence = record.seq();
+        let sequence_vec = sequence.iter().copied().collect();
+        Some(sequence_vec)
+    }
+}
+
+// Write locks on a hyperkmer
+fn add_new_hyperkmer(
+    is_large: bool,
+    seq: &Subsequence<NoBitPacked<'_>>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+) -> (usize, usize, bool) {
+    if likely(!is_large) {
+        let (id_left_bucket, id_left_hk) = hyperkmers.add_new_ext_hyperkmer(seq);
+        (id_left_bucket, id_left_hk, false)
+    } else {
+        let mut large_hyperkmers = large_hyperkmers.write().unwrap();
+        (
+            0, // I need an integer here to please the compiler, let's choose 0
+            add_new_large_hyperkmer(&mut large_hyperkmers, seq),
+            true,
+        )
+    }
+}
+
+fn get_bucket_of_previous_hk(
+    current_sk: &Superkmer,
+    previous_sk: &Superkmer,
+    hk_count_locks: &(
+        RwLockWriteGuard<HKCount>,
+        Option<RwLockReadGuard<HKCount>>,
+        Option<RwLockReadGuard<HKCount>>,
+        LockPosition,
+        LockPosition,
+    ),
+    left_extended_hk: &Subsequence<NoBitPacked>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+) -> (usize, usize, bool) {
+    // used to access buckets and compute hyperkmer id
+    let previous_minimizer = previous_sk.get_minimizer();
+    // read hk_count table associated with the previous minimizer
+    let large_hyperkmers = large_hyperkmers.read().unwrap();
+
+    match hk_count_locks.3 {
+        LockPosition::ThisLock => {
+            let previous_hk_count = hk_count_locks.1.as_ref().unwrap();
+            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
+                previous_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                previous_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+        LockPosition::CurrentLock => {
+            let previous_hk_count = &hk_count_locks.0;
+            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
+                previous_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                previous_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+        LockPosition::OtherLock => {
+            let previous_hk_count = hk_count_locks.2.as_ref().unwrap();
+            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
+                previous_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                previous_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &previous_minimizer,
+                        left_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+    }
+}
+
+fn get_bucket_of_next_hk(
+    current_sk: &Superkmer,
+    next_sk: &Superkmer,
+    hk_count_locks: &(
+        RwLockWriteGuard<HKCount>,
+        Option<RwLockReadGuard<HKCount>>,
+        Option<RwLockReadGuard<HKCount>>,
+        LockPosition,
+        LockPosition,
+    ),
+    right_extended_hk: &Subsequence<NoBitPacked>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+) -> (usize, usize, bool) {
+    let next_minimizer = next_sk.get_minimizer();
+    let large_hyperkmers = large_hyperkmers.read().unwrap();
+
+    match hk_count_locks.4 {
+        LockPosition::ThisLock => {
+            let next_hk_count = hk_count_locks.2.as_ref().unwrap();
+            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
+                next_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                next_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+        LockPosition::CurrentLock => {
+            let next_hk_count = &hk_count_locks.0;
+            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
+                next_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                next_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+        LockPosition::OtherLock => {
+            let next_hk_count = hk_count_locks.1.as_ref().unwrap();
+            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
+                next_hk_count
+                    .get_extended_hyperkmer_left_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            } else {
+                next_hk_count
+                    .get_extended_hyperkmer_right_id(
+                        hyperkmers,
+                        &large_hyperkmers,
+                        &next_minimizer,
+                        right_extended_hk,
+                    )
+                    .expect("Hash collision on superkmers. Please change your seed.")
+            }
+        }
+    }
+}
+
+fn is_previous_sk_solid(
+    sk_count_locks: &(
+        RwLockWriteGuard<SuperKmerCounts>,
+        Option<RwLockReadGuard<SuperKmerCounts>>,
+        Option<RwLockReadGuard<SuperKmerCounts>>,
+        LockPosition,
+        LockPosition,
+    ),
+    previous_sk: &Superkmer,
+    threshold: Count,
+) -> bool {
+    match sk_count_locks.3 {
+        LockPosition::CurrentLock => {
+            let previous_sk_count = &sk_count_locks.0;
+            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
+        }
+        LockPosition::ThisLock => {
+            let previous_sk_count = sk_count_locks.1.as_ref().unwrap();
+            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
+        }
+        LockPosition::OtherLock => {
+            let previous_sk_count = sk_count_locks.2.as_ref().unwrap();
+            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
+        }
+    }
+}
+
+fn is_next_sk_solid(
+    sk_count_locks: &(
+        RwLockWriteGuard<SuperKmerCounts>,
+        Option<RwLockReadGuard<SuperKmerCounts>>,
+        Option<RwLockReadGuard<SuperKmerCounts>>,
+        LockPosition,
+        LockPosition,
+    ),
+    next_sk: &Superkmer,
+    threshold: Count,
+) -> bool {
+    match sk_count_locks.4 {
+        LockPosition::CurrentLock => {
+            let next_sk_count = &sk_count_locks.0;
+            next_sk_count.get_count_superkmer(next_sk) >= threshold
+        }
+        LockPosition::ThisLock => {
+            let next_sk_count = sk_count_locks.2.as_ref().unwrap();
+            next_sk_count.get_count_superkmer(next_sk) >= threshold
+        }
+        LockPosition::OtherLock => {
+            let next_sk_count = sk_count_locks.1.as_ref().unwrap();
+            next_sk_count.get_count_superkmer(next_sk) >= threshold
+        }
+    }
+}
 // TODO "style" find a better name for the first stage function
 #[allow(clippy::too_many_arguments)]
 fn first_stage_for_a_chunck(
@@ -218,10 +410,10 @@ fn first_stage_for_a_chunck(
     k: usize,
     m: usize,
     threshold: Count,
-    sk_count: Buckets<SuperKmerCounts>,
-    hk_count: Buckets<HKCount>,
-    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
+    sk_count: &Buckets<SuperKmerCounts>,
+    hk_count: &Buckets<HKCount>,
+    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     for sequence in sequences {
@@ -229,7 +421,6 @@ fn first_stage_for_a_chunck(
             Some(superkmers_iter) => superkmers_iter,
             None => continue,
         };
-
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
             let (previous_sk, next_sk) = if current_sk.is_canonical_in_the_read() {
                 (previous_sk, next_sk)
@@ -241,13 +432,27 @@ fn first_stage_for_a_chunck(
             // compute now if the previous and/or next superkmer is solid
             // (we do it here and now because the incoming instruction `increase_count_superkmer(current_sk)`
             // can increase their count as well if they are the same superkmer)
-            let previous_sk_is_solid = is_sk_solid(&sk_count, &previous_sk, threshold);
-            let next_sk_is_solid = is_sk_solid(&sk_count, &next_sk, threshold);
 
-            let current_sk_count = sk_count.get_from_id_u64(current_sk.get_minimizer());
-            let mut current_sk_count = current_sk_count.write().unwrap();
+            // get sk_count locks
+            let sk_count_locks = sk_count.acquire_write_locks(
+                current_sk.get_minimizer(),
+                previous_sk.get_minimizer(),
+                next_sk.get_minimizer(),
+            );
+            // get hk_count locks
+            let hk_count_locks = hk_count.acquire_write_locks(
+                current_sk.get_minimizer(),
+                previous_sk.get_minimizer(),
+                next_sk.get_minimizer(),
+            );
+
+            let previous_sk_is_solid =
+                is_previous_sk_solid(&sk_count_locks, &previous_sk, threshold);
+            let next_sk_is_solid = is_next_sk_solid(&sk_count_locks, &next_sk, threshold);
+
             // OPTIMIZE est-il possible de stocker les counts pour ne pas les recalculer ?
-            let current_count = current_sk_count.increase_count_superkmer(&current_sk);
+            let mut current_sk_sount = sk_count_locks.0;
+            let current_count = current_sk_sount.increase_count_superkmer(&current_sk);
             // chain of comparisons ahead, but I don't need to be exhaustive and I find it good as it is
             // so I tell clippy to shup up
             #[allow(clippy::comparison_chain)]
@@ -261,99 +466,51 @@ fn first_stage_for_a_chunck(
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
                 let (id_left_bucket, id_left_hk, is_large_left) = if previous_sk_is_solid {
-                    // used to access buckets and compute hyperkmer id
-                    let previous_minimizer = previous_sk.get_minimizer();
-                    // read hk_count table associated with the previous minimizer
-                    let previous_hk_count = hk_count.get_from_id_u64(previous_minimizer);
-                    let previous_hk_count = previous_hk_count.read().unwrap();
-                    let large_hyperkmers = large_hyperkmers.read().unwrap();
-                    if previous_sk.is_canonical_in_the_read()
-                        == current_sk.is_canonical_in_the_read()
-                    {
-                        // bug here
-                        previous_hk_count
-                            .get_extended_hyperkmer_right_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
-                                &previous_minimizer,
-                                &left_extended_hk.0,
-                            )
-                            .expect("Hash collision on superkmers. Please change your seed.")
-                    } else {
-                        previous_hk_count
-                            .get_extended_hyperkmer_left_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
-                                &previous_minimizer,
-                                &left_extended_hk.0,
-                            )
-                            .expect("Hash collision on superkmers. Please change your seed.")
-                    }
+                    get_bucket_of_previous_hk(
+                        &current_sk,
+                        &previous_sk,
+                        &hk_count_locks,
+                        &left_extended_hk.0,
+                        &hyperkmers,
+                        large_hyperkmers,
+                    )
                 } else {
                     // previous sk is not solid => our hyperkmer is not already present
                     // let's add it
-                    if likely(!left_extended_hk.3) {
-                        let (id_left_bucket, id_left_hk) =
-                            hyperkmers.add_new_ext_hyperkmer(&left_extended_hk.0);
-                        (id_left_bucket, id_left_hk, false)
-                    } else {
-                        (
-                            0, // I need an integer here to please the compiler, let's choose 0
-                            add_new_large_hyperkmer(
-                                &mut large_hyperkmers.write().unwrap(),
-                                &left_extended_hk.0,
-                            ),
-                            true,
-                        )
-                    }
+                    add_new_hyperkmer(
+                        left_extended_hk.3,
+                        &left_extended_hk.0,
+                        &hyperkmers,
+                        large_hyperkmers,
+                    )
                 };
                 debug_assert!(id_left_bucket < 255);
                 let (id_right_bucket, id_right_hk, is_large_right) = if next_sk_is_solid {
-                    // used to access buckets and compute hyperkmer id
-                    let next_minimizer = next_sk.get_minimizer();
-                    // read hk_count table associated with the next minimizer
-                    let next_hk_count = hk_count.get_from_id_u64(next_minimizer);
-                    let next_hk_count = next_hk_count.read().unwrap();
-
-                    let large_hyperkmers = large_hyperkmers.read().unwrap();
-                    if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
-                        next_hk_count
-                            .get_extended_hyperkmer_left_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
-                                &next_minimizer,
-                                &right_extended_hk.0,
-                            )
-                            .expect("Hash collision on superkmers. Please change your seed.")
-                    } else {
-                        next_hk_count
-                            .get_extended_hyperkmer_right_id(
-                                &hyperkmers,
-                                &large_hyperkmers,
-                                &next_sk.get_minimizer(),
-                                &right_extended_hk.0,
-                            )
-                            .expect("Hash collision on superkmers. Please change your seed.")
-                    }
+                    get_bucket_of_next_hk(
+                        &current_sk,
+                        &next_sk,
+                        &hk_count_locks,
+                        &right_extended_hk.0,
+                        &hyperkmers,
+                        large_hyperkmers,
+                    )
                 } else {
                     // previous sk is not solid => our hyperkmer is not already present
                     // let's add it
-                    if likely(!right_extended_hk.3) {
-                        let (id_left_bucket, id_left_hk) =
-                            hyperkmers.add_new_ext_hyperkmer(&right_extended_hk.0);
-                        (id_left_bucket, id_left_hk, false)
-                    } else {
-                        (
-                            0, // I need an integer here to please the compiler, let's choose 0
-                            add_new_large_hyperkmer(
-                                &mut large_hyperkmers.write().unwrap(),
-                                &right_extended_hk.0,
-                            ),
-                            true,
-                        )
-                    }
+                    add_new_hyperkmer(
+                        right_extended_hk.3,
+                        &right_extended_hk.0,
+                        &hyperkmers,
+                        large_hyperkmers,
+                    )
                 };
                 debug_assert!(id_right_bucket < 255);
+
+                // TODO drop sk before ?
+                drop(sk_count_locks.1);
+                drop(sk_count_locks.2);
+                drop(hk_count_locks.1);
+                drop(hk_count_locks.2);
 
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
@@ -378,45 +535,46 @@ fn first_stage_for_a_chunck(
                     is_large_right,
                     right_change_orientation,
                 );
-                // read hyperkmers buckets
-                let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_left_bucket);
-                let left_hyperkmers = left_hyperkmers.read().unwrap();
-                let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_right_bucket);
-                let right_hyperkmers = right_hyperkmers.read().unwrap();
-                let large_hyperkmers = large_hyperkmers.read().unwrap();
 
-                let candidate_left_ext_hk = &get_subsequence_from_metadata(
-                    &left_hyperkmers,
-                    &large_hyperkmers,
-                    &left_hk_metadata,
-                )
-                .change_orientation_if(left_change_orientation);
-                let candidate_right_ext_hk = &get_subsequence_from_metadata(
-                    &right_hyperkmers,
-                    &large_hyperkmers,
-                    &right_hk_metadata,
-                )
-                .change_orientation_if(right_change_orientation);
+                // DEBUG might cause deadlock ?
+                #[cfg(debug_assertions)]
+                {
+                    let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_left_bucket);
+                    let left_hyperkmers = left_hyperkmers.read().unwrap();
+                    let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_right_bucket);
+                    let right_hyperkmers = right_hyperkmers.read().unwrap();
+                    let large_hyperkmers = large_hyperkmers.read().unwrap();
 
-                debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
-                debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
-                debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
-                    &get_subsequence_from_metadata(
+                    let candidate_left_ext_hk = &get_subsequence_from_metadata(
                         &left_hyperkmers,
                         &large_hyperkmers,
                         &left_hk_metadata,
                     )
-                ));
-                debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
-                    &get_subsequence_from_metadata(
+                    .change_orientation_if(left_change_orientation);
+                    let candidate_right_ext_hk = &get_subsequence_from_metadata(
                         &right_hyperkmers,
                         &large_hyperkmers,
                         &right_hk_metadata,
                     )
-                ));
+                    .change_orientation_if(right_change_orientation);
 
-                #[cfg(debug_assertions)]
-                {
+                    debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
+                    debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
+                    debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
+                        &get_subsequence_from_metadata(
+                            &left_hyperkmers,
+                            &large_hyperkmers,
+                            &left_hk_metadata,
+                        )
+                    ));
+                    debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
+                        &get_subsequence_from_metadata(
+                            &right_hyperkmers,
+                            &large_hyperkmers,
+                            &right_hk_metadata,
+                        )
+                    ));
+
                     let left_ext_hk = get_subsequence_from_metadata(
                         &left_hyperkmers,
                         &large_hyperkmers,
@@ -445,8 +603,10 @@ fn first_stage_for_a_chunck(
                         right_string[0..(m - 2)]
                     );
                 }
-                let current_hk_count = hk_count.get_from_id_u64(current_sk.get_minimizer());
-                let mut current_hk_count = current_hk_count.write().unwrap();
+
+                let mut current_hk_count = hk_count_locks.0;
+                // TODO
+                // let current_hk_count2 = hk_count_locks[cur_hk_count_lock_pos].unwrap();
                 current_hk_count.insert_new_entry_in_hyperkmer_count(
                     &current_sk.get_minimizer(),
                     &left_hk_metadata,
@@ -454,11 +614,10 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
-                let current_hk_count = hk_count.get_from_id_u64(current_sk.get_minimizer());
-                let mut current_hk_count = current_hk_count.write().unwrap();
                 // TODO fusionnner les deux passes
                 let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
+                let mut current_hk_count = hk_count_locks.0;
                 let found = current_hk_count.increase_count_if_exact_match(
                     &current_sk.get_minimizer(),
                     &hyperkmers,
@@ -504,15 +663,15 @@ fn first_stage_for_a_chunck(
 // TODO "style" find a better name for the second stage function
 #[allow(clippy::too_many_arguments)]
 fn second_stage_for_a_chunk(
-    sk_count: Buckets<SuperKmerCounts>,
-    hk_count: Buckets<HKCount>,
-    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
+    sk_count: &Buckets<SuperKmerCounts>,
+    hk_count: &Buckets<HKCount>,
+    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
-    discarded_minimizers: Buckets<HashMap<Minimizer, Count>>,
+    discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
     let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
@@ -545,6 +704,7 @@ fn second_stage_for_a_chunk(
                     .or_insert(1);
                 if *count == threshold {
                     // TODO debug: what if t == 1 ? Then we miss the first and last superkmer
+                    // TODO
                     warn!(
                         "minimizer {} of superkmer {} is found {} times but its hyperkmer is not",
                         minimizer,

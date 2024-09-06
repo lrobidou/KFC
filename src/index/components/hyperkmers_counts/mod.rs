@@ -472,8 +472,14 @@ pub fn search_exact_hyperkmer_match(
     right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
     let left_bucket_id = left_ext_hk_metadata.get_bucket_id();
-    let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(left_bucket_id);
-    let left_hyperkmers = left_hyperkmers.read().unwrap();
+    let right_bucket_id = right_ext_hk_metadata.get_bucket_id();
+    let (left_hyperkmers, right_hyperkmers) =
+        hyperkmers.acquire_two_locks_read_mode(left_bucket_id, right_bucket_id);
+    let right_hyperkmers = match right_hyperkmers.as_ref() {
+        Some(x) => x,
+        None => &left_hyperkmers,
+    };
+
     // get sequences as they would appear if the current superkmer was canonical
     let left_hyperkmer =
         get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata)
@@ -483,11 +489,8 @@ pub fn search_exact_hyperkmer_match(
         left_ext_hk_metadata.get_end(),
     );
 
-    let right_bucket_id = right_ext_hk_metadata.get_bucket_id();
-    let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(right_bucket_id);
-    let right_hyperkmers = right_hyperkmers.read().unwrap();
     let right_hyperkmer =
-        get_subsequence_from_metadata(&right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
+        get_subsequence_from_metadata(right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
             .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
     let right_hyperkmer = right_hyperkmer.subsequence(
         right_ext_hk_metadata.get_start(),

@@ -191,8 +191,8 @@ impl Index<CompleteIndex> {
         );
         let start_second_stage = Instant::now();
         let discarded_minimizers = second_stage(
-            super_kmer_counts.clone(),
-            hk_count.clone(),
+            &super_kmer_counts,
+            &hk_count,
             hyperkmers.clone(),
             large_hyperkmers.clone(),
             &path,

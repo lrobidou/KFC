@@ -12,7 +12,6 @@ log = "0.4.22"
 mashmap = "0.2"
 thiserror = "1.0.63"
 xxhash-rust = { version = "0.8.12", features = ["xxh3", "const_xxh3"] }
-fastxgz = "0.4.0"
 ahash = "0.8.11"
 num-traits = "0.2.15"
 chrono = "0.4.38"
@@ -26,6 +25,7 @@ kff = { git = "https://github.com/lrobidou/kff-rust-api", rev = "cb934c946e7bb20
 bitvec = "1.0.1"
 rayon = "1.10.0"
 rand = "0.8.5"
+needletail = "0.5.1"
 
 [dev-dependencies]
 rand = "0.8.5"
