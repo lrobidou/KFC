@@ -189,77 +189,34 @@ fn get_bucket_of_previous_hk(
     large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
 ) -> (usize, usize, bool) {
     // used to access buckets and compute hyperkmer id
-    let previous_minimizer = previous_sk.get_minimizer();
     // read hk_count table associated with the previous minimizer
     let large_hyperkmers = large_hyperkmers.read().unwrap();
+    let previous_minimizer = previous_sk.get_minimizer();
 
-    match hk_count_locks.3 {
-        LockPosition::ThisLock => {
-            let previous_hk_count = hk_count_locks.1.as_ref().unwrap();
-            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
-                previous_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                previous_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
-        LockPosition::CurrentLock => {
-            let previous_hk_count = &hk_count_locks.0;
-            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
-                previous_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                previous_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
-        LockPosition::OtherLock => {
-            let previous_hk_count = hk_count_locks.2.as_ref().unwrap();
-            if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
-                previous_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                previous_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &previous_minimizer,
-                        left_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
+    let previous_hk_count: &HKCount = match hk_count_locks.3 {
+        LockPosition::ThisLock => hk_count_locks.1.as_ref().unwrap(),
+        LockPosition::CurrentLock => &hk_count_locks.0,
+        LockPosition::OtherLock => hk_count_locks.2.as_ref().unwrap(),
+    };
+
+    if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
+        previous_hk_count
+            .get_extended_hyperkmer_right_id(
+                hyperkmers,
+                &large_hyperkmers,
+                &previous_minimizer,
+                left_extended_hk,
+            )
+            .expect("Hash collision on superkmers. Please change your seed.")
+    } else {
+        previous_hk_count
+            .get_extended_hyperkmer_left_id(
+                hyperkmers,
+                &large_hyperkmers,
+                &previous_minimizer,
+                left_extended_hk,
+            )
+            .expect("Hash collision on superkmers. Please change your seed.")
     }
 }
 
@@ -279,74 +236,30 @@ fn get_bucket_of_next_hk(
 ) -> (usize, usize, bool) {
     let next_minimizer = next_sk.get_minimizer();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
+    let next_hk_count: &HKCount = match hk_count_locks.4 {
+        LockPosition::ThisLock => hk_count_locks.2.as_ref().unwrap(),
+        LockPosition::CurrentLock => &hk_count_locks.0,
+        LockPosition::OtherLock => hk_count_locks.1.as_ref().unwrap(),
+    };
 
-    match hk_count_locks.4 {
-        LockPosition::ThisLock => {
-            let next_hk_count = hk_count_locks.2.as_ref().unwrap();
-            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
-                next_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                next_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
-        LockPosition::CurrentLock => {
-            let next_hk_count = &hk_count_locks.0;
-            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
-                next_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                next_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
-        LockPosition::OtherLock => {
-            let next_hk_count = hk_count_locks.1.as_ref().unwrap();
-            if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
-                next_hk_count
-                    .get_extended_hyperkmer_left_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            } else {
-                next_hk_count
-                    .get_extended_hyperkmer_right_id(
-                        hyperkmers,
-                        &large_hyperkmers,
-                        &next_minimizer,
-                        right_extended_hk,
-                    )
-                    .expect("Hash collision on superkmers. Please change your seed.")
-            }
-        }
+    if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
+        next_hk_count
+            .get_extended_hyperkmer_left_id(
+                hyperkmers,
+                &large_hyperkmers,
+                &next_minimizer,
+                right_extended_hk,
+            )
+            .expect("Hash collision on superkmers. Please change your seed.")
+    } else {
+        next_hk_count
+            .get_extended_hyperkmer_right_id(
+                hyperkmers,
+                &large_hyperkmers,
+                &next_minimizer,
+                right_extended_hk,
+            )
+            .expect("Hash collision on superkmers. Please change your seed.")
     }
 }
 
@@ -361,20 +274,12 @@ fn is_previous_sk_solid(
     previous_sk: &Superkmer,
     threshold: Count,
 ) -> bool {
-    match sk_count_locks.3 {
-        LockPosition::CurrentLock => {
-            let previous_sk_count = &sk_count_locks.0;
-            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
-        }
-        LockPosition::ThisLock => {
-            let previous_sk_count = sk_count_locks.1.as_ref().unwrap();
-            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
-        }
-        LockPosition::OtherLock => {
-            let previous_sk_count = sk_count_locks.2.as_ref().unwrap();
-            previous_sk_count.get_count_superkmer(previous_sk) >= threshold
-        }
-    }
+    let previous_sk_count: &SuperKmerCounts = match sk_count_locks.3 {
+        LockPosition::CurrentLock => &sk_count_locks.0,
+        LockPosition::ThisLock => sk_count_locks.1.as_ref().unwrap(),
+        LockPosition::OtherLock => sk_count_locks.2.as_ref().unwrap(),
+    };
+    previous_sk_count.get_count_superkmer(previous_sk) >= threshold
 }
 
 fn is_next_sk_solid(
@@ -388,20 +293,12 @@ fn is_next_sk_solid(
     next_sk: &Superkmer,
     threshold: Count,
 ) -> bool {
-    match sk_count_locks.4 {
-        LockPosition::CurrentLock => {
-            let next_sk_count = &sk_count_locks.0;
-            next_sk_count.get_count_superkmer(next_sk) >= threshold
-        }
-        LockPosition::ThisLock => {
-            let next_sk_count = sk_count_locks.2.as_ref().unwrap();
-            next_sk_count.get_count_superkmer(next_sk) >= threshold
-        }
-        LockPosition::OtherLock => {
-            let next_sk_count = sk_count_locks.1.as_ref().unwrap();
-            next_sk_count.get_count_superkmer(next_sk) >= threshold
-        }
-    }
+    let next_sk_count: &SuperKmerCounts = match sk_count_locks.4 {
+        LockPosition::CurrentLock => &sk_count_locks.0,
+        LockPosition::ThisLock => sk_count_locks.2.as_ref().unwrap(),
+        LockPosition::OtherLock => sk_count_locks.1.as_ref().unwrap(),
+    };
+    next_sk_count.get_count_superkmer(next_sk) >= threshold
 }
 // TODO "style" find a better name for the first stage function
 #[allow(clippy::too_many_arguments)]
