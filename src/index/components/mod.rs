@@ -5,7 +5,7 @@ mod superkmers_count;
 pub use extended_hyperkmers::{ExtendedHyperkmers, ParallelExtendedHyperkmers};
 pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 pub use superkmers_count::SuperKmerCounts;
-pub type LargeExtendedHyperkmers = Vec<(usize, Vec<u8>)>;
+pub type LargeExtendedHyperkmer = (usize, Vec<u64>);
 
 use crate::subsequence::{BitPacked, NoBitPacked, Subsequence};
 
@@ -18,7 +18,7 @@ use core::intrinsics::likely;
 
 pub fn get_subsequence_from_metadata<'a>(
     hyperkmers: &'a ExtendedHyperkmers,
-    large_hyperkmers: &'a [(usize, Vec<u8>)],
+    large_hyperkmers: &'a [LargeExtendedHyperkmer],
     metadata: &HKMetadata,
 ) -> Subsequence<BitPacked<'a>> {
     let index = metadata.get_index();
@@ -35,12 +35,12 @@ pub fn get_subsequence_from_metadata<'a>(
 ///
 /// Returns the position of `new_ext_hyperkmer` in `large_hyperkmers`)
 pub fn add_new_large_hyperkmer(
-    large_hyperkmers: &mut Vec<(usize, Vec<u8>)>,
+    large_hyperkmers: &mut Vec<LargeExtendedHyperkmer>,
     new_ext_hyperkmer: &Subsequence<NoBitPacked>,
 ) -> usize {
     let nb_base = new_ext_hyperkmer.len();
 
-    let size_needed_for_slice = nb_base / 4 + (nb_base % 4 != 0) as usize;
+    let size_needed_for_slice = nb_base / 32 + (nb_base % 32 != 0) as usize;
 
     let mut dest_slice = vec![0; size_needed_for_slice];
     new_ext_hyperkmer
@@ -60,7 +60,7 @@ mod tests {
         let k = 5;
         let nb_hk_in_a_buffer = 13;
         let hyperkmers = ExtendedHyperkmers::new(k, nb_hk_in_a_buffer);
-        let mut large_hyperkmers = Vec::<(usize, Vec<u8>)>::new();
+        let mut large_hyperkmers = Vec::<LargeExtendedHyperkmer>::new();
 
         let read: Vec<u8> = vec![65, 67, 67, 65, 67, 65, 65, 65, 65, 65, 65];
         let start = 1;

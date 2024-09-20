@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::extended_hyperkmers::ParallelExtendedHyperkmers;
-use super::get_subsequence_from_metadata;
+use super::{get_subsequence_from_metadata, LargeExtendedHyperkmer};
 use crate::Superkmer;
 use crate::{
     check_equal_mashmap,
@@ -111,7 +111,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_left_id(
         &self,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         minimizer: &Minimizer,
         extended_hyperkmer_left: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, usize, bool)> {
@@ -143,7 +143,7 @@ impl HKCount {
     pub fn get_extended_hyperkmer_right_id(
         &self,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         minimizer: &Minimizer,
         extended_hyperkmer_right: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, usize, bool)> {
@@ -192,7 +192,7 @@ impl HKCount {
         &mut self,
         minimizer: &Minimizer,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         left_hk: &Subsequence<NoBitPacked>,
         right_hk: &Subsequence<NoBitPacked>,
     ) -> bool {
@@ -219,7 +219,7 @@ impl HKCount {
     pub fn search_for_inclusion(
         &self,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         superkmer: &Superkmer,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
@@ -314,7 +314,7 @@ impl HKCount {
     pub fn search_for_maximal_inclusion(
         &self,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         k: usize,
         m: usize,
         minimizer: &Minimizer,
@@ -399,7 +399,7 @@ impl HKCount {
     pub fn count_occurence_kmer(
         &self,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &[(usize, Vec<u8>)],
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         minimizer: &Minimizer,
         left_context: &Subsequence<NoBitPacked>,
         right_context: &Subsequence<NoBitPacked>,
@@ -465,7 +465,7 @@ impl HKCount {
 
 pub fn search_exact_hyperkmer_match(
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[(usize, Vec<u8>)],
+    large_hyperkmers: &[LargeExtendedHyperkmer],
     left_hk: &Subsequence<NoBitPacked>,
     right_hk: &Subsequence<NoBitPacked>,
     left_ext_hk_metadata: &HKMetadata,

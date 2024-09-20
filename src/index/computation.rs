@@ -26,7 +26,7 @@ use crate::{
 
 use super::{
     components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
-    LargeExtendedHyperkmers,
+    LargeExtendedHyperkmer,
 };
 
 // Branch prediction hint. This is currently only available on nightly but it
@@ -35,6 +35,16 @@ use super::{
 use core::convert::identity as likely;
 #[cfg(feature = "nightly")]
 use core::intrinsics::likely;
+
+fn replace_n(sequences: &mut Vec<Vec<u8>>) {
+    for sequence in sequences {
+        for char in sequence {
+            if char == &b'N' {
+                *char = b'A';
+            }
+        }
+    }
+}
 
 /// First stage of the construction of the KFC index.
 ///
@@ -48,12 +58,13 @@ pub fn first_stage<P: AsRef<Path>>(
     Buckets<SuperKmerCounts>,
     Buckets<HKCount>,
     Arc<RwLock<ParallelExtendedHyperkmers>>,
-    Arc<RwLock<LargeExtendedHyperkmers>>,
+    Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
 ) {
     let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Buckets::<HKCount>::new(HKCount::new);
     let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
-    let large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>> = Arc::new(RwLock::new(Vec::new()));
+    let large_hyperkmers: Arc<RwLock<Vec<LargeExtendedHyperkmer>>> =
+        Arc::new(RwLock::new(Vec::new()));
 
     let sequences = parse_fastx_file(path).unwrap();
     let sequences = LinesIter::new(sequences);
@@ -93,7 +104,7 @@ pub fn second_stage<P: AsRef<Path>>(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
     path: P,
     k: usize,
     m: usize,
@@ -159,7 +170,7 @@ fn add_new_hyperkmer(
     is_large: bool,
     seq: &Subsequence<NoBitPacked<'_>>,
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
 ) -> (usize, usize, bool) {
     if likely(!is_large) {
         let (id_left_bucket, id_left_hk) = hyperkmers.add_new_ext_hyperkmer(seq);
@@ -186,7 +197,7 @@ fn get_bucket_of_previous_hk(
     ),
     left_extended_hk: &Subsequence<NoBitPacked>,
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
 ) -> (usize, usize, bool) {
     // used to access buckets and compute hyperkmer id
     // read hk_count table associated with the previous minimizer
@@ -232,7 +243,7 @@ fn get_bucket_of_next_hk(
     ),
     right_extended_hk: &Subsequence<NoBitPacked>,
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
 ) -> (usize, usize, bool) {
     let next_minimizer = next_sk.get_minimizer();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
@@ -310,8 +321,9 @@ fn first_stage_for_a_chunck(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
 ) {
+    replace_n(sequences);
     let hyperkmers = hyperkmers.read().unwrap();
     for sequence in sequences {
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
@@ -563,13 +575,14 @@ fn second_stage_for_a_chunk(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
     hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
     threshold: Count,
     discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
+    replace_n(sequences);
     let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
     for sequence in sequences {

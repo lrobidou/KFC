@@ -19,6 +19,7 @@ type HashSuperKmer = u64;
 type Count = u16;
 
 mod buckets;
+mod codec;
 mod compute_left_and_right;
 mod index;
 mod minimizer_iter;
@@ -183,7 +184,11 @@ fn check_equal_mashmap<K: Ord, V: Ord>(map0: &MashMap<K, V>, map1: &MashMap<K, V
 
 fn main() {
     let args = Cli::parse();
-    // simple_logger::SimpleLogger::new().env().init().unwrap();
+    // simple_logger::SimpleLogger::new()
+    //     .with_level(log::LevelFilter::Warn)
+    //     .env()
+    //     .init()
+    //     .unwrap();
     match args.command {
         Command::Build(args) => {
             let k = args.k;

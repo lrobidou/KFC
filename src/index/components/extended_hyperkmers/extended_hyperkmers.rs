@@ -72,21 +72,21 @@ pub struct ExtendedHyperkmers {
     /// the `k` value
     k: usize,
     /// the size in byte taken by a single (extended) hyper kmer
-    byte_size_encoded_hyper_kmer: usize,
+    how_many_u64_for_a_hk: usize,
     /// the numer of extended hyperkmer inserted
     nb_inserted: usize,
     /// number of extended hyperkmer fitting in a single array
     nb_hk_in_an_array: usize,
     /// the vector of arrays containing extended hyperkmers
     ext_hyperkmers_arrays: Vec<ArrayOfHyperkmer>,
-    /// the size of each array
+    /// the size of each array in u64
     array_size: usize,
 }
 
 impl PartialEq for ExtendedHyperkmers {
     fn eq(&self, other: &Self) -> bool {
         let quick_check = self.k == other.k
-            && self.byte_size_encoded_hyper_kmer == other.byte_size_encoded_hyper_kmer
+            && self.how_many_u64_for_a_hk == other.how_many_u64_for_a_hk
             && self.nb_inserted == other.nb_inserted
             && self.nb_hk_in_an_array == other.nb_hk_in_an_array;
         if !quick_check {
@@ -110,16 +110,13 @@ impl Serialize for ExtendedHyperkmers {
     {
         let mut state = serializer.serialize_struct("ExtendedHyperkmers", 5)?;
         state.serialize_field("k", &self.k)?;
-        state.serialize_field(
-            "byte_size_encoded_hyper_kmer",
-            &self.byte_size_encoded_hyper_kmer,
-        )?;
+        state.serialize_field("how_many_u64_for_a_hk", &self.how_many_u64_for_a_hk)?;
         state.serialize_field("nb_inserted", &self.nb_inserted)?;
         state.serialize_field("nb_hk_in_an_array", &self.nb_hk_in_an_array)?;
         state.serialize_field(
             "ext_hyperkmers_arrays",
             &StreamingArrays {
-                size: self.byte_size_encoded_hyper_kmer * self.nb_hk_in_an_array,
+                size: self.how_many_u64_for_a_hk * self.nb_hk_in_an_array,
                 arrays: &self.ext_hyperkmers_arrays,
             },
         )?;
@@ -177,7 +174,7 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
                 let k = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
-                let byte_size_encoded_hyper_kmer = seq
+                let how_many_u64_for_a_hk = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
                 let nb_inserted = seq
@@ -194,15 +191,14 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
                     .map(|buf| {
                         ArrayOfHyperkmer::from_u64_iter(
                             buf,
-                            byte_size_encoded_hyper_kmer * nb_hk_in_an_array,
+                            how_many_u64_for_a_hk * nb_hk_in_an_array,
                         )
                     })
                     .collect();
-                let array_size = (nb_hk_in_an_array * byte_size_encoded_hyper_kmer) / 8
-                    + ((nb_hk_in_an_array * byte_size_encoded_hyper_kmer) % 8 != 0) as usize;
+                let array_size = nb_hk_in_an_array * how_many_u64_for_a_hk;
                 Ok(ExtendedHyperkmers {
                     k,
-                    byte_size_encoded_hyper_kmer,
+                    how_many_u64_for_a_hk,
                     nb_inserted,
                     nb_hk_in_an_array,
                     ext_hyperkmers_arrays,
@@ -224,13 +220,15 @@ impl<'de> Deserialize<'de> for ExtendedHyperkmers {
 
 impl ExtendedHyperkmers {
     pub fn new(k: usize, nb_hk_in_an_array: usize) -> Self {
-        let byte_size_encoded_hyper_kmer = (k - 1) / 4 + ((k - 1) % 4 != 0) as usize;
-        let array_size = (nb_hk_in_an_array * byte_size_encoded_hyper_kmer) / 8
-            + ((nb_hk_in_an_array * byte_size_encoded_hyper_kmer) % 8 != 0) as usize;
+        let how_many_base_in_a_u64 = 32;
+        // TODO simplify
+        let how_many_u64_for_a_hk =
+            (k - 1) / how_many_base_in_a_u64 + ((k - 1) % how_many_base_in_a_u64 != 0) as usize;
+        let array_size = nb_hk_in_an_array * how_many_u64_for_a_hk;
         Self {
             k,
             ext_hyperkmers_arrays: Vec::new(),
-            byte_size_encoded_hyper_kmer,
+            how_many_u64_for_a_hk,
             nb_inserted: 0,
             nb_hk_in_an_array,
             array_size,
@@ -250,19 +248,19 @@ impl ExtendedHyperkmers {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_an_array;
         let pos_in_buffer = id % self.nb_hk_in_an_array; // which hyperkmer is it from the buffer `id_buffer`?
-        let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
-        let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
+        let start = pos_in_buffer * self.how_many_u64_for_a_hk;
+        let end = (pos_in_buffer + 1) * (self.how_many_u64_for_a_hk);
 
         let buffer = &mut self.ext_hyperkmers_arrays[id_buffer];
         buffer.dump(self.array_size, start, end, subseq);
     }
 
-    fn get_slice_from_id(&self, id: usize) -> &[u8] {
+    fn get_slice_from_id(&self, id: usize) -> &[u64] {
         debug_assert!(id < self.nb_inserted);
         let id_buffer = id / self.nb_hk_in_an_array;
         let pos_in_buffer = id % self.nb_hk_in_an_array; // which hyperkmer is it from the buffer `id_buffer`?
-        let start = pos_in_buffer * self.byte_size_encoded_hyper_kmer;
-        let end = (pos_in_buffer + 1) * (self.byte_size_encoded_hyper_kmer);
+        let start = pos_in_buffer * self.how_many_u64_for_a_hk;
+        let end = (pos_in_buffer + 1) * (self.how_many_u64_for_a_hk);
 
         let buffer = &self.ext_hyperkmers_arrays[id_buffer];
         &buffer.as_slice(self.array_size)[start..end]
@@ -276,7 +274,7 @@ impl ExtendedHyperkmers {
         // allocates memory
         if is_full {
             self.ext_hyperkmers_arrays.push(ArrayOfHyperkmer::new(
-                self.byte_size_encoded_hyper_kmer * self.nb_hk_in_an_array,
+                self.how_many_u64_for_a_hk * self.nb_hk_in_an_array,
             ));
         }
         let id_hyperkmer = self.len();

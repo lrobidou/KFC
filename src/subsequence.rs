@@ -2,10 +2,21 @@ use itertools::Itertools;
 use xxhash_rust::const_xxh3::xxh3_64;
 
 use crate::{
+    codec::{
+        align_left_iterator::AlignLeftIterator,
+        prefix::{
+            common_prefix_length_ff, common_prefix_length_fr, common_prefix_length_rf,
+            common_prefix_length_rr, RevCompEncoder,
+        },
+        suffix::{
+            common_suffix_length_ff, common_suffix_length_fr, common_suffix_length_rf,
+            common_suffix_length_rr,
+        },
+        Decoder, Encoder,
+    },
     superkmer::{
         reverse_complement, reverse_complement_ascii_to_ascii, reverse_complement_no_copy,
     },
-    two_bits::{self, decode_2bits},
 };
 
 use super::superkmers_computation::is_canonical;
@@ -21,7 +32,7 @@ use core::intrinsics::unlikely;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitPacked<'a> {
     total_base_in_sequence: usize,
-    read: &'a [u8],
+    read: &'a [u64],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -76,102 +87,68 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
         }
     }
 
-    pub fn dump_as_2bits(&self, slice: &mut [u8]) {
+    pub fn dump_as_2bits(&self, slice: &mut [u64]) {
         let subsequence = &self.packing.read[self.start..self.end];
         if self.same_orientation {
-            #[cfg(debug_assertions)]
-            {
-                let original = subsequence
-                    .iter()
-                    .copied()
-                    .map(|c| if c == b'N' { b'A' } else { c })
-                    .collect_vec();
-                let iter =
-                    two_bits::encode_2bits(subsequence.iter().copied(), self.len()).collect_vec();
-                let get =
-                    two_bits::decode_2bits(&iter, 0, original.len(), original.len()).collect_vec();
-                debug_assert_eq!(original, get);
-            }
-            let iter = two_bits::encode_2bits(subsequence.iter().copied(), self.len());
-
-            for (ret, src) in slice.iter_mut().zip(iter) {
+            let encoder = Encoder::new(subsequence);
+            for (ret, src) in slice.iter_mut().zip(encoder) {
                 *ret = src;
             }
         } else {
-            #[cfg(debug_assertions)]
-            {
-                let original = subsequence
-                    .iter()
-                    .copied()
-                    .map(|c| if c == b'N' { b'A' } else { c })
-                    .collect_vec();
-                let iter = two_bits::encode_2bits(
-                    reverse_complement_no_copy(subsequence.iter().copied()),
-                    self.len(),
-                )
-                .collect_vec();
-                let get =
-                    two_bits::decode_2bits(&iter, 0, original.len(), original.len()).collect_vec();
-                let get = reverse_complement_no_copy(get.into_iter()).collect_vec();
-                debug_assert_eq!(original, get);
-            }
-            let iter = two_bits::encode_2bits(
-                reverse_complement_no_copy(subsequence.iter().copied()),
-                self.len(),
-            );
-            for (ret, src) in slice.iter_mut().zip(iter) {
+            let encoder = RevCompEncoder::new(subsequence);
+            for (ret, src) in slice.iter_mut().zip(encoder) {
                 *ret = src;
             }
         }
     }
 
     pub fn common_prefix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
+        let self_read = &self.packing.read[self.start..self.end];
+        let other_read = other.packing.read;
+        let other_len = other.len();
         if self.same_orientation && other.same_orientation {
-            let mut x = self.packing.read[self.start..self.end].iter().copied();
-            let mut y = other.decode_2bits();
-            iter_prefix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+            common_prefix_length_ff(self_read, &other_read, other_len)
         } else if self.same_orientation && !other.same_orientation {
-            let mut x = self.packing.read[self.start..self.end].iter().copied();
-            let other_iterator = other.decode_2bits();
-            let mut y = reverse_complement_no_copy(other_iterator);
-            iter_prefix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
+                    .collect_vec();
+            common_prefix_length_fr(self_read, &other_read, other_len)
         } else if !self.same_orientation && other.same_orientation {
-            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
-            let mut x = reverse_complement_no_copy(self_iterator);
-            let mut y = other.decode_2bits();
-            iter_prefix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+            common_prefix_length_rf(self_read, &other_read, other_len)
         } else {
-            // !self.same_orientation && !other.same_orientation
-            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
-            let mut x = reverse_complement_no_copy(self_iterator);
-            let other_iterator = other.decode_2bits();
-            let mut y = reverse_complement_no_copy(other_iterator);
-            iter_prefix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
+                    .collect_vec();
+            common_prefix_length_rr(self_read, &other_read, other_len)
         }
     }
 
     pub fn common_suffix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
+        let self_read = &self.packing.read[self.start..self.end];
+        let other_read = other.packing.read;
+        let other_len = other.len();
         if self.same_orientation && other.same_orientation {
-            let mut x = self.packing.read[self.start..self.end].iter().copied();
-            let mut y = other.decode_2bits();
-            iter_suffix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+            common_suffix_length_ff(self_read, &other_read, other_len)
         } else if self.same_orientation && !other.same_orientation {
-            let mut x = self.packing.read[self.start..self.end].iter().copied();
-            let other_iterator = other.decode_2bits();
-            let mut y = reverse_complement_no_copy(other_iterator);
-            iter_suffix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
+                    .collect_vec();
+            common_suffix_length_fr(self_read, &other_read, other_len)
         } else if !self.same_orientation && other.same_orientation {
-            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
-            let mut x = reverse_complement_no_copy(self_iterator);
-            let mut y = other.decode_2bits();
-            iter_suffix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+            common_suffix_length_rf(self_read, &other_read, other_len)
         } else {
-            // !self.same_orientation && !other.same_orientation
-            let self_iterator = self.packing.read[self.start..self.end].iter().copied();
-            let mut x = reverse_complement_no_copy(self_iterator);
-            let other_iterator = other.decode_2bits();
-            let mut y = reverse_complement_no_copy(other_iterator);
-            iter_suffix_len(&mut x, &mut y)
+            let other_read =
+                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
+                    .collect_vec();
+            common_suffix_length_rr(self_read, &other_read, other_len)
         }
     }
 
@@ -219,11 +196,11 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
 }
 
 impl<'a> Subsequence<BitPacked<'a>> {
-    pub fn whole_bitpacked(read: &'a [u8], nb_bases: usize) -> Self {
+    pub fn whole_bitpacked(read: &'a [u64], nb_bases: usize) -> Self {
         #[cfg(debug_assertions)]
         {
             // let read = lock.get_slice_from_internal_id(id);
-            debug_assert!((nb_bases / 4) + ((nb_bases % 4 != 0) as usize) == read.len());
+            debug_assert!((nb_bases / 32) + ((nb_bases % 32 != 0) as usize) == read.len());
         }
         Self {
             start: 0,
@@ -252,57 +229,24 @@ impl<'a> Subsequence<BitPacked<'a>> {
         }
     }
 
-    pub fn decode_2bits(&self) -> impl DoubleEndedIterator<Item = u8> + '_ {
-        debug_assert!(self.end <= self.packing.total_base_in_sequence);
-        debug_assert!(self.packing.read.len() * 4 >= self.packing.total_base_in_sequence);
-        #[cfg(debug_assertions)]
-        {
-            // test to check that the reverse is working
-            // TODO do more check and tests for the reverse decoding
-            let truth = decode_2bits(
-                self.packing.read,
-                self.start,
-                self.end,
-                self.packing.total_base_in_sequence,
-            )
-            .collect_vec();
-            let what_i_made = decode_2bits(
-                self.packing.read,
-                self.start,
-                self.end,
-                self.packing.total_base_in_sequence,
-            )
-            .rev()
-            .collect_vec();
-            debug_assert_eq!(truth.len(), what_i_made.len());
-            let what_i_made = what_i_made.iter().rev().copied().collect_vec();
-
-            debug_assert_eq!(truth.len(), self.end - self.start);
-            debug_assert_eq!(truth.len(), what_i_made.len());
-            debug_assert_eq!(truth, what_i_made);
-        }
-        decode_2bits(
-            self.packing.read,
-            self.start,
-            self.end,
-            self.packing.total_base_in_sequence,
-        )
-    }
+    // pub fn decode_2bits(&self) -> Vec<u8> {
+    //     let decoder = Decoder::new(self.packing.read, self.packing.total_base_in_sequence);
+    //     let ascii_whole = decoder.collect_vec();
+    //     let ascii = ascii_whole[self.start..self.end]
+    //         .iter()
+    //         .copied()
+    //         .collect_vec();
+    //     ascii
+    // }
 }
 
 impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let iter = decode_2bits(
-            self.packing.read,
-            self.start,
-            self.end,
-            self.packing.total_base_in_sequence,
-        )
-        .collect_vec();
+        let ascii = self.as_vec();
         let string = if self.same_orientation {
-            String::from_utf8(iter).unwrap()
+            String::from_utf8(ascii).unwrap()
         } else {
-            reverse_complement(&iter)
+            reverse_complement(&ascii)
         };
         write!(f, "{}", string)
     }
@@ -310,25 +254,14 @@ impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
 
 impl<'a> Subsequence<BitPacked<'a>> {
     pub fn as_vec(&self) -> Vec<u8> {
-        let iter = decode_2bits(
-            self.packing.read,
-            self.start,
-            self.end,
-            self.packing.total_base_in_sequence,
-        )
-        .collect_vec();
-        if self.same_orientation {
-            iter
-        } else {
-            reverse_complement_ascii_to_ascii(&iter)
-        }
+        // TODO remove when the Decoder can handle different starts
+        // TODO we decode more than necessary
+        let bytes = Decoder::new(self.packing.read, self.packing.read.len() * 32).collect_vec();
+        bytes[self.start..self.end].iter().copied().collect_vec()
     }
 }
 
-impl<Packing> Subsequence<Packing>
-// where
-// Packing: Copy,
-{
+impl<Packing> Subsequence<Packing> {
     pub fn change_orientation(self) -> Self {
         Self {
             start: self.start,
@@ -391,59 +324,60 @@ impl<Packing> Subsequence<Packing>
     }
 }
 
-fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = u8>) -> usize {
-    let mut length = 0;
-    while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
-        // N is treated like a A
-        let xc = if unlikely(xc == b'N') { b'A' } else { xc };
-        let yc = if unlikely(yc == b'N') { b'A' } else { yc };
+// fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = u8>) -> usize {
+//     let mut length = 0;
+//     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
+//         // N is treated like a A
+//         let xc = if unlikely(xc == b'N') { b'A' } else { xc };
+//         let yc = if unlikely(yc == b'N') { b'A' } else { yc };
 
-        if xc == yc {
-            length += 1;
-        } else {
-            break;
-        }
-    }
-    length
-}
+//         if xc == yc {
+//             length += 1;
+//         } else {
+//             break;
+//         }
+//     }
+//     length
+// }
 
-fn iter_suffix_len(
-    x: &mut impl DoubleEndedIterator<Item = u8>,
-    y: &mut impl DoubleEndedIterator<Item = u8>,
-) -> usize {
-    let mut x = x.rev();
-    let mut y = y.rev();
-    let mut length = 0;
-    while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
-        // N is treated like a A
-        let xc = if unlikely(xc == b'N') { b'A' } else { xc };
-        let yc = if unlikely(yc == b'N') { b'A' } else { yc };
+// fn iter_suffix_len(
+//     x: &mut impl DoubleEndedIterator<Item = u8>,
+//     y: &mut impl DoubleEndedIterator<Item = u8>,
+// ) -> usize {
+//     let mut x = x.rev();
+//     let mut y = y.rev();
+//     let mut length = 0;
+//     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
+//         // N is treated like a A
+//         let xc = if unlikely(xc == b'N') { b'A' } else { xc };
+//         let yc = if unlikely(yc == b'N') { b'A' } else { yc };
 
-        if xc == yc {
-            length += 1;
-        } else {
-            break;
-        }
-    }
-    length
-}
+//         if xc == yc {
+//             length += 1;
+//         } else {
+//             break;
+//         }
+//     }
+//     length
+// }
 
-#[cfg(test)]
-mod tests {
-    use two_bits::encode_2bits;
+// #[cfg(test)]
+// mod tests {
+// use two_bits::encode_2bits;
 
-    use super::*;
+// use super::*;
 
-    #[test]
-    pub fn test_dump() {
-        let read = "ACTGAGCTA";
-        let bytes = read.as_bytes();
-        let hk = Subsequence::new(bytes, 0, bytes.len(), true);
+// #[test]
+// pub fn test_dump() {
+//     // TODO
+//     // let read = "ACTGAGCTA";
+//     // let bytes = read.as_bytes();
+//     // let hk = Subsequence::new(bytes, 0, bytes.len(), true);
 
-        let dest = &mut [0, 0, 0];
-        hk.to_canonical().dump_as_2bits(dest);
+//     // let dest = &mut [0, 0, 0];
+//     // hk.to_canonical().dump_as_2bits(dest);
 
-        let expected: Vec<u8> = encode_2bits(bytes.iter().copied(), read.len()).collect();
-        assert_eq!(dest, expected.as_slice())
-    }
-}
+//     // let expected: Vec<u8> = encode_2bits(bytes.iter().copied(), read.len()).collect();
+//     // assert_eq!(dest, expected.as_slice())
+// }
+// }

@@ -63,15 +63,16 @@ impl ArrayOfHyperkmer {
         simple_vec
     }
 
-    // TODO this seems to work, but is this UB ?
-    pub fn as_slice(&self, len: usize) -> &[u8] {
+    /// Computes a slice.
+    /// `len` is the number of `u64` in the slice.
+    pub fn as_slice(&self, len: usize) -> &[u64] {
         let ptr = self.ptr.read().expect("could not acquire read lock");
-        unsafe { std::slice::from_raw_parts(*ptr as *mut u8, len * 8) }
+        unsafe { std::slice::from_raw_parts(*ptr, len * 64) }
     }
 
     pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
         let ptr = self.ptr.read().expect("could not acquire write lock");
-        let slice: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(*ptr as *mut u8, len * 8) };
+        let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len * 64) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
 

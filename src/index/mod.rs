@@ -12,7 +12,7 @@ use crate::{
 };
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 
-use components::{HKCount, LargeExtendedHyperkmers, ParallelExtendedHyperkmers, SuperKmerCounts};
+use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
 
 use crate::buckets::Buckets;
 use computation::{first_stage, second_stage};
@@ -55,7 +55,7 @@ pub struct Index<FI: FullIndexTrait + Sync + Send + Serialize> {
     hk_count: Buckets<HKCount>,
     hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
     /// vector of larger extended hyperkmers // TODO document
-    large_hyperkmers: Arc<RwLock<LargeExtendedHyperkmers>>,
+    large_hyperkmers: Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
     k: usize,
     m: usize,
     superkmers_infos: FI,
@@ -238,7 +238,7 @@ where
     pub fn new(
         hk_count: Buckets<HKCount>,
         hyperkmers: ParallelExtendedHyperkmers,
-        large_hyperkmers: Vec<(usize, Vec<u8>)>,
+        large_hyperkmers: Vec<LargeExtendedHyperkmer>,
         superkmers_infos: FI,
         k: usize,
         m: usize,
@@ -259,7 +259,7 @@ where
         &self.hyperkmers
     }
 
-    pub fn get_large_hyperkmers(&self) -> &Arc<RwLock<LargeExtendedHyperkmers>> {
+    pub fn get_large_hyperkmers(&self) -> &Arc<RwLock<Vec<LargeExtendedHyperkmer>>> {
         &self.large_hyperkmers
     }
 

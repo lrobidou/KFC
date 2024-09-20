@@ -1,6 +1,6 @@
 use crate::{index::components::get_subsequence_from_metadata, Count};
 
-use super::components::{HKMetadata, ParallelExtendedHyperkmers};
+use super::components::{HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers};
 
 use mashmap::IterGroupByKey;
 
@@ -13,7 +13,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
         IterGroupByKey<'_, u64, (HKMetadata, HKMetadata, u16), ahash::RandomState>,
     >,
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[(usize, Vec<u8>)],
+    large_hyperkmers: &[LargeExtendedHyperkmer],
     k: &usize,
     m: &usize,
 ) -> Option<std::collections::HashMap<Vec<u8>, u16>> {
@@ -51,7 +51,7 @@ pub fn extract_context(
     entry: &(HKMetadata, HKMetadata, Count),
     m: usize,
     hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[(usize, Vec<u8>)],
+    large_hyperkmers: &[LargeExtendedHyperkmer],
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
     // get sequences as they would appear if the current superkmer was canonical
