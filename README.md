@@ -8,9 +8,9 @@
 - [x] streaming of k-mers
 - [ ] optimize iteration of minimizer for streaming of k-mers
 - [ ] discuss what to do when a single k-mer is indexed: there is no previous nor next k-mer
-- [ ] debug: we miss the first and last superkmer if t = 1 
-- [ ] use version of kff from the crate instead of my own 
-- [ ] make it possible to do a single pass 
+- [ ] debug: we miss the first and last superkmer if t = 1
+- [ ] use version of kff from the crate instead of my own
+- [ ] make it possible to do a single pass
 - [ ] allow non canonical k-mers (?)
 - [ ] reference the paper in the README
 - [ ] test large value of k
@@ -26,7 +26,7 @@ We miss the first and last superkmers:
 cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
 cargo run -- dump --input-index index_64.kfc --output-text index_64.txt
 # sort the two files
-sort index_64.txt > dump_sorted.txt 
+sort index_64.txt > dump_sorted.txt
 sort 99mers.txt > 99_sort.txt
 diff dump_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
 ```
@@ -55,14 +55,14 @@ This representation allows to:
 KFC can filter k-mer based on their count and only index the k-mers above that count.
 
 ## If you are a reviewer
-We created a branch `paper` that will stay consistant with the paper.
+We created a branch `paper` that will stay consistent with the paper.
 
 Please checkout to the `paper` branch:
 ```bash
 git clone https://github.com/lrobidou/KFC
 git checkout paper XXX do the branch XXX
 cd KFC
-cargo build --release
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
 ## Install
@@ -73,9 +73,11 @@ Then install KFC:
 ```bash
 git clone https://github.com/lrobidou/KFC
 cd KFC
-cargo build --release
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 XXX install in path ? XXX
+
+Make sure to set `RUSTFLAGS="-C target-cpu=native"` to use the fastest instructions available on your architecture.
 
 ## Run
 ### Build a KFC index
@@ -93,7 +95,7 @@ cargo run --release -- dump --input-index <index>.kfc --output-text <kmers.txt>
 ### Dump a KFC index to the k-mer file format (KFF)
 KFC supports the k-mer file format (see [Dufresne et al, The K-mer File Format: a standardized and compact disk representation of sets of k-mers](https://doi.org/10.1093/bioinformatics/btac528)).
 As such, it is possible to dump a KFC index into a KFF file.
-The count of each k-mer is encoded in the KFF file. 
+The count of each k-mer is encoded in the KFF file.
 ```bash
 cargo run --release -- dump --input-index <index>.kfc --output-kff <index>.kff
 ```
@@ -103,7 +105,7 @@ cargo run --release -- dump --input-index <index>.kfc --output-kff <index>.kff
 
 Reading the KFF file produced by KFC should be possible with any implementation supporting KFF, but we recommand relying on KFC for this task. Indeed, a KFF built by KFC respects some assumptions on the count of k-mers, which can be used to dump the KFF file with a lower memory consumption. This also means that files not respecting these assumptions would produce invalid count if dumped by KFC.
 
-```bash 
+```bash
 cargo run --release -- kff-dump --input-kff <index>.kff --output-text <index>.txt
 ```
 
