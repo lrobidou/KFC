@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// start: the start of the hyperkmer in the extended hyperkmer whose index is `index`
 /// end: the end of the hyperkmer in the extended hyperkmer whose index is `index`
 /// change_orientation: true if the hyperkmer is in a DIFFERENT orientation that the canonical minimizer it is associated with in the `HKCount` table
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
 pub struct HKMetadata {
     data: HKMetadataInner<8, 24, 15, 15>,
 }
@@ -49,6 +49,20 @@ impl HKMetadata {
 
     pub fn get_change_orientation(&self) -> bool {
         self.data.get_change_orientation()
+    }
+}
+
+impl std::fmt::Debug for HKMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HKMetadata")
+            .field("bucket_id", &self.get_bucket_id())
+            .field("index", &self.get_index())
+            .field("start", &self.get_start())
+            .field("end", &self.get_end())
+            .field("bucket_id", &self.get_bucket_id())
+            .field("is_large", &self.get_is_large())
+            .field("change_orientation", &self.get_change_orientation())
+            .finish()
     }
 }
 
