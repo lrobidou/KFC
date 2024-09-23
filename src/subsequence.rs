@@ -105,51 +105,48 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     pub fn common_prefix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
         let self_read = &self.packing.read[self.start..self.end];
         let other_read = other.packing.read;
-        let other_len = other.len();
-        if self.same_orientation && other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
-            common_prefix_length_ff(self_read, &other_read, other_len)
+        let other_read = AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+
+        let common_prefix_len = if self.same_orientation && other.same_orientation {
+            common_prefix_length_ff(self_read, &other_read, other.len())
         } else if self.same_orientation && !other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
-                    .collect_vec();
-            common_prefix_length_fr(self_read, &other_read, other_len)
+            common_prefix_length_fr(self_read, &other_read, other.len())
         } else if !self.same_orientation && other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
-            common_prefix_length_rf(self_read, &other_read, other_len)
+            common_prefix_length_rf(self_read, &other_read, other.len())
         } else {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
-                    .collect_vec();
-            common_prefix_length_rr(self_read, &other_read, other_len)
+            common_prefix_length_rr(self_read, &other_read, other.len())
+        };
+
+        // check that I made no programming mistake
+        #[cfg(debug_assertions)]
+        {
+            let prefix = prefix_str(&self.to_string(), &other.to_string());
+            debug_assert_eq!(prefix, common_prefix_len);
         }
+        common_prefix_len
     }
 
     pub fn common_suffix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
         let self_read = &self.packing.read[self.start..self.end];
         let other_read = other.packing.read;
-        let other_len = other.len();
-        if self.same_orientation && other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
-            common_suffix_length_ff(self_read, &other_read, other_len)
+        let other_read = AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+
+        let common_suffix_len = if self.same_orientation && other.same_orientation {
+            common_suffix_length_ff(self_read, &other_read, other.len())
         } else if self.same_orientation && !other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
-                    .collect_vec();
-            common_suffix_length_fr(self_read, &other_read, other_len)
+            common_suffix_length_fr(self_read, &other_read, other.len())
         } else if !self.same_orientation && other.same_orientation {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
-            common_suffix_length_rf(self_read, &other_read, other_len)
+            common_suffix_length_rf(self_read, &other_read, other.len())
         } else {
-            let other_read =
-                AlignLeftIterator::new(other_read, other.start(), other.start() + other.len())
-                    .collect_vec();
-            common_suffix_length_rr(self_read, &other_read, other_len)
+            common_suffix_length_rr(self_read, &other_read, other.len())
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            let suffix = suffix_str(&self.to_string(), &other.to_string());
+            debug_assert_eq!(suffix, common_suffix_len);
         }
+        common_suffix_len
     }
 
     pub fn equal_bitpacked(&self, other: &Subsequence<BitPacked>) -> bool {
@@ -243,11 +240,7 @@ impl<'a> Subsequence<BitPacked<'a>> {
 impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let ascii = self.as_vec();
-        let string = if self.same_orientation {
-            String::from_utf8(ascii).unwrap()
-        } else {
-            reverse_complement(&ascii)
-        };
+        let string = String::from_utf8(ascii).unwrap();
         write!(f, "{}", string)
     }
 }
@@ -257,7 +250,12 @@ impl<'a> Subsequence<BitPacked<'a>> {
         // TODO remove when the Decoder can handle different starts
         // TODO we decode more than necessary
         let bytes = Decoder::new(self.packing.read, self.packing.read.len() * 32).collect_vec();
-        bytes[self.start..self.end].iter().copied().collect_vec()
+        let subsequence = &bytes[self.start..self.end];
+        if self.same_orientation {
+            Vec::from(subsequence)
+        } else {
+            reverse_complement_ascii_to_ascii(subsequence)
+        }
     }
 }
 
@@ -324,42 +322,56 @@ impl<Packing> Subsequence<Packing> {
     }
 }
 
-// fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = u8>) -> usize {
-//     let mut length = 0;
-//     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
-//         // N is treated like a A
-//         let xc = if unlikely(xc == b'N') { b'A' } else { xc };
-//         let yc = if unlikely(yc == b'N') { b'A' } else { yc };
+#[cfg(debug_assertions)]
+fn prefix_str(a: &str, b: &str) -> usize {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    iter_prefix_len(a.iter().copied(), b.iter().copied())
+}
 
-//         if xc == yc {
-//             length += 1;
-//         } else {
-//             break;
-//         }
-//     }
-//     length
-// }
+#[cfg(debug_assertions)]
+fn suffix_str(a: &str, b: &str) -> usize {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    iter_suffix_len(&mut a.iter().copied(), &mut b.iter().copied())
+}
 
-// fn iter_suffix_len(
-//     x: &mut impl DoubleEndedIterator<Item = u8>,
-//     y: &mut impl DoubleEndedIterator<Item = u8>,
-// ) -> usize {
-//     let mut x = x.rev();
-//     let mut y = y.rev();
-//     let mut length = 0;
-//     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
-//         // N is treated like a A
-//         let xc = if unlikely(xc == b'N') { b'A' } else { xc };
-//         let yc = if unlikely(yc == b'N') { b'A' } else { yc };
+fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = u8>) -> usize {
+    let mut length = 0;
+    while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
+        // N is treated like a A
+        let xc = if unlikely(xc == b'N') { b'A' } else { xc };
+        let yc = if unlikely(yc == b'N') { b'A' } else { yc };
 
-//         if xc == yc {
-//             length += 1;
-//         } else {
-//             break;
-//         }
-//     }
-//     length
-// }
+        if xc == yc {
+            length += 1;
+        } else {
+            break;
+        }
+    }
+    length
+}
+
+fn iter_suffix_len(
+    x: &mut impl DoubleEndedIterator<Item = u8>,
+    y: &mut impl DoubleEndedIterator<Item = u8>,
+) -> usize {
+    let mut x = x.rev();
+    let mut y = y.rev();
+    let mut length = 0;
+    while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
+        // N is treated like a A
+        let xc = if unlikely(xc == b'N') { b'A' } else { xc };
+        let yc = if unlikely(yc == b'N') { b'A' } else { yc };
+
+        if xc == yc {
+            length += 1;
+        } else {
+            break;
+        }
+    }
+    length
+}
 
 // #[cfg(test)]
 // mod tests {
