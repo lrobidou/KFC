@@ -44,6 +44,7 @@ fn decode_up_to_32_bases_slow(encoded_bases: u64, nb_bases: usize) -> Vec<u8> {
     v
 }
 
+#[cfg(test)]
 pub fn decode_bases(encoded_bases: &[u64], nb_bases: usize) -> Vec<u8> {
     debug_assert_eq!(
         encoded_bases.len(),
