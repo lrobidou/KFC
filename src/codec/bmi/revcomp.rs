@@ -64,8 +64,7 @@ impl<'a> Iterator for FusedReverseIterator<'a> {
     }
 }
 
-#[target_feature(enable = "bmi2")]
-pub unsafe fn revcomp_32_bases(encoded: u64) -> u64 {
+pub fn revcomp_32_bases(encoded: u64) -> u64 {
     // reverse the bits
     // exchange odd and even bits
     // then flip odd bits to complement
@@ -76,7 +75,6 @@ pub unsafe fn revcomp_32_bases(encoded: u64) -> u64 {
     reverse ^ 0xAAAAAAAAAAAAAAAA
 }
 
-#[target_feature(enable = "bmi2")]
 pub unsafe fn revcomp_up_to_32_bases(encoded: u64, nb_bases: usize) -> u64 {
     let overful_revcomp = revcomp_32_bases(encoded);
     overful_revcomp << ((32 - nb_bases) * 2)
@@ -105,7 +103,7 @@ impl<'a> Iterator for RevCompIter<'a> {
         let next_element = self.reverse_iterator.next()?;
         debug_assert_ne!(self.nb_bases_left, 0);
         let r = if self.nb_bases_left >= 32 {
-            Some(unsafe { revcomp_32_bases(next_element) })
+            Some(revcomp_32_bases(next_element))
         } else {
             // the next element is --------------------xxxxxxxxxx
             // where - is 0 and xxx are bases

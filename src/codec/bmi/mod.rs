@@ -23,7 +23,7 @@ mod tests {
         let read = read.as_bytes();
         let read_revcomp = read_revcomp.as_bytes();
 
-        let encoded = unsafe { encode_32_bases_revcomp(read.try_into().unwrap()) };
+        let encoded = encode_32_bases_revcomp(read.try_into().unwrap());
         let decoded = decode_32_bases(encoded);
         assert_eq!(decoded, read_revcomp);
     }
@@ -33,7 +33,7 @@ mod tests {
         let read = String::from("TTGGGAGAGTGTCTGAACGTGCGCTAGAGTGGTGACTCTAAGTGCAATAACCCTTCCTTTGGGT");
         let read = read.as_bytes();
 
-        let encoded = unsafe { encode_bases(read) };
+        let encoded = encode_bases(read);
         let decoded = decode_bases(&encoded, read.len());
         assert_eq!(decoded, read);
     }
@@ -43,7 +43,7 @@ mod tests {
         let read = String::from("TATTTACTGTAATGAAGGACCTTCGTCTCCCCGGGGAGACGAAGGTCCTTGGGGAGACGAAGGTCCTTGGGGAGACGAAGGTCCTTAAGGACCTTCGTCTCCCCGG");
         let read = read.as_bytes();
 
-        let encoded = unsafe { encode_bases(read) };
+        let encoded = encode_bases(read);
         let decoded = decode_bases(&encoded, read.len());
         assert_eq!(decoded, read);
     }
@@ -53,7 +53,7 @@ mod tests {
         let read = String::from("TATTTACTGTAATGAAGGACCTTCGTCTCCCCGGGGAGACGAAGGTCCTTGGGGAGACGAAGGTCCTTGGGGAGACGAAGGTCCTTAAGGACCTTCGTCTCCCCGG");
         let read = read.as_bytes();
 
-        let encoded = unsafe { encode_bases(read) };
+        let encoded = encode_bases(read);
 
         let decoder = Decoder::new(&encoded, read.len());
         let decoded = decoder.collect_vec();

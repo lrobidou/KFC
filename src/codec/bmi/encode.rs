@@ -1,8 +1,9 @@
 use std::arch::x86_64::_pext_u64;
 
 /// Encodes 32 bases in a `u64`.
+#[cfg(target_feature = "bmi2")]
 #[target_feature(enable = "bmi2")]
-unsafe fn encode_32_bases(bases: &[u8; 32]) -> u64 {
+unsafe fn encode_32_bases_bmi(bases: &[u8; 32]) -> u64 {
     let bytes_0 = u64::from_be_bytes(*(bases.as_ptr() as *const [u8; 8]));
     let bytes_1 = u64::from_be_bytes(*(bases.as_ptr().add(8) as *const [u8; 8]));
     let bytes_2 = u64::from_be_bytes(*(bases.as_ptr().add(16) as *const [u8; 8]));
@@ -27,6 +28,15 @@ fn encode_up_to_32_bases_slow(bases: &[u8]) -> u64 {
         result = (result << 2) | base_encoded;
     }
     result << ((32 - bases.len()) * 2)
+}
+
+pub fn encode_32_bases_all_arch(bases: &[u8; 32]) -> u64 {
+    #[cfg(target_feature = "bmi2")]
+    // SAFETY: we are behind a cfg, so it should be fine
+    let encoded = unsafe { encode_32_bases_bmi(bases) };
+    #[cfg(not(target_feature = "bmi2"))]
+    let encoded = encode_up_to_32_bases_slow(bases);
+    encoded
 }
 
 /// Encodes a sequence of ascii characters in `u64`s.
@@ -56,7 +66,7 @@ impl<'a> Iterator for Encoder<'a> {
         let start = self.nb_u64_done * 32;
         if self.nb_u64_done < self.nb_u64_full {
             let bases = self.bases[start..start + 32].try_into().unwrap();
-            let encoded = unsafe { encode_32_bases(bases) };
+            let encoded = encode_32_bases_all_arch(bases);
             self.nb_u64_done += 1;
             Some(encoded)
         } else if self.is_there_bases_not_full {
@@ -69,9 +79,8 @@ impl<'a> Iterator for Encoder<'a> {
     }
 }
 
-#[target_feature(enable = "bmi2")]
-pub unsafe fn encode_32_bases_revcomp(bases: &[u8; 32]) -> u64 {
-    let encoded = encode_32_bases(bases);
+pub fn encode_32_bases_revcomp(bases: &[u8; 32]) -> u64 {
+    let encoded = encode_32_bases_all_arch(bases);
     super::revcomp_32_bases(encoded)
 }
 
@@ -119,7 +128,7 @@ impl<'a> Iterator for RevCompEncoder<'a> {
         if self.nb_u64_done < self.nb_u64_full {
             let end = self.bases.len() - self.nb_u64_done * 32;
             let bases = self.bases[end - 32..end].try_into().unwrap();
-            let encoded = unsafe { encode_32_bases_revcomp(bases) };
+            let encoded = encode_32_bases_revcomp(bases);
             self.nb_u64_done += 1;
             Some(encoded)
         } else if self.nb_bases_not_full != 0 {
@@ -152,13 +161,12 @@ impl<'a> Iterator for RevCompEncoder<'a> {
 
 /// Encode bases in a vec. Mainly for tests purposes. Prefer using `Encoder`.
 #[cfg(test)]
-#[target_feature(enable = "bmi2")]
-pub unsafe fn encode_bases(bases: &[u8]) -> Vec<u64> {
+pub fn encode_bases(bases: &[u8]) -> Vec<u64> {
     let nb_u64 = bases.len() / 32;
     let mut v: Vec<u64> = vec![];
     for i in 0..nb_u64 {
         let bases = bases[i * 32..(i + 1) * 32].try_into().unwrap();
-        v.push(encode_32_bases(bases));
+        v.push(encode_32_bases_all_arch(bases));
     }
     if bases.len() % 32 != 0 {
         let rest = encode_up_to_32_bases_slow(&bases[nb_u64 * 32..bases.len()]);
@@ -211,7 +219,7 @@ mod tests {
     fn test_encode_32_bases() {
         let read = String::from("TATTTACTGTAATGAAGGACCTTCGTCTCCCC");
         let read = read.as_bytes();
-        let encoded = unsafe { encode_32_bases(read.try_into().unwrap()) };
+        let encoded = encode_32_bases_all_arch(read.try_into().unwrap());
         assert_eq!(
             encoded,
             //    TATT     TACT     GTAA     TGAA     GGAC     CTTC     GTCT     CCCC
@@ -225,7 +233,7 @@ mod tests {
             let read = String::from("TATTTACTGTAATGAAGGACCTTCGTCTCCCC");
             let read = read.as_bytes();
 
-            let encoded = unsafe { encode_32_bases_revcomp(read.try_into().unwrap()) };
+            let encoded = encode_32_bases_revcomp(read.try_into().unwrap());
             assert_eq!(
                 encoded,
                 // G G G G  A G A C  G A A G  G T C C  T T C A  T T A C  A G T A  A A T A
@@ -237,7 +245,7 @@ mod tests {
             let read = String::from("AAAAAAGGACCTTCGTCTCCCCGGGGAGACGA");
             let read = read.as_bytes();
 
-            let encoded = unsafe { encode_32_bases_revcomp(read.try_into().unwrap()) };
+            let encoded = encode_32_bases_revcomp(read.try_into().unwrap());
             assert_eq!(
                 encoded,
                 // T C G T  C T C C  C C G G  G G A G  A C G A  A G G T  C C T T  T T T T
