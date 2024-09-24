@@ -12,7 +12,10 @@ use crate::{
 };
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 
-use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
+use components::{
+    HKCount, HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts,
+};
+use mashmap::MashMap;
 
 use crate::buckets::Buckets;
 use computation::{first_stage, second_stage};
@@ -23,7 +26,7 @@ use serde::{
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::BufWriter;
@@ -302,20 +305,34 @@ where
 
         let hk_count_chunks = self.hk_count.chunks();
 
-        let mut s = String::new();
         hk_count_chunks.iter().for_each(|chunk| {
-            let chunk = chunk.read().unwrap();
-            let size = chunk.get_data().len();
-            s.push_str(&format!("{}, ", size));
-        });
-
-        hk_count_chunks.par_iter().for_each(|chunk| {
             let k = self.k;
             let m = self.m;
             let hyperkmers = self.hyperkmers.read().unwrap();
             let large_hyperkmers = self.large_hyperkmers.read().unwrap();
             let hk_count_chunk = chunk.read().unwrap();
+            {
+                // previous minimizer to detect change
+                let mut prev_mini = None;
+                // get the hyperkmer table
+                let km_counts: &MashMap<u64, (HKMetadata, HKMetadata, Count)> =
+                    hk_count_chunk.get_data();
+                // set of encounter minimizer
+                let mut minimizers = HashSet::new();
 
+                for (minimizer, _) in km_counts.iter_group_by_key() {
+                    if prev_mini == Some(minimizer) {
+                        continue;
+                    } else {
+                        prev_mini = Some(minimizer);
+                    }
+                    println!("minimizer {}", minimizer);
+                    if minimizers.contains(minimizer) {
+                        panic!();
+                    }
+                    minimizers.insert(minimizer);
+                }
+            }
             let mut km_counts_grouped_by_key =
                 hk_count_chunk.get_data().iter_group_by_key().peekable();
 
