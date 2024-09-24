@@ -1,5 +1,5 @@
 use crate::{
-    buckets::LockPosition,
+    buckets::{LockPosition, NB_BUCKETS},
     subsequence::{NoBitPacked, Subsequence},
     superkmer::Superkmer,
 };
@@ -390,7 +390,7 @@ fn first_stage_for_a_chunck(
                         large_hyperkmers,
                     )
                 };
-                debug_assert!(id_left_bucket < 255);
+                debug_assert!(id_left_bucket < NB_BUCKETS);
                 let (id_right_bucket, id_right_hk, is_large_right) = if next_sk_is_solid {
                     get_bucket_of_next_hk(
                         &current_sk,
@@ -410,7 +410,7 @@ fn first_stage_for_a_chunck(
                         large_hyperkmers,
                     )
                 };
-                debug_assert!(id_right_bucket < 255);
+                debug_assert!(id_right_bucket < NB_BUCKETS);
 
                 // TODO drop sk before ?
                 drop(sk_count_locks.1);
