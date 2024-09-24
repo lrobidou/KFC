@@ -315,12 +315,12 @@ where
                 // previous minimizer to detect change
                 let mut prev_mini = None;
                 // get the hyperkmer table
-                let km_counts: &MashMap<u64, (HKMetadata, HKMetadata, Count)> =
+                let hk_counts: &MashMap<u64, (HKMetadata, HKMetadata, Count)> =
                     hk_count_chunk.get_data();
                 // set of encounter minimizer
                 let mut minimizers = HashSet::new();
 
-                for (minimizer, _) in km_counts.iter_group_by_key() {
+                for (minimizer, _) in hk_counts.iter_group_by_key() {
                     if prev_mini == Some(minimizer) {
                         continue;
                     } else {
@@ -333,13 +333,13 @@ where
                     minimizers.insert(minimizer);
                 }
             }
-            let mut km_counts_grouped_by_key =
+            let mut hk_counts_grouped_by_key =
                 hk_count_chunk.get_data().iter_group_by_key().peekable();
 
             // OPTIMIZE: possibility to change this allocation
             let mut kmers_and_count = Vec::with_capacity(hk_count_chunk.get_data().len());
             while let Some(kmers) = extract_kmers_from_contexts_associated_to_a_minimizer(
-                &mut km_counts_grouped_by_key,
+                &mut hk_counts_grouped_by_key,
                 &hyperkmers,
                 &large_hyperkmers,
                 &k,
