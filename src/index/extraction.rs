@@ -22,8 +22,8 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     // then extract kmers from these contexts
     // consider the union of the kmers from these contexts
     let mut kmers_counts: HashMap<Vec<u8>, u16> = HashMap::new();
-    // for hk_count_chunk in hk_count.iter_chunks() {
     while let Some(next_entry) = hk_counts_grouped_by_key.peek() {
+        // if the next minimizer is different than the current one, we return the current set
         if next_entry.0 != minimizer_for_this_loop {
             return Some(kmers_counts);
         }

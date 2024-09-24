@@ -16,10 +16,7 @@ use needletail::{parse_fastx_file, FastxReader};
 use crate::{
     buckets::Buckets,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
-    index::components::{
-        add_new_large_hyperkmer, get_subsequence_from_metadata, search_exact_hyperkmer_match,
-        HKMetadata,
-    },
+    index::components::{add_new_large_hyperkmer, search_exact_hyperkmer_match, HKMetadata},
     superkmers_computation::compute_superkmers_linear_streaming,
     Count, Minimizer,
 };
@@ -448,6 +445,8 @@ fn first_stage_for_a_chunck(
                 // DEBUG might cause deadlock ?
                 #[cfg(debug_assertions)]
                 {
+                    use crate::index::components::get_subsequence_from_metadata;
+
                     let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_left_bucket);
                     let left_hyperkmers = left_hyperkmers.read().unwrap();
                     let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_right_bucket);

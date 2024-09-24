@@ -1,9 +1,9 @@
-use std::arch::x86_64::_pext_u64;
-
 /// Encodes 32 bases in a `u64`.
 #[cfg(target_feature = "bmi2")]
 #[target_feature(enable = "bmi2")]
 unsafe fn encode_32_bases_bmi(bases: &[u8; 32]) -> u64 {
+    use std::arch::x86_64::_pext_u64;
+
     let bytes_0 = u64::from_be_bytes(*(bases.as_ptr() as *const [u8; 8]));
     let bytes_1 = u64::from_be_bytes(*(bases.as_ptr().add(8) as *const [u8; 8]));
     let bytes_2 = u64::from_be_bytes(*(bases.as_ptr().add(16) as *const [u8; 8]));

@@ -48,18 +48,18 @@ pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
 //     result
 // }
 
-pub fn encode_2bits<I>(bytes: I, len: usize) -> Encode2Bits<I>
-where
-    I: Iterator<Item = u8>,
-{
-    Encode2Bits {
-        bytes,
-        len,
-        index: 0,
-        buffer: 0,
-        buffer_len: 0,
-    }
-}
+// pub fn encode_2bits<I>(bytes: I, len: usize) -> Encode2Bits<I>
+// where
+//     I: Iterator<Item = u8>,
+// {
+//     Encode2Bits {
+//         bytes,
+//         len,
+//         index: 0,
+//         buffer: 0,
+//         buffer_len: 0,
+//     }
+// }
 
 pub struct Encode2Bits<I>
 where
@@ -109,20 +109,20 @@ where
     }
 }
 
-pub fn decode_2bits(
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-    nb_base_in_iterator: usize,
-) -> impl DoubleEndedIterator<Item = u8> + '_ {
-    debug_assert!(end <= nb_base_in_iterator);
+// pub fn decode_2bits(
+//     bytes: &[u8],
+//     start: usize,
+//     end: usize,
+//     nb_base_in_iterator: usize,
+// ) -> impl DoubleEndedIterator<Item = u8> + '_ {
+//     debug_assert!(end <= nb_base_in_iterator);
 
-    Decode2Bits {
-        bytes,
-        forward_index: start,
-        backward_index: end,
-    }
-}
+//     Decode2Bits {
+//         bytes,
+//         forward_index: start,
+//         backward_index: end,
+//     }
+// }
 
 pub struct Decode2Bits<'a> {
     bytes: &'a [u8],
@@ -168,7 +168,7 @@ impl<'a> DoubleEndedIterator for Decode2Bits<'a> {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
+    // use itertools::Itertools;
 
     use super::*;
 
@@ -184,79 +184,79 @@ mod tests {
         assert_eq!(char_to_2bit(g), 3);
     }
 
-    #[test]
-    fn test_encode_2bits_multiple_of_4() {
-        let seq = "ACGTGCAG";
-        // 00011110 11010011
-        // = 0001111011010011000000000000000000000000000000000000000000000000
-        // 2221119041223786496
-        assert_eq!(
-            encode_2bits(seq.bytes(), seq.len()).collect::<Vec<_>>(),
-            Vec::from(&[0b00011110, 0b11010011])
-        );
-    }
+    // #[test]
+    // fn test_encode_2bits_multiple_of_4() {
+    //     let seq = "ACGTGCAG";
+    //     // 00011110 11010011
+    //     // = 0001111011010011000000000000000000000000000000000000000000000000
+    //     // 2221119041223786496
+    //     assert_eq!(
+    //         encode_2bits(seq.bytes(), seq.len()).collect::<Vec<_>>(),
+    //         Vec::from(&[0b00011110, 0b11010011])
+    //     );
+    // }
 
-    #[test]
-    fn test_encode_2bits_not_multiple_of_4() {
-        let seq = "ACGTGCA";
-        // 00011110 11010000 00000000 00000000 00000000 ...  (two last bits unused)
-        // = 0001111011010000000000000000000000000000000000000000000000000000
-        // 2220274616293654528
-        assert_eq!(
-            encode_2bits(seq.bytes(), seq.len()).collect::<Vec<_>>(),
-            Vec::from(&[0b00011110, 0b11010000])
-        );
-    }
+    // #[test]
+    // fn test_encode_2bits_not_multiple_of_4() {
+    //     let seq = "ACGTGCA";
+    //     // 00011110 11010000 00000000 00000000 00000000 ...  (two last bits unused)
+    //     // = 0001111011010000000000000000000000000000000000000000000000000000
+    //     // 2220274616293654528
+    //     assert_eq!(
+    //         encode_2bits(seq.bytes(), seq.len()).collect::<Vec<_>>(),
+    //         Vec::from(&[0b00011110, 0b11010000])
+    //     );
+    // }
 
-    #[test]
-    fn test_decode_2bits() {
-        // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
-        let seq: [u8; 2] = [0b00011110, 0b11010011];
-        assert_eq!(
-            decode_2bits(&seq, 0, 8, 8).collect_vec(),
-            "ACGTGCAG".as_bytes()
-        );
-    }
+    // #[test]
+    // fn test_decode_2bits() {
+    //     // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
+    //     let seq: [u8; 2] = [0b00011110, 0b11010011];
+    //     assert_eq!(
+    //         decode_2bits(&seq, 0, 8, 8).collect_vec(),
+    //         "ACGTGCAG".as_bytes()
+    //     );
+    // }
 
-    #[test]
-    fn test_decode_2bits_beginning_not_aligned() {
-        // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
-        let seq: [u8; 2] = [0b00011110, 0b11010011];
-        assert_eq!(
-            decode_2bits(&seq, 3, 8, 8).collect_vec(),
-            "TGCAG".as_bytes()
-        );
-    }
+    // #[test]
+    // fn test_decode_2bits_beginning_not_aligned() {
+    //     // let seq: [u64; 1] = [0b0001111011010011000000000000000000000000000000000000000000000000];
+    //     let seq: [u8; 2] = [0b00011110, 0b11010011];
+    //     assert_eq!(
+    //         decode_2bits(&seq, 3, 8, 8).collect_vec(),
+    //         "TGCAG".as_bytes()
+    //     );
+    // }
 
-    #[test]
-    fn test_encode_decode() {
-        let seq = "ACGTGCAGTAGCATACGACGACATATTAGACAGACATAGACGACTAGACATAGGACATCAGACTATGACGGCAGCATAGCTATTACTCTCTGTGATATACAGTGCATGACTAGTACGACTCAGCATAGCATACGACTAAGCAGCATACGACATCAGACTACGACTACAGCGCGCATTATATTTGCGCTAGCTCCATGAATATAT";
-        assert_eq!(
-            decode_2bits(
-                &encode_2bits(seq.bytes(), seq.len()).collect_vec(),
-                0,
-                seq.len(),
-                seq.len()
-            )
-            .collect_vec(),
-            seq.as_bytes()
-        );
-    }
+    // #[test]
+    // fn test_encode_decode() {
+    //     let seq = "ACGTGCAGTAGCATACGACGACATATTAGACAGACATAGACGACTAGACATAGGACATCAGACTATGACGGCAGCATAGCTATTACTCTCTGTGATATACAGTGCATGACTAGTACGACTCAGCATAGCATACGACTAAGCAGCATACGACATCAGACTACGACTACAGCGCGCATTATATTTGCGCTAGCTCCATGAATATAT";
+    //     assert_eq!(
+    //         decode_2bits(
+    //             &encode_2bits(seq.bytes(), seq.len()).collect_vec(),
+    //             0,
+    //             seq.len(),
+    //             seq.len()
+    //         )
+    //         .collect_vec(),
+    //         seq.as_bytes()
+    //     );
+    // }
 
-    #[test]
-    fn test_decode_reverse() {
-        let seq = "ACGTTGCAG";
-        let encode = encode_2bits(seq.bytes(), seq.len()).collect_vec();
+    // #[test]
+    // fn test_decode_reverse() {
+    //     let seq = "ACGTTGCAG";
+    //     let encode = encode_2bits(seq.bytes(), seq.len()).collect_vec();
 
-        let decode = decode_2bits(&encode, 0, seq.len(), seq.len()).collect_vec();
-        let decode_rev = decode_2bits(&encode, 0, seq.len(), seq.len())
-            .rev()
-            .collect_vec()
-            .iter()
-            .rev()
-            .copied()
-            .collect_vec();
+    //     let decode = decode_2bits(&encode, 0, seq.len(), seq.len()).collect_vec();
+    //     let decode_rev = decode_2bits(&encode, 0, seq.len(), seq.len())
+    //         .rev()
+    //         .collect_vec()
+    //         .iter()
+    //         .rev()
+    //         .copied()
+    //         .collect_vec();
 
-        assert_eq!(decode, decode_rev);
-    }
+    //     assert_eq!(decode, decode_rev);
+    // }
 }
