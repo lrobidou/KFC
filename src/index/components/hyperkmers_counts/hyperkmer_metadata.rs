@@ -242,10 +242,10 @@ mod tests {
     #[test]
     fn test_hyper_kmer_metadata_inner_all_max() {
         // parameters
-        let bucket_id = 65536;
-        let index = 70368744177664;
-        let start = 4294967296;
-        let end = 4294967296;
+        let bucket_id = 65536 - 1;
+        let index = 70368744177664 - 1;
+        let start = 4294967296 - 1;
+        let end = 4294967296 - 1;
         let is_large = true;
         let change_orientation = true;
 
