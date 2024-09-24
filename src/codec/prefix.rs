@@ -27,15 +27,16 @@ where
     size_prefix
 }
 
-pub fn common_prefix_length_ff(
+pub fn common_prefix_length_ff<I>(
     forward_seq: &[u8],
-    encoded_forward_seq: &[u64],
+    encoded_forward_seq: I,
     len_encoded_seq: usize,
-) -> usize {
-    debug_assert!(encoded_forward_seq.len() <= (len_encoded_seq + 31) / 32);
+) -> usize
+where
+    I: Iterator<Item = u64>,
+{
     let encode_self = Encoder::new(forward_seq);
-    let encoded_other = encoded_forward_seq.iter().copied();
-    let size_prefix = common_prefix_length_for_iter(encode_self, encoded_other);
+    let size_prefix = common_prefix_length_for_iter(encode_self, encoded_forward_seq);
     std::cmp::min(
         size_prefix,
         std::cmp::min(forward_seq.len(), len_encoded_seq),
@@ -58,16 +59,17 @@ pub fn common_prefix_length_fr(
     )
 }
 
-pub fn common_prefix_length_rf(
+pub fn common_prefix_length_rf<I>(
     seq_to_reverse: &[u8],
-    encoded_forward_seq: &[u64],
+    encoded_forward_seq: I,
     len_encoded_seq: usize,
-) -> usize {
-    debug_assert!(encoded_forward_seq.len() <= (len_encoded_seq + 31) / 32);
+) -> usize
+where
+    I: Iterator<Item = u64>,
+{
     let encode_self = RevCompEncoder::new(seq_to_reverse);
-    let other = encoded_forward_seq.iter().copied();
 
-    let size_prefix = common_prefix_length_for_iter(encode_self, other);
+    let size_prefix = common_prefix_length_for_iter(encode_self, encoded_forward_seq);
     std::cmp::min(
         size_prefix,
         std::cmp::min(seq_to_reverse.len(), len_encoded_seq),
@@ -126,9 +128,9 @@ mod tests {
             let a_string = String::from("ATCGGCGCATCG");
             let b_string = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 12);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 12);
         }
 
         {
@@ -136,9 +138,9 @@ mod tests {
             let a_string: String = String::from("ATCCGCGCATCG");
             let b_string: String = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 3);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 3);
         }
         {
             let a_string: String =
@@ -146,9 +148,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCAT");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 62);
         }
 
         {
@@ -157,9 +159,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 63);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 63);
         }
 
         {
@@ -168,9 +170,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 62);
         }
 
         {
@@ -179,9 +181,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_ff(a, &b, b_string.len()), 33);
+            assert_eq!(common_prefix_length_ff(a, b, b_string.len()), 33);
         }
     }
 
@@ -261,9 +263,9 @@ mod tests {
             let a_string = String::from("CGATGCGCCGAT");
             let b_string = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 12);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 12);
         }
 
         {
@@ -271,9 +273,9 @@ mod tests {
             let a_string: String = String::from("CGATGCGCGGAT");
             let b_string: String = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 3);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 3);
         }
         {
             let a_string: String =
@@ -281,9 +283,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCAT");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 62);
         }
 
         {
@@ -292,9 +294,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 63);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 63);
         }
 
         {
@@ -303,9 +305,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 62);
         }
 
         {
@@ -314,9 +316,9 @@ mod tests {
             let b_string: String =
                 String::from("ATAGCGCTGACTACGACGACGATTATAGGACATTCGCGATCCGGCGCATCGGCAGTACGCATA");
             let a = a_string.as_bytes();
-            let b = Encoder::new(b_string.as_bytes()).collect_vec();
+            let b = Encoder::new(b_string.as_bytes());
 
-            assert_eq!(common_prefix_length_rf(a, &b, b_string.len()), 33);
+            assert_eq!(common_prefix_length_rf(a, b, b_string.len()), 33);
         }
     }
 

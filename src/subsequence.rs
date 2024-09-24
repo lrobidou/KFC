@@ -23,8 +23,10 @@ use super::superkmers_computation::is_canonical;
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
+#[cfg(debug_assertions)]
 #[cfg(not(feature = "nightly"))]
 use core::convert::identity as unlikely;
+#[cfg(debug_assertions)]
 #[cfg(feature = "nightly")]
 use core::intrinsics::unlikely;
 
@@ -105,15 +107,17 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     pub fn common_prefix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
         let self_read = &self.packing.read[self.start..self.end];
         let other_read = other.packing.read;
-        let other_read = AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
+        let other_read = AlignLeftIterator::new(other_read, other.start, other.end);
 
         let common_prefix_len = if self.same_orientation && other.same_orientation {
-            common_prefix_length_ff(self_read, &other_read, other.len())
+            common_prefix_length_ff(self_read, other_read, other.len())
         } else if self.same_orientation && !other.same_orientation {
+            let other_read = other_read.collect_vec();
             common_prefix_length_fr(self_read, &other_read, other.len())
         } else if !self.same_orientation && other.same_orientation {
-            common_prefix_length_rf(self_read, &other_read, other.len())
+            common_prefix_length_rf(self_read, other_read, other.len())
         } else {
+            let other_read = other_read.collect_vec();
             common_prefix_length_rr(self_read, &other_read, other.len())
         };
 
@@ -336,6 +340,7 @@ fn suffix_str(a: &str, b: &str) -> usize {
     iter_suffix_len(&mut a.iter().copied(), &mut b.iter().copied())
 }
 
+#[cfg(debug_assertions)]
 fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = u8>) -> usize {
     let mut length = 0;
     while let (Some(xc), Some(yc)) = (x.next(), y.next()) {
@@ -352,6 +357,7 @@ fn iter_prefix_len(mut x: impl Iterator<Item = u8>, mut y: impl Iterator<Item = 
     length
 }
 
+#[cfg(debug_assertions)]
 fn iter_suffix_len(
     x: &mut impl DoubleEndedIterator<Item = u8>,
     y: &mut impl DoubleEndedIterator<Item = u8>,
