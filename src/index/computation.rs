@@ -26,6 +26,8 @@ use super::{
     LargeExtendedHyperkmer,
 };
 
+const BATCH_SIZE: usize = 100;
+
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
 #[cfg(not(feature = "nightly"))]
@@ -67,7 +69,7 @@ pub fn first_stage<P: AsRef<Path>>(
     let sequences = LinesIter::new(sequences);
 
     rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
+        let chunks = sequences.into_iter().chunks(BATCH_SIZE);
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
@@ -113,7 +115,7 @@ pub fn second_stage<P: AsRef<Path>>(
     let sequences = LinesIter::new(sequences);
 
     rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
+        let chunks = sequences.into_iter().chunks(BATCH_SIZE);
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
