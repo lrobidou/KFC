@@ -20,7 +20,7 @@ impl<'a> Iterator for AlignLeftIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_pos >= self.end {
-            return None; // we're done iterating.
+            return None; // we're done iterating
         }
 
         let bit_len = self.end - self.current_pos; // number of bits that I can yield
@@ -41,8 +41,10 @@ impl<'a> Iterator for AlignLeftIterator<'a> {
             if current_idx == end_idx && (self.end % 64) != 0 {
                 let end_offset = 64 - (self.end % 64);
                 // bits are within the same u64
-                // OPTIMIZE use mask
-                (self.data[current_idx] >> end_offset) << (end_offset)
+
+                // equivalent to (self.data[current_idx] >> end_offset) << (end_offset)
+                let mask = !((1 << end_offset) - 1);
+                self.data[current_idx] & mask
             } else {
                 // bits are across two u64 elements
                 self.data[current_idx]

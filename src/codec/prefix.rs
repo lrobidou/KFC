@@ -46,17 +46,14 @@ where
 pub fn common_prefix_length_fr(
     forward_seq: &[u8],
     encoded_to_reverse: &[u64],
-    len_encoded_seq: usize,
+    start: usize,
+    end: usize,
 ) -> usize {
-    debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
     let encode_self = Encoder::new(forward_seq);
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, len_encoded_seq);
+    let revcomp_other = RevCompIter::new(encoded_to_reverse, start, end);
 
     let size_prefix = common_prefix_length_for_iter(encode_self, revcomp_other);
-    std::cmp::min(
-        size_prefix,
-        std::cmp::min(forward_seq.len(), len_encoded_seq),
-    )
+    std::cmp::min(size_prefix, std::cmp::min(forward_seq.len(), end - start))
 }
 
 pub fn common_prefix_length_rf<I>(
@@ -79,16 +76,16 @@ where
 pub fn common_prefix_length_rr(
     seq_to_reverse: &[u8],
     encoded_to_reverse: &[u64],
-    len_encoded_seq: usize,
+    start: usize,
+    end: usize,
 ) -> usize {
-    debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
     let encode_self = RevCompEncoder::new(seq_to_reverse);
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, len_encoded_seq);
+    let revcomp_other = RevCompIter::new(encoded_to_reverse, start, end);
 
     let size_prefix = common_prefix_length_for_iter(encode_self, revcomp_other);
     std::cmp::min(
         size_prefix,
-        std::cmp::min(seq_to_reverse.len(), len_encoded_seq),
+        std::cmp::min(seq_to_reverse.len(), end - start),
     )
 }
 
@@ -200,7 +197,7 @@ mod tests {
                 vec![0b00100111_11011101_00100111_00000000_00000000_00000000_00000000_00000000]
             );
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 12);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -210,7 +207,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 3);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 3);
         }
         {
             let a_string: String =
@@ -220,7 +217,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -231,7 +228,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 63);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -242,7 +239,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -253,7 +250,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_fr(a, &b, b_string.len()), 33);
+            assert_eq!(common_prefix_length_fr(a, &b, 0, b_string.len()), 33);
         }
     }
 
@@ -330,7 +327,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 12);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -340,7 +337,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 3);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 3);
         }
         {
             let a_string: String =
@@ -350,7 +347,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -361,7 +358,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 63);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -372,7 +369,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 62);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -383,7 +380,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_prefix_length_rr(a, &b, b_string.len()), 33);
+            assert_eq!(common_prefix_length_rr(a, &b, 0, b_string.len()), 33);
         }
     }
 }

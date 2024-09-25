@@ -42,9 +42,9 @@ pub fn common_suffix_length_ff(
 
     // I have to shift (=align) data to the right so that the prefix is easy to compute
     // TODO better way ?
-    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, forward_seq.len());
+    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, 0, forward_seq.len());
     let encoded_other_aligned_rigth =
-        FusedReverseIterator::new(encoded_forward_seq, len_encoded_seq);
+        FusedReverseIterator::new(encoded_forward_seq, 0, len_encoded_seq);
 
     let size_suffix =
         common_suffix_length_for_iter(encoded_self_aligned_rigth, encoded_other_aligned_rigth);
@@ -61,10 +61,10 @@ pub fn common_suffix_length_fr(
 ) -> usize {
     debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
     let encoded_self = Encoder::new(forward_seq).collect_vec();
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, len_encoded_seq).collect_vec();
+    let revcomp_other = RevCompIter::new(encoded_to_reverse, 0, len_encoded_seq).collect_vec();
 
-    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, forward_seq.len());
-    let revcomp_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, len_encoded_seq);
+    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, 0, forward_seq.len());
+    let revcomp_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, 0, len_encoded_seq);
 
     let size_suffix =
         common_suffix_length_for_iter(encoded_self_aligned_rigth, revcomp_other_aligned_rigth);
@@ -82,9 +82,10 @@ pub fn common_suffix_length_rf(
     debug_assert!(encoded_forward_seq.len() <= (len_encoded_seq + 31) / 32);
     let encoded_self = RevCompEncoder::new(seq_to_reverse).collect_vec();
 
-    let revcomp_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, seq_to_reverse.len());
+    let revcomp_self_aligned_rigth =
+        FusedReverseIterator::new(&encoded_self, 0, seq_to_reverse.len());
     let encoded_other_aligned_rigth =
-        FusedReverseIterator::new(encoded_forward_seq, len_encoded_seq);
+        FusedReverseIterator::new(encoded_forward_seq, 0, len_encoded_seq);
 
     let size_suffix =
         common_suffix_length_for_iter(revcomp_self_aligned_rigth, encoded_other_aligned_rigth);
@@ -101,10 +102,11 @@ pub fn common_suffix_length_rr(
 ) -> usize {
     debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
     let encoded_self = RevCompEncoder::new(seq_to_reverse).collect_vec();
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, len_encoded_seq).collect_vec();
+    let revcomp_other = RevCompIter::new(encoded_to_reverse, 0, len_encoded_seq).collect_vec();
 
-    let revcomp_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, seq_to_reverse.len());
-    let encoded_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, len_encoded_seq);
+    let revcomp_self_aligned_rigth =
+        FusedReverseIterator::new(&encoded_self, 0, seq_to_reverse.len());
+    let encoded_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, 0, len_encoded_seq);
 
     let size_suffix =
         common_suffix_length_for_iter(revcomp_self_aligned_rigth, encoded_other_aligned_rigth);

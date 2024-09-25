@@ -6,26 +6,43 @@
 // we will return that
 // but before we clean the cache and the rest of the complete u64 goes in the cache
 pub struct FusedReverseIterator<'a> {
+    // data: std::slice::Iter<'a, u64>,
     data: &'a [u64],
-    current_bit: usize, // The bit index we're currently processing
-    cache: u64,         // leftover bits from the previous iteration
-    nb_bits_in_cache: usize,
+    start: usize, // in bits, in forward (so we will get closer to that at each call to `next``)
+    current_pos: usize, // in bits
+    nb_bits_in_cache: usize, // in [1:64]
+    cache: u64,   // leftover bits from the previous iteration (aligned to the left)
+    start_idx: usize, // index of the u64 in which start belongs
 }
 
 impl<'a> FusedReverseIterator<'a> {
-    pub fn new(data: &'a [u64], nb_bases: usize) -> Self {
-        let nb_bits_in_cache = (nb_bases % 32) * 2;
-        let cache = if nb_bits_in_cache == 0 {
-            0
+    pub fn new(data: &'a [u64], start_in_forward: usize, end_in_forward: usize) -> Self {
+        let start = start_in_forward * 2; //in bits
+        let end = end_in_forward * 2; // in bits
+        let end_idx = if end == 0 { 0 } else { (end - 1) / 64 };
+        let nb_bits_in_cache = if end % 64 == 0 { 64 } else { end % 64 };
+
+        // let data = &data[0..end_idx];
+        // let mut data: std::slice::Iter<'_, u64> = data.iter();
+        // let end_u64 = data.next().unwrap_or(&0);
+        let end_u64 = data[end_idx];
+
+        let cache = if nb_bits_in_cache == 64 {
+            end_u64
         } else {
-            data[data.len() - 1] >> (64 - nb_bits_in_cache)
+            end_u64 >> (64 - nb_bits_in_cache)
         };
-        let current_bit = nb_bases * 2; // start from the last bit
+
+        // position of the last base in the vector of u64
+        let start_idx = if end_idx == 0 { 0 } else { (end_idx - 1) / 64 };
+
         FusedReverseIterator {
             data,
-            current_bit,
             cache,
             nb_bits_in_cache,
+            start,
+            current_pos: end,
+            start_idx,
         }
     }
 }
@@ -34,33 +51,77 @@ impl<'a> Iterator for FusedReverseIterator<'a> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_bit == 0 {
-            return None; // no more bits to process
+        if self.current_pos <= self.start {
+            return None; // we're done iterating
         }
+        // println!("next");
+        // println!("curr, start = {}, {}", self.current_pos, self.start);
 
-        debug_assert_eq!(self.current_bit % 64, self.nb_bits_in_cache);
+        debug_assert_eq!(
+            if self.current_pos % 64 == 0 {
+                64
+            } else {
+                self.current_pos % 64
+            },
+            self.nb_bits_in_cache
+        );
 
-        if self.current_bit < 64 {
-            self.current_bit = 0;
-            return Some(self.cache);
-        }
-        // we want to gather 64 bits at a time
-        let idx = (self.current_bit - self.nb_bits_in_cache) / 64 - 1;
-        let val = self.data[idx];
+        let bit_len = self.current_pos - self.start; // number of bits that I can yield
 
-        let val_low = val << self.nb_bits_in_cache; // make some space to merge in the cache
-        let val_up = if self.nb_bits_in_cache == 0 {
-            0 //no bits in cache => the cache is empty
+        let (value, cache, nb_advance) = if self.current_pos % 64 == 0 {
+            let current_idx = (self.current_pos / 64) - 1;
+            if self.start_idx < current_idx {
+                // there is something before
+                // safe as there is something before
+                let previous_u64 = self.data[current_idx - 1];
+                (self.cache, previous_u64, 64usize)
+            } else {
+                // we cannot assume there is anything before
+                debug_assert!(self.start_idx == current_idx);
+                // clear the low bits of the cache
+                let val = (self.cache << (self.start % 64)) >> (self.start % 64);
+                // cache is 0 as there is nothing after this iteration
+                (val, 0, bit_len)
+            }
         } else {
-            val >> (64 - self.nb_bits_in_cache) // the remaining bits are the future cache
+            // current pos is in the middle of a u64
+            let current_idx = self.current_pos / 64;
+
+            if self.start_idx < current_idx {
+                // there is something before
+                // safe as there is something before
+                let previous_u64 = self.data[current_idx - 1];
+
+                // let's complete the cache
+                let prev = previous_u64;
+                let down = prev << (self.current_pos % 64);
+                let up = prev >> (64 - (self.current_pos % 64));
+                let complete_u64 = down | self.cache;
+                self.cache = up;
+                if bit_len >= 64 {
+                    // 64 bits are to be drawn, 64 of them will be returned
+                    (complete_u64, up, 64)
+                } else {
+                    let nb_bits_to_throw = 64 - bit_len;
+                    let val = (complete_u64 << nb_bits_to_throw) >> nb_bits_to_throw;
+                    // returning a partial u64
+                    // cache is 0 as there is nothing after this iteration
+
+                    (val, 0, bit_len)
+                }
+            } else {
+                // the start position and the current position are in the same index
+
+                debug_assert!(self.start_idx == current_idx);
+                let nb_bits_to_throw = 64 - bit_len;
+                let val = (self.cache << nb_bits_to_throw) >> nb_bits_to_throw;
+                (val, 0, bit_len)
+            }
         };
-        debug_assert_eq!(val_low & self.cache, 0); // no overlapp between the two parts I'm merging
-        let r = val_low | self.cache;
+        self.cache = cache;
+        self.current_pos -= nb_advance;
 
-        self.cache = val_up;
-        self.current_bit -= 64;
-
-        Some(r)
+        Some(value)
     }
 }
 
@@ -75,7 +136,7 @@ pub fn revcomp_32_bases(encoded: u64) -> u64 {
     reverse ^ 0xAAAAAAAAAAAAAAAA
 }
 
-pub unsafe fn revcomp_up_to_32_bases(encoded: u64, nb_bases: usize) -> u64 {
+pub fn revcomp_up_to_32_bases(encoded: u64, nb_bases: usize) -> u64 {
     let overful_revcomp = revcomp_32_bases(encoded);
     overful_revcomp << ((32 - nb_bases) * 2)
 }
@@ -87,11 +148,11 @@ pub struct RevCompIter<'a> {
 }
 
 impl<'a> RevCompIter<'a> {
-    pub fn new(data: &'a [u64], nb_bases: usize) -> Self {
-        let reverse_iterator = FusedReverseIterator::new(data, nb_bases);
+    pub fn new(data: &'a [u64], start_in_forward: usize, end_in_forward: usize) -> Self {
+        let reverse_iterator = FusedReverseIterator::new(data, start_in_forward, end_in_forward);
         Self {
             reverse_iterator,
-            nb_bases_left: nb_bases,
+            nb_bases_left: end_in_forward - start_in_forward,
         }
     }
 }
@@ -109,7 +170,10 @@ impl<'a> Iterator for RevCompIter<'a> {
             // where - is 0 and xxx are bases
             // let's correct that
             let left_align_element = next_element << ((32 - self.nb_bases_left) * 2);
-            Some(unsafe { revcomp_up_to_32_bases(left_align_element, self.nb_bases_left) })
+            Some(revcomp_up_to_32_bases(
+                left_align_element,
+                self.nb_bases_left,
+            ))
         };
         self.nb_bases_left = if self.nb_bases_left > 32 {
             self.nb_bases_left - 32
@@ -135,7 +199,7 @@ mod tests {
 
         let encoder = Encoder::new(s);
         let encoded = encoder.collect_vec()[0];
-        let revcomp = unsafe { revcomp_up_to_32_bases(encoded, s.len()) };
+        let revcomp = revcomp_up_to_32_bases(encoded, s.len());
         assert_eq!(
             revcomp,
             // C A T C  G A G T  A A G C  A G T C  G T C A  T
@@ -159,7 +223,29 @@ mod tests {
         // suppose we have 70 pairs (140 bits) -> so the last u64 has only 12 bits of valid data.
         let num_pairs = 70;
 
-        let iter = FusedReverseIterator::new(&data, num_pairs).collect_vec();
+        let iter = FusedReverseIterator::new(&data, 0, num_pairs).collect_vec();
+
+        assert_eq!(iter, data_rev)
+    }
+
+    #[test]
+    fn test_fused_reverse_iterator_incomplete_bits_start_middle() {
+        let data = vec![
+            0b1111000011110000111100001111000011110000111100001111000011110000u64,
+            0b0000000000000000000000000000000000000000000000001111111111111111u64,
+            0b1111111111111111000000000000000000000000000000000000000000000000u64,
+        ];
+        let data_rev = [
+            0b0000000000000000000000000000000000001111111111111111111111111111u64,
+            0b0000111100001111000011110000111100001111000011110000000000000000u64,
+            0b0000000000000000000000000000000000000000000000000000000000000011u64,
+        ];
+
+        // suppose we start at 5 and end at 70 pairs (140 bits) -> so the last u64 has only 12 bits of valid data.
+        let start = 5;
+        let end = 70;
+
+        let iter = FusedReverseIterator::new(&data, start, end).collect_vec();
 
         assert_eq!(iter, data_rev)
     }
@@ -170,7 +256,7 @@ mod tests {
         let data_rev = [0b0000000000000000000000000000000000000000000000000000001111111100u64];
         let num_pairs = 5;
 
-        let iter = FusedReverseIterator::new(&data, num_pairs).collect_vec();
+        let iter = FusedReverseIterator::new(&data, 0, num_pairs).collect_vec();
 
         assert_eq!(iter, data_rev)
     }
@@ -188,7 +274,7 @@ mod tests {
                 //  A T C G G C G C A T C G
                 [0b0010011111011101001001110000000000000000000000000000000000000000]
             );
-            let revcomp = RevCompIter::new(&encoded, bytes.len()).collect_vec();
+            let revcomp = RevCompIter::new(&encoded, 0, bytes.len()).collect_vec();
             assert_eq!(
                 revcomp,
                 //  C G A T G C G C C G A T
@@ -212,7 +298,7 @@ mod tests {
                 //  G T T C C C G A G T A C T T C A C T T A T A C T A G A C A T G G
                 [0b1110100101011100111000011010010001101000100001100011000100101111]
             );
-            let revcomp = RevCompIter::new(&encoded, bytes.len()).collect_vec();
+            let revcomp = RevCompIter::new(&encoded, 0, bytes.len()).collect_vec();
             assert_eq!(
                 revcomp,
                 //  C C A T G T C T A G T A T A A G T G A A G T A C T C G G G A A C
@@ -232,7 +318,7 @@ mod tests {
         {
             let encoder = Encoder::new(bytes);
             let encoded = encoder.collect_vec();
-            let revcomp = RevCompIter::new(&encoded, bytes.len()).collect_vec();
+            let revcomp = RevCompIter::new(&encoded, 0, bytes.len()).collect_vec();
             let decoded = Decoder::new(&revcomp, bytes.len()).collect_vec();
             assert_eq!(revcomp_read.as_bytes(), decoded);
         }
@@ -247,7 +333,7 @@ mod tests {
         {
             let encoder = Encoder::new(bytes);
             let encoded = encoder.collect_vec();
-            let revcomp = RevCompIter::new(&encoded, bytes.len()).collect_vec();
+            let revcomp = RevCompIter::new(&encoded, 0, bytes.len()).collect_vec();
             let decoded = Decoder::new(&revcomp, bytes.len()).collect_vec();
             assert_eq!(revcomp_read.as_bytes(), decoded);
         }
