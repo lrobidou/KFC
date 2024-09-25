@@ -302,13 +302,6 @@ where
 
         let hk_count_chunks = self.hk_count.chunks();
 
-        let mut s = String::new();
-        hk_count_chunks.iter().for_each(|chunk| {
-            let chunk = chunk.read().unwrap();
-            let size = chunk.get_data().len();
-            s.push_str(&format!("{}, ", size));
-        });
-
         hk_count_chunks.par_iter().for_each(|chunk| {
             let k = self.k;
             let m = self.m;
@@ -357,13 +350,6 @@ where
         let kff_writer = Arc::new(Mutex::new(kff_writer));
 
         let hk_count_chunks = self.hk_count.chunks();
-
-        let mut s = String::new();
-        hk_count_chunks.iter().for_each(|chunk| {
-            let chunk = chunk.read().unwrap();
-            let size = chunk.get_data().len();
-            s.push_str(&format!("{}, ", size));
-        });
 
         hk_count_chunks.par_iter().for_each(|chunk| {
             let k = self.k;
