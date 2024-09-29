@@ -323,6 +323,9 @@ impl HKCount {
     ) -> Option<(HKMetadata, HKMetadata)> {
         let mut match_size = k - 1;
         let mut match_metadata = None;
+        // maximal posssible inclusion: if we reach this, we can exit early
+        // caution: this includes the (m - 1) duplicationbases in the minimizer (twice)
+        let max_inclusion = left_sk.len() + right_sk.len();
 
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
             self.data.get_iter(minimizer)
@@ -365,8 +368,8 @@ impl HKCount {
                 right_sk.common_prefix_length_with_bitpacked(candidate_right_hyperkmer);
             let current_match_size = len_current_match_left + len_current_match_right;
 
-            assert!(len_current_match_left >= m - 1);
-            assert!(len_current_match_right >= m - 1);
+            debug_assert!(len_current_match_left >= m - 1);
+            debug_assert!(len_current_match_right >= m - 1);
 
             if current_match_size - 2 * (m - 1) + m > match_size {
                 match_size = current_match_size;
@@ -391,6 +394,13 @@ impl HKCount {
                         candidate_right_ext_hk_metadata.get_change_orientation(),
                     ),
                 ));
+
+                debug_assert!(current_match_size <= max_inclusion);
+
+                // nothing could go beyond
+                if current_match_size == max_inclusion {
+                    return match_metadata;
+                }
             }
         }
         match_metadata
