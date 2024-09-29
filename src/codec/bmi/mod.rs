@@ -3,15 +3,15 @@ mod encode;
 mod revcomp;
 
 pub use decode::Decoder;
-pub use encode::{Encoder, RevCompEncoder};
-pub use revcomp::{FusedReverseIterator, RevCompIter};
+pub use encode::{Encoder, EncoderFromTheEndRightAligned, RevCompEncoder, RevCompEncoderSRA};
+pub use revcomp::{FusedReverseIterator, RevCompIter, RevCompIterSRA};
 
 use revcomp::revcomp_32_bases;
 
 #[cfg(test)]
 mod tests {
     use decode::{decode_32_bases, decode_bases};
-    use encode::{encode_32_bases_revcomp, encode_bases};
+    use encode::{encode_32_bases_revcomp, encode_bases, EncoderFromTheEndRightAligned};
     use itertools::Itertools;
 
     use super::*;
@@ -180,6 +180,23 @@ mod tests {
             );
             let decoded = Decoder::new(&revcomp, bytes.len()).collect_vec();
             assert_eq!(revcomp_read.as_bytes(), decoded);
+        }
+    }
+
+    #[test]
+    fn encoder_and_encoder_from_the_end_are_equal_for_multiple_of_32_bases() {
+        let reads = [
+            String::from(""),  // 0;
+            String::from("CGTCGTAGTTTGGTGTGACGGTGCGTGAGTCG"),  // 32
+            String::from("TAAGTACACCTATTCGCTGCCAGGCGGGAGTTGTGAGACTACCATCTTACTCATCACCGCCCCT"),  // 64
+            String::from("CACCGTCAATTTACAGGAGCGTTGTTATGATCATGCGCGCTGAACGTATGCAGACGATGTATTCCCAGAGTAGCAGCGAAAGCACGCCAATCAGAT"),  // 96
+        ];
+        for read in reads {
+            let encoded = Encoder::new(read.as_bytes()).collect_vec();
+            let mut encoded_from_the_end =
+                EncoderFromTheEndRightAligned::new(read.as_bytes()).collect_vec();
+            encoded_from_the_end.reverse();
+            assert_eq!(encoded, encoded_from_the_end);
         }
     }
 }

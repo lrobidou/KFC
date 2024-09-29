@@ -1,9 +1,6 @@
-pub use bmi::{Encoder, RevCompEncoder, RevCompIter};
-use itertools::Itertools;
-
-use crate::codec::bmi::FusedReverseIterator;
-
-use super::bmi;
+use crate::codec::bmi::{
+    EncoderFromTheEndRightAligned, FusedReverseIterator, RevCompEncoderSRA, RevCompIterSRA,
+};
 
 // TODO I technically could remove some allocations in this module
 // By removing the need for RevCompIter
@@ -35,39 +32,43 @@ where
 pub fn common_suffix_length_ff(
     forward_seq: &[u8],
     encoded_forward_seq: &[u64],
-    len_encoded_seq: usize,
+    start: usize,
+    end: usize,
 ) -> usize {
-    debug_assert!(encoded_forward_seq.len() <= (len_encoded_seq + 31) / 32);
-    let encoded_self = Encoder::new(forward_seq).collect_vec();
+    let len_encoded = end - start;
 
+    debug_assert!(encoded_forward_seq.len() >= (len_encoded + 31) / 32);
     // I have to shift (=align) data to the right so that the prefix is easy to compute
-    // TODO better way ?
-    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, 0, forward_seq.len());
-    let encoded_other_aligned_rigth =
-        FusedReverseIterator::new(encoded_forward_seq, 0, len_encoded_seq);
+    let encoded_self_aligned_rigth = EncoderFromTheEndRightAligned::new(forward_seq);
+    let encoded_other_aligned_rigth = FusedReverseIterator::new(encoded_forward_seq, start, end);
 
     let size_suffix =
         common_suffix_length_for_iter(encoded_self_aligned_rigth, encoded_other_aligned_rigth);
-    std::cmp::min(
-        size_suffix,
-        std::cmp::min(forward_seq.len(), len_encoded_seq),
-    )
+    std::cmp::min(size_suffix, std::cmp::min(forward_seq.len(), len_encoded))
 }
 
 pub fn common_suffix_length_fr(
     forward_seq: &[u8],
     encoded_to_reverse: &[u64],
-    len_encoded_seq: usize,
+    start_encoded: usize, // in bases (forward)
+    end_encoded: usize,   // in bases (forward)
 ) -> usize {
-    debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
-    let encoded_self = Encoder::new(forward_seq).collect_vec();
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, 0, len_encoded_seq).collect_vec();
+    let len_encoded_seq = end_encoded - start_encoded;
+    #[cfg(debug_assertions)]
+    {
+        // check the user passed start <= end (i.e. the start and end are correctly in forward)
+        // TODO add those tests everywhere
+        debug_assert!(start_encoded <= end_encoded);
+        debug_assert!(encoded_to_reverse.len() >= (len_encoded_seq + 31) / 32);
+    }
+    let encoded_self_aligned_rigth = EncoderFromTheEndRightAligned::new(forward_seq);
+    let revcomp_other_aligned_rigth =
+        RevCompIterSRA::new(encoded_to_reverse, start_encoded, end_encoded);
 
-    let encoded_self_aligned_rigth = FusedReverseIterator::new(&encoded_self, 0, forward_seq.len());
-    let revcomp_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, 0, len_encoded_seq);
-
-    let size_suffix =
-        common_suffix_length_for_iter(encoded_self_aligned_rigth, revcomp_other_aligned_rigth);
+    let size_suffix = common_suffix_length_for_iter(
+        encoded_self_aligned_rigth,
+        revcomp_other_aligned_rigth.into_iter(),
+    );
     std::cmp::min(
         size_suffix,
         std::cmp::min(forward_seq.len(), len_encoded_seq),
@@ -77,18 +78,19 @@ pub fn common_suffix_length_fr(
 pub fn common_suffix_length_rf(
     seq_to_reverse: &[u8],
     encoded_forward_seq: &[u64],
-    len_encoded_seq: usize,
+    start: usize,
+    end: usize,
 ) -> usize {
-    debug_assert!(encoded_forward_seq.len() <= (len_encoded_seq + 31) / 32);
-    let encoded_self = RevCompEncoder::new(seq_to_reverse).collect_vec();
+    let len_encoded_seq = end - start;
+    debug_assert!(encoded_forward_seq.len() >= (len_encoded_seq + 31) / 32);
+    let self_revcomp_encoded_aligned_right = RevCompEncoderSRA::new(seq_to_reverse);
 
-    let revcomp_self_aligned_rigth =
-        FusedReverseIterator::new(&encoded_self, 0, seq_to_reverse.len());
-    let encoded_other_aligned_rigth =
-        FusedReverseIterator::new(encoded_forward_seq, 0, len_encoded_seq);
+    let encoded_other_aligned_rigth = FusedReverseIterator::new(encoded_forward_seq, start, end);
 
-    let size_suffix =
-        common_suffix_length_for_iter(revcomp_self_aligned_rigth, encoded_other_aligned_rigth);
+    let size_suffix = common_suffix_length_for_iter(
+        self_revcomp_encoded_aligned_right,
+        encoded_other_aligned_rigth,
+    );
     std::cmp::min(
         size_suffix,
         std::cmp::min(seq_to_reverse.len(), len_encoded_seq),
@@ -98,18 +100,17 @@ pub fn common_suffix_length_rf(
 pub fn common_suffix_length_rr(
     seq_to_reverse: &[u8],
     encoded_to_reverse: &[u64],
-    len_encoded_seq: usize,
+    start: usize,
+    end: usize,
 ) -> usize {
-    debug_assert!(encoded_to_reverse.len() <= (len_encoded_seq + 31) / 32);
-    let encoded_self = RevCompEncoder::new(seq_to_reverse).collect_vec();
-    let revcomp_other = RevCompIter::new(encoded_to_reverse, 0, len_encoded_seq).collect_vec();
-
-    let revcomp_self_aligned_rigth =
-        FusedReverseIterator::new(&encoded_self, 0, seq_to_reverse.len());
-    let encoded_other_aligned_rigth = FusedReverseIterator::new(&revcomp_other, 0, len_encoded_seq);
-
-    let size_suffix =
-        common_suffix_length_for_iter(revcomp_self_aligned_rigth, encoded_other_aligned_rigth);
+    let len_encoded_seq = end - start;
+    debug_assert!(encoded_to_reverse.len() >= (len_encoded_seq + 31) / 32);
+    let self_revcomp_encoded_aligned_right = RevCompEncoderSRA::new(seq_to_reverse);
+    let revcomp_other_aligned_rigth = RevCompIterSRA::new(encoded_to_reverse, start, end);
+    let size_suffix = common_suffix_length_for_iter(
+        self_revcomp_encoded_aligned_right,
+        revcomp_other_aligned_rigth,
+    );
     std::cmp::min(
         size_suffix,
         std::cmp::min(seq_to_reverse.len(), len_encoded_seq),
@@ -119,6 +120,8 @@ pub fn common_suffix_length_rr(
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+
+    use crate::codec::{bmi::RevCompEncoder, Encoder};
 
     use super::*;
 
@@ -148,13 +151,14 @@ mod tests {
 
     #[test]
     fn test_common_suffix_length_ff() {
+        // TODO test with non 0 start
         {
             let a_string = String::from("ATCGGCGCATCG");
             let b_string = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 12);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -164,7 +168,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 8);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 8);
         }
         {
             let a_string: String =
@@ -174,7 +178,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 62);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -185,7 +189,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 63);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -196,7 +200,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 0);
         }
 
         {
@@ -207,12 +211,13 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_ff(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_ff(a, &b, 0, b_string.len()), 0);
         }
     }
 
     #[test]
     fn test_common_suffix_length_fr() {
+        // TODO add more tests with start different than 0
         {
             let a_string = String::from("CGATGCGCCGAT");
             let b_string = String::from("ATCGGCGCATCG");
@@ -224,7 +229,7 @@ mod tests {
                 vec![0b00100111_11011101_00100111_00000000_00000000_00000000_00000000_00000000]
             );
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 12);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -234,7 +239,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 8);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 8);
         }
         {
             let a_string: String =
@@ -244,7 +249,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 62);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -255,7 +260,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 63);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -266,7 +271,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 0);
         }
 
         {
@@ -277,19 +282,20 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_fr(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_fr(a, &b, 0, b_string.len()), 0);
         }
     }
 
     #[test]
     fn test_common_suffix_length_rf() {
+        // TODO test non 0
         {
             let a_string = String::from("CGATGCGCCGAT");
             let b_string = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 12);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -299,7 +305,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 8);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 8);
         }
         {
             let a_string: String =
@@ -309,7 +315,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 62);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -320,7 +326,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 63);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -331,7 +337,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 0);
         }
 
         {
@@ -342,19 +348,20 @@ mod tests {
             let a = a_string.as_bytes();
             let b = Encoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rf(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_rf(a, &b, 0, b_string.len()), 0);
         }
     }
 
     #[test]
     fn test_common_suffix_length_rr() {
+        // TODO test non 0
         {
             let a_string = String::from("CGATGCGCCGAT");
             let b_string = String::from("ATCGGCGCATCG");
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 12);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 12);
         }
 
         {
@@ -364,7 +371,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 8);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 8);
         }
         {
             let a_string: String =
@@ -374,7 +381,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 62);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 62);
         }
 
         {
@@ -385,7 +392,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 63);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 63);
         }
 
         {
@@ -396,7 +403,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 0);
         }
 
         {
@@ -407,7 +414,7 @@ mod tests {
             let a = a_string.as_bytes();
             let b = RevCompEncoder::new(b_string.as_bytes()).collect_vec();
 
-            assert_eq!(common_suffix_length_rr(a, &b, b_string.len()), 0);
+            assert_eq!(common_suffix_length_rr(a, &b, 0, b_string.len()), 0);
         }
     }
 }

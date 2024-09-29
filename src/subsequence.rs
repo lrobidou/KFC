@@ -131,16 +131,15 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     pub fn common_suffix_length_with_bitpacked(&self, other: &Subsequence<BitPacked>) -> usize {
         let self_read = &self.packing.read[self.start..self.end];
         let other_read = other.packing.read;
-        let other_read = AlignLeftIterator::new(other_read, other.start, other.end).collect_vec();
 
         let common_suffix_len = if self.same_orientation && other.same_orientation {
-            common_suffix_length_ff(self_read, &other_read, other.len())
+            common_suffix_length_ff(self_read, other_read, other.start(), other.end())
         } else if self.same_orientation && !other.same_orientation {
-            common_suffix_length_fr(self_read, &other_read, other.len())
+            common_suffix_length_fr(self_read, other_read, other.start(), other.end())
         } else if !self.same_orientation && other.same_orientation {
-            common_suffix_length_rf(self_read, &other_read, other.len())
+            common_suffix_length_rf(self_read, other_read, other.start(), other.end())
         } else {
-            common_suffix_length_rr(self_read, &other_read, other.len())
+            common_suffix_length_rr(self_read, other_read, other.start(), other.end())
         };
 
         #[cfg(debug_assertions)]

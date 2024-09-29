@@ -141,6 +141,10 @@ pub fn revcomp_up_to_32_bases(encoded: u64, nb_bases: usize) -> u64 {
     overful_revcomp << ((32 - nb_bases) * 2)
 }
 
+pub fn revcomp_up_to_32_bases_right_aligned(encoded: u64) -> u64 {
+    revcomp_32_bases(encoded)
+}
+
 /// Takes a read encoded forward and iterates over the encoded reverse complement
 pub struct RevCompIter<'a> {
     nb_bases_left: usize,
@@ -184,6 +188,94 @@ impl<'a> Iterator for RevCompIter<'a> {
     }
 }
 
+/// Takes a read encoded forward and iterates over the encoded reverse complement, starting from the suffix.
+/// The returned bases are aligned to the right.
+pub struct RevCompIterSRA<'a> {
+    data: &'a [u64],    // bases encoded
+    end: usize,         // in bits, in forward
+    current_pos: usize, // in bits, in forward
+}
+
+impl<'a> RevCompIterSRA<'a> {
+    pub fn new(data: &'a [u64], start_in_forward: usize, end_in_forward: usize) -> Self {
+        Self {
+            data,
+            end: end_in_forward * 2,           // pass in bits
+            current_pos: start_in_forward * 2, // start from the start in forward, as it contains the suffix of the reverse complement
+        }
+    }
+}
+
+impl<'a> Iterator for RevCompIterSRA<'a> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // strategy: we group bases 64 by 64 for as long as there are 64 bases left
+        // if not, we merge the rest
+        // for each group, we pass in revcomp
+        if self.current_pos >= self.end {
+            return None; // we're done iterating
+        }
+
+        let bit_len = self.end - self.current_pos; // number of bits that I can yield
+        let current_idx = self.current_pos / 64;
+
+        // position of the last base in the vector of u64
+        let end_idx = if self.end == 0 {
+            0
+        } else {
+            (self.end - 1) / 64
+        };
+
+        // number of bits I should ignore at the start of a u64
+        let start_offset = self.current_pos % 64;
+
+        let value = if start_offset == 0 {
+            // are we at the last iteration, and is that last iteration not full ?
+            if current_idx == end_idx && (self.end % 64) != 0 {
+                let end_offset = 64 - (self.end % 64);
+                // bits are within the same u64
+
+                // equivalent to (self.data[current_idx] >> end_offset) << (end_offset)
+                let mask = !((1 << end_offset) - 1);
+
+                let merged_bases = self.data[current_idx] & mask;
+                revcomp_up_to_32_bases_right_aligned(merged_bases)
+            } else {
+                // bits are in a single u64 already
+                revcomp_32_bases(self.data[current_idx])
+            }
+        } else {
+            // the start is not at the beginning of a u64
+            if current_idx == end_idx {
+                let data_to_remove_at_the_end = 64 - (bit_len + start_offset);
+                debug_assert!(64 > data_to_remove_at_the_end);
+                // bits are within the same u64
+                let merged_bases = (self.data[current_idx] >> data_to_remove_at_the_end)
+                    << (start_offset + data_to_remove_at_the_end);
+                revcomp_up_to_32_bases_right_aligned(merged_bases)
+            } else {
+                // start offset != 0
+                // spanning two u64
+                // bits are across two u64 elements
+                // (these two elements are valid)
+                let first_part = self.data[current_idx] << start_offset;
+                let second_part = self.data[current_idx + 1] >> (64 - start_offset);
+                let merged_bases = first_part | second_part;
+                // println!("merged bases = {:064b}", merged_bases);
+                // OPTIMIZE: we can cache data here
+                // DEBUG check it works at the end of the read
+                // (it may work for computing the suffix, but may add garbage at the end of the revcomp)
+                revcomp_up_to_32_bases_right_aligned(merged_bases)
+            }
+        };
+
+        // Advance the current position
+        self.current_pos += 64;
+
+        Some(value)
+    }
+}
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -337,5 +429,60 @@ mod tests {
             let decoded = Decoder::new(&revcomp, bytes.len()).collect_vec();
             assert_eq!(revcomp_read.as_bytes(), decoded);
         }
+    }
+
+    //     input:
+    // data  = 0101001100011100000100110001110101111011111000000101001111000100
+    // data  = 1001000101010001001010000010001011011111011011000010001101110101
+    // data  = 0111101011100001011100100001110100111100001111101101110000101101
+    // data  = 0101000000000000000000000000000000000000000000000000000000000000
+    // start_in_forward = 15
+    // end_in_forward = 98
+    // input:
+    // data  = 0001110110111101110111101111011101001110010000111010111001110000
+    // data  = 0001001100000011101100100111100100000001001001101111001011010100
+    // data  = 1010010011000001101010111101110100001000000000000000000000000000
+    // thread '<unnamed>' panicked at src/subsequence.rs:149:13:
+    // assertion `left == right` failed
+    //   left: 74
+    //  right: 0
+
+    #[test]
+    fn test_recvomp_iter_sra() {
+        let start = 15;
+        let end = 98;
+        let data = [
+            /////////////////////////////// start of the first base //////////
+            /////////////////////////////// v ////////////////////////////////
+            0b0101001100011100000100110001110101111011111000000101001111000100,
+            0b1001000101010001001010000010001011011111011011000010001101110101,
+            0b0111101011100001011100100001110100111100001111101101110000101101,
+            ///  end of the last base ////////////////////////////////////////
+            //// v ///////////////////////////////////////////////////////////
+            0b0101000000000000000000000000000000000000000000000000000000000000,
+        ];
+
+        // suffix right aligned:
+        //  0b0101111011111000000101001111000100100100010101000100101000001000
+        //  = CCGTGGTAACCAGGACATCACCCACATTAATA
+        // rc=TATTAATGTGGGTGATGTCCTGGTTACCACGG
+        //  0b1011011111011011000010001101110101011110101110000101110010000111
+        //  = TGCGGCTGAATAGCGCCCGTTGTACCGATACG
+        // rc=CGTATCGGTACAACGGGCGCTATTCAGCCGCA
+        //  0b0100111100001111101101110000101101010100000000000000000000000000
+        //  = CAGGAAGGTGCGAATGCCCAAAAAAAAAAAAA
+        // rc=TTTTTTTTTTTTTGGGCATTCGCACCTTCCTG
+
+        let expected = vec![
+            // T A T T A A T G T G G G T G A T G T C C T G G T T A C C A C G G
+            0b1000101000001011101111111011001011100101101111101000010100011111,
+            // C G T A T C G G T A C A A C G G G C G C T A T T C A G C C G C A
+            0b0111100010011111100001000001111111011101100010100100110101110100,
+            // T T T T T T T T T T T T T G G G C A T T C G C A C C T T C C T G
+            0b1010101010101010101010101011111101001010011101000101101001011011,
+        ];
+
+        let result = RevCompIterSRA::new(&data, start, end).collect_vec();
+        assert_eq!(expected, result);
     }
 }

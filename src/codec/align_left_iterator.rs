@@ -46,7 +46,7 @@ impl<'a> Iterator for AlignLeftIterator<'a> {
                 let mask = !((1 << end_offset) - 1);
                 self.data[current_idx] & mask
             } else {
-                // bits are across two u64 elements
+                // bits are in a single u64 already
                 self.data[current_idx]
             }
         } else {

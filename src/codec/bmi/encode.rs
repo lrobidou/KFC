@@ -30,6 +30,19 @@ fn encode_up_to_32_bases_slow(bases: &[u8]) -> u64 {
     result << ((32 - bases.len()) * 2)
 }
 
+/// Encodes up to 32 bases in a `u64`.
+/// If the u64 is only partially fulled, bits on the right are set.
+/// Likely to be slower than `encode_32_bases`, but available on every architectures.
+fn encode_up_to_32_bases_slow_right_aligned(bases: &[u8]) -> u64 {
+    assert!(bases.len() <= 32);
+    let mut result: u64 = 0;
+    for base in bases {
+        let base_encoded = ((base >> 1) & 3) as u64;
+        result = (result << 2) | base_encoded;
+    }
+    result
+}
+
 pub fn encode_32_bases_all_arch(bases: &[u8; 32]) -> u64 {
     #[cfg(target_feature = "bmi2")]
     // SAFETY: we are behind a cfg, so it should be fine
@@ -43,18 +56,14 @@ pub fn encode_32_bases_all_arch(bases: &[u8; 32]) -> u64 {
 /// Does not takes into account the reverse complement.
 pub struct Encoder<'a> {
     bases: &'a [u8],
-    nb_u64_full: usize,
-    nb_u64_done: usize,
-    is_there_bases_not_full: bool,
+    current_pos: usize,
 }
 
 impl<'a> Encoder<'a> {
     pub fn new(bases: &'a [u8]) -> Self {
         Self {
             bases,
-            nb_u64_full: bases.len() / 32,
-            nb_u64_done: 0,
-            is_there_bases_not_full: bases.len() % 32 != 0,
+            current_pos: 0,
         }
     }
 }
@@ -63,18 +72,57 @@ impl<'a> Iterator for Encoder<'a> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let start = self.nb_u64_done * 32;
-        if self.nb_u64_done < self.nb_u64_full {
-            let bases = self.bases[start..start + 32].try_into().unwrap();
-            let encoded = encode_32_bases_all_arch(bases);
-            self.nb_u64_done += 1;
-            Some(encoded)
-        } else if self.is_there_bases_not_full {
-            let rest = encode_up_to_32_bases_slow(&self.bases[start..self.bases.len()]);
-            self.is_there_bases_not_full = false;
-            Some(rest)
-        } else {
+        if self.current_pos >= self.bases.len() {
             None
+        } else if self.current_pos < (self.bases.len() / 32) * 32 {
+            let bases = self.bases[self.current_pos..self.current_pos + 32]
+                .try_into()
+                .unwrap();
+            let encoded = encode_32_bases_all_arch(bases);
+            self.current_pos += 32;
+            Some(encoded)
+        } else {
+            let rest = encode_up_to_32_bases_slow(&self.bases[self.current_pos..self.bases.len()]);
+            self.current_pos = self.bases.len();
+            Some(rest)
+        }
+    }
+}
+
+/// Encodes a sequence of ascii characters in `u64`s starting from the end.
+/// Usefull when encoding only the suffix might be necessary.
+/// Does not takes into account the reverse complement.
+pub struct EncoderFromTheEndRightAligned<'a> {
+    bases: &'a [u8],
+    current_pos: usize,
+}
+
+impl<'a> EncoderFromTheEndRightAligned<'a> {
+    pub fn new(bases: &'a [u8]) -> Self {
+        Self {
+            bases,
+            current_pos: bases.len(),
+        }
+    }
+}
+
+impl<'a> Iterator for EncoderFromTheEndRightAligned<'a> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_pos == 0 {
+            None
+        } else if self.current_pos >= 32 {
+            let bases = self.bases[self.current_pos - 32..self.current_pos]
+                .try_into()
+                .unwrap();
+            let encoded = encode_32_bases_all_arch(bases);
+            self.current_pos -= 32;
+            Some(encoded)
+        } else {
+            let rest = encode_up_to_32_bases_slow_right_aligned(&self.bases[0..self.current_pos]);
+            self.current_pos = 0;
+            Some(rest)
         }
     }
 }
@@ -84,23 +132,46 @@ pub fn encode_32_bases_revcomp(bases: &[u8; 32]) -> u64 {
     super::revcomp_32_bases(encoded)
 }
 
-pub fn encode_up_to_32_bases_revcomp_slow(bases: &[u8]) -> u64 {
-    // this is to be applied before shifting the ASCII encoding
+// Maps the bits 2 and 3 of the ASCII encoding to the encoding of the revcomp.
+// This is to be applied before shifting the ASCII encoding.
+const REVCOMP_MAP: [u64; 8] = {
     let mut revcomp_map = [0; 8];
     revcomp_map[0b0000_0000] = 0b0000_0010;
     revcomp_map[0b0000_0100] = 0b0000_0000;
     revcomp_map[0b0000_0010] = 0b0000_0011;
     revcomp_map[0b0000_0110] = 0b0000_0001;
+    revcomp_map
+};
 
+// Takes up to 32 bases and returns the reverse complement encoded.
+// The revcomp is left aligned.
+// While this function offers more flexibility than `encode_32_bases_revcomp`,
+// which indexes exactly 32 bases,
+// `encode_32_bases_revcomp` can be faster depending on you architecture.
+pub fn encode_up_to_32_bases_revcomp_slow(bases: &[u8]) -> u64 {
     assert!(bases.len() <= 32);
     let mut result: u64 = 0;
     for base in bases.iter().rev() {
         let base_encoded = (base & 0b0000_0110) as u64;
-        let base_encoded_revcomp = revcomp_map[base_encoded as usize];
+        let base_encoded_revcomp = REVCOMP_MAP[base_encoded as usize];
 
         result = (result << 2) | base_encoded_revcomp;
     }
     result << ((32 - bases.len()) * 2)
+}
+
+// Takes up to 32 bases and returns the reverse complement encoded.
+// The revcomp is rigth aligned.
+pub fn encode_up_to_32_bases_revcomp_slow_right_aligned(bases: &[u8]) -> u64 {
+    assert!(bases.len() <= 32);
+    let mut result: u64 = 0;
+    for base in bases.iter().rev() {
+        let base_encoded = (base & 0b0000_0110) as u64;
+        let base_encoded_revcomp = REVCOMP_MAP[base_encoded as usize];
+
+        result = (result << 2) | base_encoded_revcomp;
+    }
+    result
 }
 
 pub struct RevCompEncoder<'a> {
@@ -137,6 +208,51 @@ impl<'a> Iterator for RevCompEncoder<'a> {
             Some(rest)
         } else {
             None
+        }
+    }
+}
+
+/// Encodes an ASCII sequence, starting from the suffix (of the reverse complement).
+/// Encoded sequence is aligned to the right.
+pub struct RevCompEncoderSRA<'a> {
+    /// ASCII sequence
+    bases: &'a [u8],
+    /// current position in the ASCII sequence
+    current_pos: usize,
+}
+
+impl<'a> RevCompEncoderSRA<'a> {
+    pub fn new(bases: &'a [u8]) -> Self {
+        Self {
+            bases,
+            current_pos: 0, // in bases
+        }
+    }
+}
+
+impl<'a> Iterator for RevCompEncoderSRA<'a> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // end of the reverse = start of the forward
+        // so we iterate from the start of the forward
+        if self.current_pos >= self.bases.len() {
+            None
+        } else if self.current_pos + 32 < self.bases.len() {
+            // we still have a full u64 available, let's encode it
+            let bases = self.bases[self.current_pos..self.current_pos + 32]
+                .try_into()
+                .unwrap();
+            self.current_pos += 32;
+            Some(encode_32_bases_revcomp(bases))
+        } else {
+            // less than 32 bases left
+            let rest = encode_up_to_32_bases_revcomp_slow_right_aligned(
+                &self.bases[self.current_pos..self.bases.len()],
+            );
+
+            self.current_pos = self.bases.len();
+            Some(rest)
         }
     }
 }
