@@ -600,12 +600,12 @@ fn second_stage_for_a_chunk(
                 continue;
             }
 
-            let hk_count = hk_count.get_from_id_u64(minimizer);
-            let mut hk_count = hk_count.write().unwrap();
+            let hk_count_lock = hk_count.get_from_id_u64(minimizer);
+            let hk_count = hk_count_lock.read().unwrap();
 
-            let discarded_minimizers = discarded_minimizers.get_from_id_u64(minimizer);
-            let mut discarded_minimizers = discarded_minimizers.write().unwrap();
             if !hk_count.contains_minimizer(&minimizer) {
+                let discarded_minimizers = discarded_minimizers.get_from_id_u64(minimizer);
+                let mut discarded_minimizers = discarded_minimizers.write().unwrap();
                 // increase count, set to 1 if it was 0
                 let count = discarded_minimizers
                     .entry(minimizer)
@@ -636,6 +636,8 @@ fn second_stage_for_a_chunk(
                 &right_sk,
             );
 
+            drop(hk_count);
+            let mut hk_count = hk_count_lock.write().unwrap();
             // TODO duplication possible
             if let Some(metadata) = match_metadata {
                 hk_count.insert_new_entry_in_hyperkmer_count(
