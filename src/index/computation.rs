@@ -650,3 +650,35 @@ fn second_stage_for_a_chunk(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace_n() {
+        let input0 = String::from("ATGGAGCAGCTGACGANNNATGCA");
+        let input1 = String::from("ANNAGTAGNCNGAT");
+        let input2 = String::from("NNACNGATTAGCN");
+
+        let expected = vec![
+            String::from("ATGGAGCAGCTGACGAAAAATGCA"),
+            String::from("AAAAGTAGACAGAT"),
+            String::from("AAACAGATTAGCA"),
+        ];
+        let mut inputs = vec![
+            input0.as_bytes().to_vec(),
+            input1.as_bytes().to_vec(),
+            input2.as_bytes().to_vec(),
+        ];
+
+        replace_n(&mut inputs);
+
+        let got = inputs
+            .into_iter()
+            .map(|v| String::from_utf8(v).unwrap())
+            .collect_vec();
+
+        assert_eq!(expected, got);
+    }
+}
