@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.18", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
 mashmap = "0.2.1"
-thiserror = "1.0.63"
+thiserror = "1.0.64"
 xxhash-rust = { version = "0.8.12", features = ["xxh3", "const_xxh3"] }
 ahash = "0.8.11"
 num-traits = "0.2.15"
@@ -19,7 +19,7 @@ minimizer-queue = "1.2"
 simple_logger = "5.0.0"
 itertools = "0.13.0"
 nohash-hasher = "0.2.0"
-serde = { version = "1.0.209", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
 bincode = "1.3.3"
 kff = { git = "https://github.com/lrobidou/kff-rust-api", rev = "cb934c946e7bb20b4e09fb0010bfc51069a1d322" }
 bitvec = "1.0.1"
