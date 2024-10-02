@@ -1,8 +1,19 @@
 use crate::{
-    buckets::{LockPosition, NB_BUCKETS},
+    buckets::{Buckets, LockPosition, NB_BUCKETS},
+    compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
+    index::{
+        components::{
+            add_new_large_hyperkmer, search_exact_hyperkmer_match, HKCount, HKMetadata,
+            ParallelExtendedHyperkmers, SuperKmerCounts,
+        },
+        LargeExtendedHyperkmer,
+    },
     subsequence::{NoBitPacked, Subsequence},
     superkmer::Superkmer,
+    superkmers_computation::compute_superkmers_linear_streaming,
+    Count, Minimizer,
 };
+
 use std::{
     collections::HashMap,
     path::Path,
@@ -13,18 +24,7 @@ use itertools::Itertools;
 use log::warn;
 use needletail::{parse_fastx_file, FastxReader};
 
-use crate::{
-    buckets::Buckets,
-    compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
-    index::components::{add_new_large_hyperkmer, search_exact_hyperkmer_match, HKMetadata},
-    superkmers_computation::compute_superkmers_linear_streaming,
-    Count, Minimizer,
-};
-
-use super::{
-    components::{HKCount, ParallelExtendedHyperkmers, SuperKmerCounts},
-    LargeExtendedHyperkmer,
-};
+const BATCH_SIZE: usize = 100;
 
 // Branch prediction hint. This is currently only available on nightly but it
 // consistently improves performance by 10-15%.
@@ -67,7 +67,7 @@ pub fn first_stage<P: AsRef<Path>>(
     let sequences = LinesIter::new(sequences);
 
     rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
+        let chunks = sequences.into_iter().chunks(BATCH_SIZE);
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
@@ -113,7 +113,7 @@ pub fn second_stage<P: AsRef<Path>>(
     let sequences = LinesIter::new(sequences);
 
     rayon::scope(|s| {
-        let chunks = sequences.into_iter().chunks(100);
+        let chunks = sequences.into_iter().chunks(BATCH_SIZE);
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
@@ -157,7 +157,7 @@ impl Iterator for LinesIter {
     fn next(&mut self) -> Option<Self::Item> {
         let record = self.data.next()?.unwrap();
         let sequence = record.seq();
-        let sequence_vec = sequence.iter().copied().collect();
+        let sequence_vec = sequence.iter().copied().collect(); // TODO copy
         Some(sequence_vec)
     }
 }
@@ -442,75 +442,20 @@ fn first_stage_for_a_chunck(
                     right_change_orientation,
                 );
 
-                // DEBUG might cause deadlock ?
                 #[cfg(debug_assertions)]
-                {
-                    use crate::index::components::get_subsequence_from_metadata;
-
-                    let left_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_left_bucket);
-                    let left_hyperkmers = left_hyperkmers.read().unwrap();
-                    let right_hyperkmers = hyperkmers.get_bucket_from_id_usize(id_right_bucket);
-                    let right_hyperkmers = right_hyperkmers.read().unwrap();
-                    let large_hyperkmers = large_hyperkmers.read().unwrap();
-
-                    let candidate_left_ext_hk = &get_subsequence_from_metadata(
-                        &left_hyperkmers,
-                        &large_hyperkmers,
-                        &left_hk_metadata,
-                    )
-                    .change_orientation_if(left_change_orientation);
-                    let candidate_right_ext_hk = &get_subsequence_from_metadata(
-                        &right_hyperkmers,
-                        &large_hyperkmers,
-                        &right_hk_metadata,
-                    )
-                    .change_orientation_if(right_change_orientation);
-
-                    debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
-                    debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
-                    debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
-                        &get_subsequence_from_metadata(
-                            &left_hyperkmers,
-                            &large_hyperkmers,
-                            &left_hk_metadata,
-                        )
-                    ));
-                    debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
-                        &get_subsequence_from_metadata(
-                            &right_hyperkmers,
-                            &large_hyperkmers,
-                            &right_hk_metadata,
-                        )
-                    ));
-
-                    let left_ext_hk = get_subsequence_from_metadata(
-                        &left_hyperkmers,
-                        &large_hyperkmers,
-                        &left_hk_metadata,
-                    )
-                    .change_orientation_if(left_hk_metadata.get_change_orientation());
-
-                    let right_ext_hk = get_subsequence_from_metadata(
-                        &right_hyperkmers,
-                        &large_hyperkmers,
-                        &right_hk_metadata,
-                    )
-                    .change_orientation_if(right_hk_metadata.get_change_orientation());
-
-                    // extract candidate hyperkmers
-                    let left_hyperkmer = &left_ext_hk
-                        .subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
-                    let right_hyperkmer = &right_ext_hk
-                        .subsequence(right_hk_metadata.get_start(), right_hk_metadata.get_end());
-
-                    let left_string = left_hyperkmer.to_string();
-                    let right_string = right_hyperkmer.to_string();
-
-                    debug_assert_eq!(
-                        left_string[(left_string.len() - (m - 2))..left_string.len()],
-                        right_string[0..(m - 2)]
-                    );
-                }
+                check_correct_inclusion_first_stage(
+                    m,
+                    &hyperkmers,
+                    large_hyperkmers,
+                    id_left_bucket,
+                    left_change_orientation,
+                    &left_hk_metadata,
+                    &left_extended_hk,
+                    id_right_bucket,
+                    right_change_orientation,
+                    &right_hk_metadata,
+                    &right_extended_hk,
+                );
 
                 let mut current_hk_count = hk_count_locks.0;
                 // TODO
@@ -598,12 +543,12 @@ fn second_stage_for_a_chunk(
                 continue;
             }
 
-            let hk_count = hk_count.get_from_id_u64(minimizer);
-            let mut hk_count = hk_count.write().unwrap();
+            let hk_count_lock = hk_count.get_from_id_u64(minimizer);
+            let hk_count = hk_count_lock.read().unwrap();
 
-            let discarded_minimizers = discarded_minimizers.get_from_id_u64(minimizer);
-            let mut discarded_minimizers = discarded_minimizers.write().unwrap();
             if !hk_count.contains_minimizer(&minimizer) {
+                let discarded_minimizers = discarded_minimizers.get_from_id_u64(minimizer);
+                let mut discarded_minimizers = discarded_minimizers.write().unwrap();
                 // increase count, set to 1 if it was 0
                 let count = discarded_minimizers
                     .entry(minimizer)
@@ -634,6 +579,8 @@ fn second_stage_for_a_chunk(
                 &right_sk,
             );
 
+            drop(hk_count);
+            let mut hk_count = hk_count_lock.write().unwrap();
             // TODO duplication possible
             if let Some(metadata) = match_metadata {
                 hk_count.insert_new_entry_in_hyperkmer_count(
@@ -644,5 +591,101 @@ fn second_stage_for_a_chunk(
                 );
             }
         }
+    }
+}
+
+#[cfg(debug_assertions)]
+fn check_correct_inclusion_first_stage(
+    m: usize,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    id_left_bucket: usize,
+    left_change_orientation: bool,
+    left_hk_metadata: &HKMetadata,
+    left_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
+    id_right_bucket: usize,
+    right_change_orientation: bool,
+    right_hk_metadata: &HKMetadata,
+    right_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
+) {
+    // DEBUG might cause deadlock ?
+    use crate::index::components::get_subsequence_from_metadata;
+    // let left_hyperkmers if id_left_bucket == id_right_bucket {
+
+    // }
+    let left_hyperkmers = hyperkmers.get_bucket_from_id(id_left_bucket);
+    let left_hyperkmers = left_hyperkmers.read().unwrap();
+    let right_hyperkmers = hyperkmers.get_bucket_from_id(id_right_bucket);
+    let right_hyperkmers = right_hyperkmers.read().unwrap();
+    let large_hyperkmers = large_hyperkmers.read().unwrap();
+
+    let candidate_left_ext_hk =
+        &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata)
+            .change_orientation_if(left_change_orientation);
+    let candidate_right_ext_hk =
+        &get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata)
+            .change_orientation_if(right_change_orientation);
+
+    debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
+    debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
+    debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
+        &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata,)
+    ));
+    debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
+        &get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata,)
+    ));
+
+    let left_ext_hk =
+        get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata)
+            .change_orientation_if(left_hk_metadata.get_change_orientation());
+
+    let right_ext_hk =
+        get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata)
+            .change_orientation_if(right_hk_metadata.get_change_orientation());
+
+    // extract candidate hyperkmers
+    let left_hyperkmer =
+        &left_ext_hk.subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
+    let right_hyperkmer =
+        &right_ext_hk.subsequence(right_hk_metadata.get_start(), right_hk_metadata.get_end());
+
+    let left_string = left_hyperkmer.to_string();
+    let right_string = right_hyperkmer.to_string();
+
+    debug_assert_eq!(
+        left_string[(left_string.len() - (m - 2))..left_string.len()],
+        right_string[0..(m - 2)]
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace_n() {
+        let input0 = String::from("ATGGAGCAGCTGACGANNNATGCA");
+        let input1 = String::from("ANNAGTAGNCNGAT");
+        let input2 = String::from("NNACNGATTAGCN");
+
+        let expected = vec![
+            String::from("ATGGAGCAGCTGACGAAAAATGCA"),
+            String::from("AAAAGTAGACAGAT"),
+            String::from("AAACAGATTAGCA"),
+        ];
+        let mut inputs = vec![
+            input0.as_bytes().to_vec(),
+            input1.as_bytes().to_vec(),
+            input2.as_bytes().to_vec(),
+        ];
+
+        replace_n(&mut inputs);
+
+        let got = inputs
+            .into_iter()
+            .map(|v| String::from_utf8(v).unwrap())
+            .collect_vec();
+
+        assert_eq!(expected, got);
     }
 }

@@ -25,7 +25,7 @@ impl ParallelExtendedHyperkmers {
         }
     }
 
-    pub fn get_bucket_from_id_usize(&self, bucket_id: usize) -> Arc<RwLock<ExtendedHyperkmers>> {
+    pub fn get_bucket_from_id(&self, bucket_id: usize) -> Arc<RwLock<ExtendedHyperkmers>> {
         // cloning Arc is cheap
         self.buckets.get_from_id_u64(bucket_id.try_into().unwrap())
     }
@@ -326,11 +326,11 @@ mod tests {
         // so this test might deadlock if the number of buckets is smaller than 9
         assert!(ext_hks.buckets.len() > 9);
 
-        let ext_hk_6 = ext_hks.get_bucket_from_id_usize(6);
+        let ext_hk_6 = ext_hks.get_bucket_from_id(6);
         let mut ext_hk_6 = ext_hk_6.write().unwrap();
-        let ext_hk_8 = ext_hks.get_bucket_from_id_usize(8);
+        let ext_hk_8 = ext_hks.get_bucket_from_id(8);
         let mut ext_hk_8 = ext_hk_8.write().unwrap();
-        let ext_hk_9: Arc<RwLock<ExtendedHyperkmers>> = ext_hks.get_bucket_from_id_usize(9);
+        let ext_hk_9: Arc<RwLock<ExtendedHyperkmers>> = ext_hks.get_bucket_from_id(9);
         let mut ext_hk_9 = ext_hk_9.write().unwrap();
         let read: Vec<u8> = vec![b'N', b'A', b'A'];
         for _ in 0..10 {

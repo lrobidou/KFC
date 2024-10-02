@@ -5,10 +5,10 @@ use std::marker::PhantomData;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{cmp, fmt};
 
-pub const NB_BUCKETS: usize = 65535;
+pub const NB_BUCKETS: usize = 255;
 
 pub struct Buckets<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
-    data: Arc<[Arc<RwLock<T>>; NB_BUCKETS]>,
+    data: [Arc<RwLock<T>>; NB_BUCKETS],
 }
 
 impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Clone for Buckets<T> {
@@ -28,7 +28,7 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Serialize for Buckets<T
         {
             let mut seq = serializer.serialize_seq(Some(self.chunks().len()))?;
             let chunks = self.chunks();
-            for chunk in <[Arc<RwLock<T>>; 65535] as Clone>::clone(&chunks).into_iter() {
+            for chunk in <[Arc<RwLock<T>>; NB_BUCKETS] as Clone>::clone(chunks).into_iter() {
                 let chunk = chunk.read().unwrap();
                 seq.serialize_element(&*chunk)?;
             }
@@ -62,9 +62,9 @@ where
             where
                 A: SeqAccess<'de>,
             {
-                let data: Arc<[Arc<RwLock<T>>; NB_BUCKETS]> = Arc::new(std::array::from_fn(|_| {
+                let data: [Arc<RwLock<T>>; NB_BUCKETS] = std::array::from_fn(|_| {
                     Arc::new(RwLock::new(seq.next_element().unwrap().unwrap()))
-                }));
+                });
 
                 Ok(Buckets { data })
             }
@@ -92,8 +92,8 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
     where
         F: Fn() -> T,
     {
-        let data: Arc<[Arc<RwLock<T>>; NB_BUCKETS]> =
-            Arc::new(std::array::from_fn(|_i| Arc::new(RwLock::new(function()))));
+        let data: [Arc<RwLock<T>>; NB_BUCKETS] =
+            std::array::from_fn(|_i| Arc::new(RwLock::new(function())));
         Self { data }
     }
 
@@ -107,8 +107,8 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
         self.get_from_id_usize(id)
     }
 
-    pub fn chunks(&self) -> Arc<[Arc<RwLock<T>>; NB_BUCKETS]> {
-        self.data.clone()
+    pub fn chunks(&self) -> &[Arc<RwLock<T>>; NB_BUCKETS] {
+        &self.data
     }
 
     #[cfg(test)]

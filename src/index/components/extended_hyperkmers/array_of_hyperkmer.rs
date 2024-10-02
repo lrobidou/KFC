@@ -13,6 +13,7 @@ pub struct ArrayOfHyperkmer {
     is_dealloc: bool,
 }
 
+// TODO is it safe ?
 unsafe impl Send for ArrayOfHyperkmer {}
 unsafe impl Sync for ArrayOfHyperkmer {}
 
@@ -71,7 +72,7 @@ impl ArrayOfHyperkmer {
     }
 
     pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
-        let ptr = self.ptr.read().expect("could not acquire write lock");
+        let ptr = self.ptr.read().expect("could not acquire read lock");
         let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len * 64) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
