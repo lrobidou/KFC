@@ -108,7 +108,7 @@ impl<'a> Superkmer<'a> {
         self.superkmer.get_read()
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, test))]
     pub fn minimizer_string(&self) -> String {
         use itertools::Itertools;
         if self.is_canonical_in_the_read() {

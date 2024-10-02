@@ -9,7 +9,7 @@ use crate::subsequence::{NoBitPacked, Subsequence};
 pub struct ArrayOfHyperkmer {
     ptr: Rc<RwLock<*mut u64>>,
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, test))]
     is_dealloc: bool,
 }
 
@@ -37,7 +37,7 @@ impl ArrayOfHyperkmer {
 
         ArrayOfHyperkmer {
             ptr,
-            #[cfg(debug_assertions)]
+            #[cfg(any(debug_assertions, test))]
             is_dealloc: false,
         }
     }
@@ -94,7 +94,7 @@ impl ArrayOfHyperkmer {
             dealloc(*ptr as *mut u8, layout);
         }
 
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, test))]
         {
             self.is_dealloc = true;
         }
@@ -103,7 +103,7 @@ impl ArrayOfHyperkmer {
 
 impl Drop for ArrayOfHyperkmer {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, test))]
         {
             if !self.is_dealloc {
                 panic!()
