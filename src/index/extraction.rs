@@ -25,7 +25,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     while let Some(next_entry) = hk_counts_grouped_by_key.peek() {
         // if the next minimizer is different than the current one, we return the current set
         if next_entry.0 != minimizer_for_this_loop {
-            return Some(kmers_counts);
+            break;
         }
         let hk_count_elem = hk_counts_grouped_by_key.next().unwrap().1; // safe as peek was not None
         let count = hk_count_elem.2;
@@ -44,7 +44,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     }
 
     // end of the loop, nothing to see here
-    None
+    Some(kmers_counts)
 }
 
 pub fn extract_context(
