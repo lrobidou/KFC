@@ -67,7 +67,6 @@ impl std::fmt::Debug for HKMetadata {
             .field("index", &self.get_index())
             .field("start", &self.get_start())
             .field("end", &self.get_end())
-            .field("bucket_id", &self.get_bucket_id())
             .field("is_large", &self.get_is_large())
             .field("change_orientation", &self.get_change_orientation())
             .finish()
