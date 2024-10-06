@@ -6,17 +6,24 @@ use serde::{
     ser::SerializeMap,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock},
+};
 
-use super::extended_hyperkmers::ParallelExtendedHyperkmers;
+use super::{add_new_hyperkmer, extended_hyperkmers::ParallelExtendedHyperkmers};
 use super::{get_subsequence_from_metadata, ExtendedHyperkmers, LargeExtendedHyperkmer};
-use crate::Superkmer;
 use crate::{
     check_equal_mashmap,
     subsequence::{BitPacked, NoBitPacked, Subsequence},
     Count, Minimizer,
 };
+use crate::{subsequence, Superkmer};
+
 pub use hyperkmer_metadata::HKMetadata;
+
+// Notation: in this module, variables starting with `c_` are `candidate`s variables,
+// e.g. variables computed by iterating over the `HKCount` table.
 
 pub struct HKCount {
     data: MashMap<Minimizer, (HKMetadata, HKMetadata, Count)>,
@@ -210,6 +217,34 @@ impl HKCount {
             );
             if is_exact_match {
                 *count_hk += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Searches if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`.
+    #[cfg(debug_assertions)]
+    pub fn search_exact_match(
+        &mut self,
+        minimizer: &Minimizer,
+        hyperkmers: &ParallelExtendedHyperkmers,
+        large_hyperkmers: &[LargeExtendedHyperkmer],
+        left_hk: &Subsequence<NoBitPacked>,
+        right_hk: &Subsequence<NoBitPacked>,
+    ) -> bool {
+        for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
+            self.data.get_iter(minimizer)
+        {
+            let is_exact_match = search_exact_hyperkmer_match(
+                hyperkmers,
+                large_hyperkmers,
+                left_hk,
+                right_hk,
+                candidate_left_ext_hk_metadata,
+                candidate_right_ext_hk_metadata,
+            );
+            if is_exact_match {
                 return true;
             }
         }
@@ -472,6 +507,358 @@ impl HKCount {
         }
         total_count
     }
+
+    /// Finds a context that is an exact match on the right and an inclusion on the left. If this context exists, increments the count.
+    pub fn increase_count_of_sk_if_found_else_insert_it(
+        &mut self,
+        k: usize,
+        hyperkmers: &ParallelExtendedHyperkmers,
+        large_hyperkmers: &Vec<LargeExtendedHyperkmer>,
+        minimizer: &Minimizer,
+        left_sk: &Subsequence<NoBitPacked>,
+        right_sk: &Subsequence<NoBitPacked>,
+    ) {
+        let mut match_case = MatchCases::default();
+        {
+            // let mut found_match_right = false;
+            for (c_left_hk_metadata, c_right_hk_metadata, count) in
+                self.data.get_mut_iter(minimizer)
+            {
+                // TODO check for deadlocks
+                // extract ids
+                let left_bucket_id = c_left_hk_metadata.get_bucket_id();
+                let right_bucket_id = c_right_hk_metadata.get_bucket_id();
+
+                // extract buckets
+                let (left_hyperkmers, right_hyperkmers) =
+                    hyperkmers.acquire_two_locks_read_mode(left_bucket_id, right_bucket_id);
+                let right_hyperkmers = match right_hyperkmers.as_ref() {
+                    Some(x) => x,
+                    None => &left_hyperkmers,
+                };
+
+                // extract subsequences
+                let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
+                    &left_hyperkmers,
+                    right_hyperkmers,
+                    large_hyperkmers,
+                    c_left_hk_metadata,
+                    c_right_hk_metadata,
+                );
+
+                let left_suffix_size = left_sk.common_suffix_length_with_bitpacked(&c_left_hk);
+                let right_prefix_size = right_sk.common_prefix_length_with_bitpacked(&c_right_hk);
+
+                let left_match = if left_suffix_size == left_sk.len() {
+                    if left_sk.len() == c_left_hk.len() {
+                        MatchCase::Exact(*c_left_hk_metadata)
+                    } else {
+                        let new_left_metadata = HKMetadata::new(
+                            c_left_hk_metadata.get_bucket_id(),
+                            c_left_hk_metadata.get_index(),
+                            c_left_hk_metadata.get_end() - left_suffix_size,
+                            c_left_hk_metadata.get_end(),
+                            c_left_hk_metadata.get_is_large(),
+                            c_left_hk_metadata.get_change_orientation(),
+                        );
+                        MatchCase::Inclusion(new_left_metadata)
+                    }
+                } else {
+                    // left_prefix_size < left_sk.len()
+                    MatchCase::Nothing
+                };
+                let right_match = if right_prefix_size == right_sk.len() {
+                    if right_sk.len() == c_right_hk.len() {
+                        MatchCase::Exact(*c_right_hk_metadata)
+                    } else {
+                        let new_right_metadata = HKMetadata::new(
+                            c_right_hk_metadata.get_bucket_id(),
+                            c_right_hk_metadata.get_index(),
+                            c_right_hk_metadata.get_start(),
+                            c_right_hk_metadata.get_start() + right_prefix_size,
+                            c_right_hk_metadata.get_is_large(),
+                            c_right_hk_metadata.get_change_orientation(),
+                        );
+                        MatchCase::Inclusion(new_right_metadata)
+                    }
+                } else {
+                    // right_prefix_size < right_sk.len()
+                    MatchCase::Nothing
+                };
+
+                match_case = std::cmp::min(match_case, MatchCases::new(left_match, right_match));
+
+                if match_case.is_min_cost() {
+                    *count += 1;
+                    break;
+                }
+            }
+        }
+
+        // we identified which match we have
+        // let's handle the corresponding case
+        match match_case.data() {
+            (MatchCase::Exact(_), MatchCase::Exact(_)) => {
+                // we do nothing, as the count was already increased
+            }
+            (MatchCase::Exact(left_hk_metadata), MatchCase::Inclusion(right_hk_metadata)) => {
+                // we have to add a `HKMetadata` on the right with a count of 1
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    left_hk_metadata,
+                    right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Exact(left_hk_metadata), MatchCase::Nothing) => {
+                let right_hk_metadata = insert_new_right_hyperkmer_and_compute_associated_metadata(
+                    right_sk, hyperkmers, k,
+                );
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    left_hk_metadata,
+                    &right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Inclusion(left_hk_metadata), MatchCase::Exact(right_hk_metadata)) => {
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    left_hk_metadata,
+                    right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Inclusion(left_hk_metadata), MatchCase::Inclusion(right_hk_metadata)) => {
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    left_hk_metadata,
+                    right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Inclusion(left_hk_metadata), MatchCase::Nothing) => {
+                let right_hk_metadata = insert_new_right_hyperkmer_and_compute_associated_metadata(
+                    right_sk, hyperkmers, k,
+                );
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    left_hk_metadata,
+                    &right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Nothing, MatchCase::Exact(right_hk_metadata)) => {
+                let left_hk_metadata = insert_new_left_hyperkmer_and_compute_associated_metadata(
+                    left_sk, hyperkmers, k,
+                );
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    &left_hk_metadata,
+                    right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Nothing, MatchCase::Inclusion(right_hk_metadata)) => {
+                let left_hk_metadata = insert_new_left_hyperkmer_and_compute_associated_metadata(
+                    left_sk, hyperkmers, k,
+                );
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    &left_hk_metadata,
+                    right_hk_metadata,
+                    1,
+                );
+            }
+            (MatchCase::Nothing, MatchCase::Nothing) => {
+                let left_hk_metadata = insert_new_left_hyperkmer_and_compute_associated_metadata(
+                    left_sk, hyperkmers, k,
+                );
+                let right_hk_metadata = insert_new_right_hyperkmer_and_compute_associated_metadata(
+                    right_sk, hyperkmers, k,
+                );
+                self.insert_new_entry_in_hyperkmer_count(
+                    minimizer,
+                    &left_hk_metadata,
+                    &right_hk_metadata,
+                    1,
+                );
+            }
+        };
+    }
+}
+
+/// Create a new (not large) hyperkmer and returns the associated `HKMetadata`.
+fn insert_new_right_hyperkmer_and_compute_associated_metadata(
+    sequence: &Subsequence<NoBitPacked>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    k: usize,
+) -> HKMetadata {
+    // insert a new hyperkmer
+    let nb_base_missing = (k - 1) - sequence.len();
+    let metadata = if sequence.is_canonical() {
+        assert!(sequence.is_canonical());
+        let mut start = sequence.as_vec();
+        start.extend_from_slice(&vec![b'A'; nb_base_missing]);
+        let full_sequence = Subsequence::new(&start, 0, k - 1, true);
+        // TODO prove it
+        assert!(full_sequence.is_canonical()); // Adding A at the end of a canonical read does not make it canonical
+
+        let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
+        // create the associated metadata
+
+        HKMetadata::new(id_bucket, id_hk, 0, sequence.len(), false, false)
+    } else {
+        let mut start = sequence.as_vec();
+        start.extend_from_slice(&vec![b'T'; nb_base_missing]);
+        let full_sequence = Subsequence::new(&start, 0, k - 1, true);
+        // TODO prove it
+        assert!(!full_sequence.is_canonical()); // Adding T at the end of a non canonical read does not make it canonical
+        let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
+        // create the associated metadata
+        HKMetadata::new(id_bucket, id_hk, 0, sequence.len(), false, true)
+    };
+    metadata
+}
+
+/// Create a new (not large) hyperkmer and returns the associated `HKMetadata`.
+/// Since this is the left hyperkmer, if it is less the k-1 bases, we need to add some base at its beginning
+fn insert_new_left_hyperkmer_and_compute_associated_metadata(
+    sequence: &Subsequence<NoBitPacked>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    k: usize,
+) -> HKMetadata {
+    let nb_base_missing = (k - 1) - sequence.len();
+    if sequence.is_canonical() {
+        assert!(sequence.is_canonical());
+        let mut start = vec![b'A'; nb_base_missing];
+        start.extend_from_slice(&sequence.as_vec());
+        let full_sequence = Subsequence::new(&start, 0, k - 1, true);
+        // TODO prove it
+        assert!(full_sequence.is_canonical()); // Adding T at the beginning of a non canonical read does not make it canonical
+
+        let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
+        // create the associated metadata
+
+        HKMetadata::new(
+            id_bucket,
+            id_hk,
+            (k - 1) - sequence.len(),
+            k - 1,
+            false,
+            false,
+        )
+    } else {
+        let mut start = vec![b'T'; nb_base_missing];
+        start.extend_from_slice(&sequence.as_vec());
+        let full_sequence = Subsequence::new(&start, 0, k - 1, true);
+        // TODO prove it
+        assert!(!full_sequence.is_canonical()); // Adding T at the beginning of a non canonical read does not make it canonical
+        let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
+        // create the associated metadata
+        HKMetadata::new(
+            id_bucket,
+            id_hk,
+            (k - 1) - sequence.len(),
+            k - 1,
+            false,
+            true,
+        )
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+enum MatchCase {
+    Exact(HKMetadata),
+    Inclusion(HKMetadata),
+    Nothing,
+}
+
+#[derive(Eq, PartialEq, Debug)]
+struct MatchCases {
+    left: MatchCase,
+    right: MatchCase,
+}
+
+// "cost" tab:
+//
+//       |              |               left
+//----------------------|----------------------------------------------
+//       |              | exact match        inclusion       nothing
+//-------|--------------|----------------------------------------------
+// right |  exact match |     0                  1              4
+//       |              |
+//       |  inclusion   |     2                  3              6
+//       |              |
+//       |  nothing     |     5                  7              8
+impl MatchCases {
+    fn new(left: MatchCase, right: MatchCase) -> Self {
+        Self { left, right }
+    }
+
+    fn data(&self) -> (&MatchCase, &MatchCase) {
+        (&self.left, &self.right)
+    }
+
+    fn cost(&self) -> u8 {
+        match (&self.left, &self.right) {
+            (MatchCase::Exact(_), MatchCase::Exact(_)) => 0,
+            (MatchCase::Exact(_), MatchCase::Inclusion(_)) => 2,
+            (MatchCase::Exact(_), MatchCase::Nothing) => 5,
+            (MatchCase::Inclusion(_), MatchCase::Exact(_)) => 1,
+            (MatchCase::Inclusion(_), MatchCase::Inclusion(_)) => 3,
+            (MatchCase::Inclusion(_), MatchCase::Nothing) => 7,
+            (MatchCase::Nothing, MatchCase::Exact(_)) => 4,
+            (MatchCase::Nothing, MatchCase::Inclusion(_)) => 6,
+            (MatchCase::Nothing, MatchCase::Nothing) => 8,
+        }
+    }
+
+    fn is_min_cost(&self) -> bool {
+        self.cost() == 0
+    }
+}
+
+impl Default for MatchCases {
+    fn default() -> Self {
+        Self {
+            left: MatchCase::Nothing,
+            right: MatchCase::Nothing,
+        }
+    }
+}
+impl PartialOrd for MatchCases {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MatchCases {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.cost().cmp(&other.cost())
+    }
+}
+
+pub fn extract_left_and_right_subsequences<'a>(
+    left_hyperkmers: &'a ExtendedHyperkmers,
+    right_hyperkmers: &'a ExtendedHyperkmers,
+    large_hyperkmers: &'a [LargeExtendedHyperkmer],
+    left_hk_metadata: &HKMetadata,
+    right_hk_metadata: &HKMetadata,
+) -> (Subsequence<BitPacked<'a>>, Subsequence<BitPacked<'a>>) {
+    // get sequences as they would appear if the current superkmer was canonical
+    let left_hyperkmer =
+        get_subsequence_from_metadata(left_hyperkmers, large_hyperkmers, left_hk_metadata)
+            .change_orientation_if(left_hk_metadata.get_change_orientation());
+    let left_hyperkmer =
+        left_hyperkmer.subsequence(left_hk_metadata.get_start(), left_hk_metadata.get_end());
+
+    let right_hyperkmer =
+        get_subsequence_from_metadata(right_hyperkmers, large_hyperkmers, right_hk_metadata)
+            .change_orientation_if(right_hk_metadata.get_change_orientation());
+    let right_hyperkmer =
+        right_hyperkmer.subsequence(right_hk_metadata.get_start(), right_hk_metadata.get_end());
+    (left_hyperkmer, right_hyperkmer)
 }
 
 pub fn search_exact_hyperkmer_match(
@@ -493,16 +880,18 @@ pub fn search_exact_hyperkmer_match(
 
     // get sequences as they would appear if the current superkmer was canonical
     let left_hyperkmer =
-        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata)
-            .change_orientation_if(left_ext_hk_metadata.get_change_orientation());
+        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata);
+    let left_hyperkmer =
+        left_hyperkmer.change_orientation_if(left_ext_hk_metadata.get_change_orientation());
     let left_hyperkmer = left_hyperkmer.subsequence(
         left_ext_hk_metadata.get_start(),
         left_ext_hk_metadata.get_end(),
     );
 
     let right_hyperkmer =
-        get_subsequence_from_metadata(right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
-            .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
+        get_subsequence_from_metadata(right_hyperkmers, large_hyperkmers, right_ext_hk_metadata);
+    let right_hyperkmer =
+        right_hyperkmer.change_orientation_if(right_ext_hk_metadata.get_change_orientation());
     let right_hyperkmer = right_hyperkmer.subsequence(
         right_ext_hk_metadata.get_start(),
         right_ext_hk_metadata.get_end(),

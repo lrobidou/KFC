@@ -3,7 +3,7 @@ use crate::{
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::{
         components::{
-            add_new_large_hyperkmer, search_exact_hyperkmer_match, HKCount, HKMetadata,
+            add_new_hyperkmer, search_exact_hyperkmer_match, HKCount, HKMetadata,
             ParallelExtendedHyperkmers, SuperKmerCounts,
         },
         LargeExtendedHyperkmer,
@@ -159,26 +159,6 @@ impl Iterator for LinesIter {
         let sequence = record.seq();
         let sequence_vec = sequence.iter().copied().collect(); // TODO copy
         Some(sequence_vec)
-    }
-}
-
-// Write locks on a hyperkmer
-fn add_new_hyperkmer(
-    is_large: bool,
-    seq: &Subsequence<NoBitPacked<'_>>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
-) -> (usize, usize, bool) {
-    if likely(!is_large) {
-        let (id_left_bucket, id_left_hk) = hyperkmers.add_new_ext_hyperkmer(seq);
-        (id_left_bucket, id_left_hk, false)
-    } else {
-        let mut large_hyperkmers = large_hyperkmers.write().unwrap();
-        (
-            0, // I need an integer here to please the compiler, let's choose 0
-            add_new_large_hyperkmer(&mut large_hyperkmers, seq),
-            true,
-        )
     }
 }
 
@@ -527,14 +507,44 @@ fn second_stage_for_a_chunk(
     discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
     replace_n(sequences);
-    let hyperkmers = hyperkmers.read().unwrap();
+    // large hyperkmers are not going to be modified
+    // => we can acquire them here
     let large_hyperkmers = large_hyperkmers.read().unwrap();
     for sequence in sequences {
-        let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
-            Some(superkmers_iter) => superkmers_iter,
+        let mut superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
+            Some(superkmers_iter) => superkmers_iter.peekable(), // peekable needed to detect the last superkmer of a read
             None => continue,
         };
-        for superkmer in superkmers {
+
+        if threshold == 1 {
+            // We have set a threshold of 1. But the first stage skips the first superkmer.
+            // Therefore, we have to check if the superkmer is present in the index (it might have been indexed if it is in the middle of a read).
+            // If so, increase is count.
+            // Otherwise, we insert it.
+
+            // extract the first superkmer, skip if none
+            let first_truncated_sk = match superkmers.next() {
+                Some(sk) => sk,
+                None => continue,
+            };
+
+            increase_count_of_sk_or_insert_it(
+                k,
+                &first_truncated_sk,
+                hk_count,
+                hyperkmers,
+                &large_hyperkmers,
+            );
+        }
+
+        let hyperkmers_lock = hyperkmers.read().unwrap();
+
+        let mut last_superkmer = None;
+        while let Some(superkmer) = superkmers.next() {
+            if superkmers.peek().is_none() {
+                last_superkmer = Some(superkmer);
+                break;
+            }
             let minimizer = superkmer.get_minimizer();
             let sk_count = sk_count.get_from_id_u64(minimizer);
             let sk_count = sk_count.read().unwrap();
@@ -570,7 +580,7 @@ fn second_stage_for_a_chunk(
 
             let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
             let match_metadata = hk_count.search_for_maximal_inclusion(
-                &hyperkmers,
+                &hyperkmers_lock,
                 &large_hyperkmers,
                 k,
                 m,
@@ -591,6 +601,59 @@ fn second_stage_for_a_chunk(
                 );
             }
         }
+
+        if threshold == 1 {
+            // We have set a threshold of 1. But the first stage skips the last superkmer.
+            // Therefore, we have to check if the superkmer is present in the index (it might have been indexed if it is in the middle of a read).
+            // If so, increase is count.
+            // Otherwise, we insert it.
+            if let Some(last_truncated_superkmer) = last_superkmer {
+                increase_count_of_sk_or_insert_it(
+                    k,
+                    &last_truncated_superkmer,
+                    hk_count,
+                    hyperkmers,
+                    &large_hyperkmers,
+                );
+            }
+        }
+    }
+}
+
+fn increase_count_of_sk_or_insert_it(
+    k: usize,
+    superkmer: &Superkmer,
+    hk_count: &Buckets<HKCount>,
+    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
+    large_hyperkmers: &Vec<LargeExtendedHyperkmer>,
+) {
+    let minimizer = superkmer.get_minimizer();
+
+    // get locks
+    let hk_count_lock = hk_count.get_from_id_u64(minimizer);
+    let mut hk_count = hk_count_lock.write().unwrap();
+    let hyperkmers = hyperkmers.read().unwrap();
+
+    // get left and right parts of the superkmer
+    let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
+
+    hk_count.increase_count_of_sk_if_found_else_insert_it(
+        k,
+        &hyperkmers,
+        large_hyperkmers,
+        &minimizer,
+        &left_sk,
+        &right_sk,
+    );
+    #[cfg(debug_assertions)]
+    {
+        debug_assert!(hk_count.search_exact_match(
+            &minimizer,
+            &hyperkmers,
+            large_hyperkmers,
+            &left_sk,
+            &right_sk
+        ))
     }
 }
 

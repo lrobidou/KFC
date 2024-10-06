@@ -15,6 +15,7 @@ use crate::subsequence::{BitPacked, NoBitPacked, Subsequence};
 use core::convert::identity as likely;
 #[cfg(feature = "nightly")]
 use core::intrinsics::likely;
+use std::sync::{Arc, RwLock};
 
 pub fn get_subsequence_from_metadata<'a>(
     hyperkmers: &'a ExtendedHyperkmers,
@@ -31,9 +32,29 @@ pub fn get_subsequence_from_metadata<'a>(
     }
 }
 
+// Write locks on a hyperkmer
+pub fn add_new_hyperkmer(
+    is_large: bool,
+    seq: &Subsequence<NoBitPacked<'_>>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+) -> (usize, usize, bool) {
+    if likely(!is_large) {
+        let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(seq);
+        (id_bucket, id_hk, false)
+    } else {
+        let mut large_hyperkmers = large_hyperkmers.write().unwrap();
+        (
+            0, // I need an integer here to please the compiler, let's choose 0
+            add_new_large_hyperkmer(&mut large_hyperkmers, seq),
+            true,
+        )
+    }
+}
+
 /// Adds `new_ext_hyperkmer` into `large_hyperkmers`.
 ///
-/// Returns the position of `new_ext_hyperkmer` in `large_hyperkmers`)
+/// Returns the position of `new_ext_hyperkmer` in `large_hyperkmers`
 pub fn add_new_large_hyperkmer(
     large_hyperkmers: &mut Vec<LargeExtendedHyperkmer>,
     new_ext_hyperkmer: &Subsequence<NoBitPacked>,
