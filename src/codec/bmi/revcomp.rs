@@ -54,8 +54,6 @@ impl<'a> Iterator for FusedReverseIterator<'a> {
         if self.current_pos <= self.start {
             return None; // we're done iterating
         }
-        // println!("next");
-        // println!("curr, start = {}, {}", self.current_pos, self.start);
 
         debug_assert_eq!(
             if self.current_pos % 64 == 0 {
@@ -262,7 +260,6 @@ impl<'a> Iterator for RevCompIterSRA<'a> {
                 let first_part = self.data[current_idx] << start_offset;
                 let second_part = self.data[current_idx + 1] >> (64 - start_offset);
                 let merged_bases = first_part | second_part;
-                // println!("merged bases = {:064b}", merged_bases);
                 // OPTIMIZE: we can cache data here
                 // DEBUG check it works at the end of the read
                 // (it may work for computing the suffix, but may add garbage at the end of the revcomp)
