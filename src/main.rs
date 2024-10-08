@@ -23,6 +23,7 @@ mod codec;
 mod compute_left_and_right;
 mod index;
 mod minimizer_iter;
+mod ringbuf;
 mod serde;
 mod subsequence;
 mod superkmer;
