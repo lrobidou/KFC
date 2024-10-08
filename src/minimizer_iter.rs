@@ -1,8 +1,66 @@
+use crate::ringbuf::RingBuf;
+use crate::simd::minimizer::minimizer_simd_it;
+use crate::simd::packed::IntoBpIterator;
 use core::cmp::min;
 use core::hash::Hash;
+use itertools::Itertools;
 use minimizer_queue::MinimizerQueue;
 use num_traits::{AsPrimitive, PrimInt};
 use std::collections::VecDeque;
+
+pub struct MinimizerItem<T = u64> {
+    pub minimizer: T,
+    pub position: usize,
+    pub window_start: usize,
+}
+
+pub fn simd_minimizer_iter<T: PrimInt + 'static>(
+    seq: &[u8],
+    minimizer_size: usize,
+    width: usize,
+) -> impl Iterator<Item = MinimizerItem<T>> + '_
+where
+    u8: AsPrimitive<T>,
+{
+    assert_eq!(
+        width % 2,
+        1,
+        "width must be odd to break ties between multiple minimizers"
+    );
+    let it = minimizer_simd_it::<true>(seq, minimizer_size, width);
+    let mut it_bp = seq.iter_bp();
+    let mmer_mask = (T::one() << (2 * minimizer_size)) - T::one();
+    let mut mmer = T::zero();
+    let mut mmers = RingBuf::new(width, T::zero());
+    for _ in 0..(minimizer_size - 1) {
+        mmer = (mmer << 2) | it_bp.next().unwrap().as_();
+    }
+    for _ in 0..(width - 1) {
+        mmer = ((mmer << 2) & mmer_mask) | it_bp.next().unwrap().as_();
+        mmers.push(mmer);
+    }
+    let mut curr_pos = u32::MAX;
+    let mut curr_min = T::max_value();
+    it.zip(it_bp)
+        .enumerate()
+        .map(move |(window_start, (pos, bp))| {
+            mmer = ((mmer << 2) & mmer_mask) | bp.as_();
+            mmers.push(mmer);
+            curr_min = if pos != curr_pos {
+                *mmers.peek_nth(pos as usize - window_start)
+            } else {
+                curr_min
+            };
+            curr_pos = pos;
+            (window_start, (curr_pos, curr_min))
+        })
+        .dedup_by(|(_, (p, _)), (_, (q, _))| p == q)
+        .map(|(window_start, (pos, min))| MinimizerItem {
+            minimizer: min,
+            position: pos as usize,
+            window_start,
+        })
+}
 
 /// An iterator over the canonical minimizers of a sequence and their positions
 /// with the starting positions of the associated windows and a boolean indicating a reverse complement.
@@ -24,6 +82,7 @@ pub struct CanonicalMinimizerIterator<'a, T: PrimInt + Hash = u64> {
 }
 
 impl<'a, T: PrimInt + Hash> CanonicalMinimizerIterator<'a, T> {
+    #[deprecated(note = "This is a deprecated implementation, the SIMD version is recommended.")]
     pub fn new(seq: &'a [u8], minimizer_size: usize, width: u16) -> Self {
         let queue = MinimizerQueue::new(width);
         let width = width as usize;
