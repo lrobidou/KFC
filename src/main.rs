@@ -25,6 +25,7 @@ mod index;
 mod minimizer_iter;
 mod ringbuf;
 mod serde;
+mod simd;
 mod subsequence;
 mod superkmer;
 mod superkmers_computation;
