@@ -26,6 +26,8 @@ bitvec = "1.0.1"
 rayon = "1.10.0"
 rand = "0.8.5"
 needletail = "0.5.1"
+wide = "0.7"
+num = "0.4"
 
 [dev-dependencies]
 rand = "0.8.5"
