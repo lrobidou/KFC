@@ -105,7 +105,7 @@ struct DumpArgs {
     #[arg(long)]
     output_kff: Option<String>,
     /// Minimum abundance of the k-mers to output (if text output)
-    #[arg(short, long)]
+    #[arg(short = 't', long)]
     kmer_threshold: Count,
     /// Number of threads (use all core by default)
     #[arg(short = 'T', long)]
@@ -121,7 +121,7 @@ struct KFFDumpArgs {
     #[arg(short, long)]
     output_text: String,
     /// Minimum abundance of the k-mers to output
-    #[arg(short, long)]
+    #[arg(short = 't', long)]
     kmer_threshold: Count,
     /// Number of threads (use all core by default)
     #[arg(short = 'T', long)]
