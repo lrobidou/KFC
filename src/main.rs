@@ -77,6 +77,9 @@ struct BuildArgs {
     /// Output file (no dump by default)
     #[arg(short, long)]
     output: Option<String>,
+    /// Number of threads (use all core by default)
+    #[arg(short, long)]
+    threads: Option<usize>,
     /// Check against the results of KMC (no check by default)
     #[arg(long)]
     check_kmc: Option<String>,
@@ -102,6 +105,9 @@ struct DumpArgs {
     /// Minimum abundance of the k-mers to output (if text output)
     #[arg(short, long)]
     kmer_threshold: Count,
+    /// Number of threads (use all core by default)
+    #[arg(short, long)]
+    threads: Option<usize>,
 }
 
 #[derive(Args, Debug)]
@@ -115,6 +121,9 @@ struct KFFDumpArgs {
     /// Minimum abundance of the k-mers to output
     #[arg(short, long)]
     kmer_threshold: Count,
+    /// Number of threads (use all core by default)
+    #[arg(short, long)]
+    threads: Option<usize>,
 }
 
 /// Prints some statistics about the index
@@ -201,6 +210,14 @@ fn main() {
             let m = args.m;
             let threshold = args.threshold;
 
+            // set the number of threads
+            if let Some(nb_threads) = args.threads {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(nb_threads)
+                    .build_global()
+                    .expect("unable to configure the threads");
+            }
+
             // build the index
             let index = Index::<CompleteIndex>::index(k, m, threshold, args.input);
             // use KMC's output as a query against the index
@@ -238,6 +255,15 @@ fn main() {
         Command::Dump(args) => {
             let input = args.input_index;
             let kmer_threshold = args.kmer_threshold;
+
+            // set the number of threads
+            if let Some(nb_threads) = args.threads {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(nb_threads)
+                    .build_global()
+                    .expect("unable to configure the threads");
+            }
+
             let index: Index<StrippedIndex> = bin::load(&input).expect("unable to read the index");
             if let Some(kff_path) = args.output_kff {
                 serde::kff::dump(&index, kff_path.clone()).unwrap();
@@ -248,6 +274,15 @@ fn main() {
         }
         Command::KFFDump(args) => {
             let kmer_threshold = args.kmer_threshold;
+
+            // set the number of threads
+            if let Some(nb_threads) = args.threads {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(nb_threads)
+                    .build_global()
+                    .expect("unable to configure the threads");
+            }
+
             let mut file = kff::Kff::<std::io::BufReader<std::fs::File>>::open(args.input_kff)
                 .expect("could not open kff file");
             let output_file = File::create(args.output_text).expect("unable to open output file");
