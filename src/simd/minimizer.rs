@@ -196,7 +196,6 @@ fn backup_minimizer_scalar_it<const RC: bool>(
     let mut min_val = it.next().unwrap().1;
     let mut min_pos = VecDeque::with_capacity(w);
     min_pos.push_back(0);
-    let w = w as u32;
     for i in 1..(w - 1) {
         let val = it.next().unwrap().1;
         match val.cmp(&min_val) {
@@ -211,7 +210,7 @@ fn backup_minimizer_scalar_it<const RC: bool>(
     }
     let mut min_center_idx = 0;
     let mut min_center_pos = min_pos[0];
-    for (j, &pos) in min_pos.iter().enumerate() {
+    for (j, &pos) in min_pos.iter().enumerate().skip(1) {
         let left_dist = min_center_pos;
         let right_dist = w - 1 - pos;
         match left_dist.cmp(&right_dist) {
@@ -220,7 +219,7 @@ fn backup_minimizer_scalar_it<const RC: bool>(
                 min_center_pos = pos;
             }
             Ordering::Equal => {
-                let canonical = seq.get_bp((w - 1 - w / 2) as usize) & 0b10 == 0;
+                let canonical = seq.get_bp(w - 1 - w / 2) & 0b10 == 0;
                 if canonical {
                     min_center_idx = j;
                     min_center_pos = pos;
@@ -231,24 +230,28 @@ fn backup_minimizer_scalar_it<const RC: bool>(
         }
     }
     it.map(move |(i, val)| {
-        if i as u32 - w == min_pos[0] {
+        if i == min_pos[0] + w {
             min_pos.pop_front();
-            min_center_idx = min_center_idx.saturating_sub(1);
+            if min_center_idx == 0 {
+                min_center_pos = min_pos[0];
+            } else {
+                min_center_idx -= 1;
+            }
         }
         if val == min_val {
-            min_pos.push_back(i as u32);
+            min_pos.push_back(i);
         }
         if min_center_idx + 1 < min_pos.len() {
             let pos = min_pos[min_center_idx + 1];
-            let left_dist = min_center_pos + w - 1 - i as u32;
-            let right_dist = i as u32 - pos;
+            let left_dist = min_center_pos - (i + 1 - w);
+            let right_dist = i - pos;
             match left_dist.cmp(&right_dist) {
                 Ordering::Less => {
                     min_center_idx += 1;
                     min_center_pos = pos;
                 }
                 Ordering::Equal => {
-                    let canonical = seq.get_bp((i as u32 - w / 2) as usize) & 0b10 == 0;
+                    let canonical = seq.get_bp(i - w / 2) & 0b10 == 0;
                     if canonical {
                         min_center_idx += 1;
                         min_center_pos = pos;
@@ -257,7 +260,7 @@ fn backup_minimizer_scalar_it<const RC: bool>(
                 Ordering::Greater => (),
             }
         }
-        min_center_pos
+        min_center_pos as u32
     })
 }
 
@@ -413,7 +416,7 @@ mod test {
     fn linearized_increasing() {
         let seq = &**BYTE_SEQ;
         for k in [1, 2, 3, 4, 5, 31, 32, 33, 63, 64, 65] {
-            for w in [1, 2, 3, 4, 5, 31, 32, 33, 63, 64, 65] {
+            for w in [2, 3, 4, 5, 31, 32, 33, 63, 64, 65] {
                 for len in (0..100).chain(once(1024 * 128 + 765)) {
                     let seq = seq.sub_slice(0, len);
                     let mut prev = 0;

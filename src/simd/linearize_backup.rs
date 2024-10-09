@@ -148,7 +148,7 @@ impl<
         for i in 0..self.tail_cache.len() {
             unsafe {
                 let pos = tail.next().unwrap();
-                *self.tail_cache.get_unchecked_mut(i) = pos + offset;
+                *self.tail_cache.get_unchecked_mut(i) = pos.saturating_add(offset);
                 if pos == u32::MAX {
                     tail_tie.push(i);
                 }
