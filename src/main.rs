@@ -80,7 +80,7 @@ struct BuildArgs {
     #[arg(short, long)]
     output: Option<String>,
     /// Number of threads (use all core by default)
-    #[arg(short, long)]
+    #[arg(long)]
     threads: Option<usize>,
     /// Check against the results of KMC (no check by default)
     #[arg(long)]
@@ -108,7 +108,7 @@ struct DumpArgs {
     #[arg(short, long)]
     kmer_threshold: Count,
     /// Number of threads (use all core by default)
-    #[arg(short, long)]
+    #[arg(long)]
     threads: Option<usize>,
 }
 
@@ -124,7 +124,7 @@ struct KFFDumpArgs {
     #[arg(short, long)]
     kmer_threshold: Count,
     /// Number of threads (use all core by default)
-    #[arg(short, long)]
+    #[arg(long)]
     threads: Option<usize>,
 }
 
