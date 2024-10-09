@@ -16,3 +16,8 @@ Cargo.lock
 data/
 
 coverage/
+
+test_empty_serde
+test_serde
+
+.DS_Store
