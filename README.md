@@ -1,46 +1,3 @@
-## TODO:
-- [x] using &str instead of String to prevent copies
-- [x] using Vec<u8> instead of `String` in the data structures
-- [x] implement search
-- [ ] implement streaming search
-- [x] use kff as possible output
-- [x] implement k-mer iterator
-- [x] streaming of k-mers
-- [ ] optimize iteration of minimizer for streaming of k-mers
-- [ ] discuss what to do when a single k-mer is indexed: there is no previous nor next k-mer
-- [ ] debug: we miss the first and last superkmer if t = 1
-- [ ] use version of kff from the crate instead of my own
-- [ ] make it possible to do a single pass
-- [ ] allow non canonical k-mers (?)
-- [ ] reference the paper in the README
-- [ ] test large value of k
-- [ ] make a paper branch (?)
-- [ ] test nightly
-- [ ] self mut on MashMap::get_mut_iter ?
-- [ ] better parallelization than locking the whole minimizer bucket ?
-- [ ] do we clone Buckets or do we use Arc ?
-
-## bug lefts
-We miss the first and last superkmers:
-```bash
-cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
-cargo run -- dump --input-index index_64.kfc --output-text index_64.txt
-# sort the two files
-sort index_64.txt > dump_sorted.txt
-sort 99mers.txt > 99_sort.txt
-diff dump_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
-```
-Alternatively:
-```bash
-cargo run -- build -k 99 -m 21 -t 1 --input data/U00096.3.fasta --output index_64.kfc --check-kmc data/99mers.txt
-cargo run -- dump --input-index index_64.kfc --output-kff index.kff
-cargo run -- kff-dump --input-kff index.kff --output-text kff_text.txt
-
-# sort the two files
-sort kff_text.txt > kff_sorted.txt
-sort 99mers.txt > 99_sort.txt
-diff kff_sorted.txt 99_sort.txt  # 74 k-mers missing from the output of KFC
-```
 # KFC
 
 ![tests](https://github.com/lrobidou/KFC/workflows/tests/badge.svg)
@@ -54,30 +11,23 @@ This representation allows to:
 - be fast (indexation is typically ~x XXX x XXX faster than KMC)
 KFC can filter k-mer based on their count and only index the k-mers above that count.
 
-## If you are a reviewer
-We created a branch `paper` that will stay consistent with the paper.
-
-Please checkout to the `paper` branch:
-```bash
-git clone https://github.com/lrobidou/KFC
-git checkout paper XXX do the branch XXX
-cd KFC
-RUSTFLAGS="-C target-cpu=native" cargo build --release
-```
-
 ## Install
 
-First, [install rust](https://www.rust-lang.org/learn/get-started).
+If you have not installed Rust yet, please visit [rustup.rs](https://rustup.rs/) to install it.
 
-Then install KFC:
-```bash
+Then clone this repository and build KFC using:
+```sh
 git clone https://github.com/lrobidou/KFC
 cd KFC
+RUSTFLAGS="-C target-cpu=native" cargo +nightly build --release -F nightly
+```
+Make sure to set `RUSTFLAGS="-C target-cpu=native"` to use the fastest instructions available on your architecture.
+
+If you cannot use Rust nightly, you can also build KFC in stable mode (which may be slightly slower):
+```sh
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
-XXX install in path ? XXX
-
-Make sure to set `RUSTFLAGS="-C target-cpu=native"` to use the fastest instructions available on your architecture.
+This will create a binary located at `target/release/kfc`.
 
 ## Run
 ### Build a KFC index
