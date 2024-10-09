@@ -68,10 +68,10 @@ struct BuildArgs {
     #[arg(short)]
     k: usize,
     /// Minimizer size
-    #[arg(short, default_value_t = 20)]
+    #[arg(short, default_value_t = 21)]
     m: usize,
-    /// Solidity threshold
-    #[arg(short, long, default_value_t = 1)]
+    /// Solidity threshold (for superkmers)
+    #[arg(short, long, default_value_t = 2)]
     threshold: Count,
     /// Input file (FASTA/Q, possibly gzipped)
     #[arg(short, long)]
