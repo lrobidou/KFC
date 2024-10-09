@@ -101,6 +101,9 @@ struct DumpArgs {
     /// Output kff file (no kff output by default)
     #[arg(long)]
     output_kff: Option<String>,
+    /// Minimum abundance of the k-mers to output (if text output)
+    #[arg(short, long)]
+    kmer_threshold: Count,
 }
 
 #[derive(Args, Debug)]
@@ -111,6 +114,9 @@ struct KFFDumpArgs {
     /// Output txt file
     #[arg(short, long)]
     output_text: String,
+    /// Minimum abundance of the k-mers to output
+    #[arg(short, long)]
+    kmer_threshold: Count,
 }
 
 /// Prints some statistics about the index
@@ -233,15 +239,17 @@ fn main() {
         }
         Command::Dump(args) => {
             let input = args.input_index;
+            let kmer_threshold = args.kmer_threshold;
             let index: Index<StrippedIndex> = bin::load(&input).expect("unable to read the index");
             if let Some(kff_path) = args.output_kff {
                 serde::kff::dump(&index, kff_path.clone()).unwrap();
             }
             if let Some(plain_text_path) = args.output_text {
-                serde::plain_text::plain_text(&index, plain_text_path);
+                serde::plain_text::plain_text(&index, kmer_threshold, plain_text_path);
             }
         }
         Command::KFFDump(args) => {
+            let kmer_threshold = args.kmer_threshold;
             let mut file = kff::Kff::<std::io::BufReader<std::fs::File>>::open(args.input_kff)
                 .expect("could not open kff file");
             let output_file = File::create(args.output_text).expect("unable to open output file");
@@ -273,7 +281,9 @@ fn main() {
                 }
                 // no more kmer in this section => dump the kmers
                 for (kmer, count) in kmers_counts {
-                    writeln!(buffer, "{}\t{}", kmer, count).unwrap();
+                    if count >= kmer_threshold {
+                        writeln!(buffer, "{}\t{}", kmer, count).unwrap();
+                    }
                 }
             }
         }
