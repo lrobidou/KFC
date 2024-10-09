@@ -516,11 +516,11 @@ fn second_stage_for_a_chunk(
             None => continue,
         };
 
-        if threshold == 1 {
-            // We have set a threshold of 1. But the first stage skips the first superkmer.
+        {
+            // The first stage skips the first superkmer.
             // Therefore, we have to check if the superkmer is present in the index (it might have been indexed if it is in the middle of a read).
             // If so, increase is count.
-            // Otherwise, we insert it.
+            // Otherwise, we insert it with a count of 1.
 
             // extract the first superkmer, skip if none
             let first_truncated_sk = match superkmers.next() {
@@ -540,6 +540,7 @@ fn second_stage_for_a_chunk(
         let hyperkmers_lock = hyperkmers.read().unwrap();
 
         let mut last_superkmer = None;
+        // iterates over all the superkmers exepct the first one
         while let Some(superkmer) = superkmers.next() {
             if superkmers.peek().is_none() {
                 last_superkmer = Some(superkmer);
@@ -567,8 +568,6 @@ fn second_stage_for_a_chunk(
                     })
                     .or_insert(1);
                 if *count == threshold {
-                    // TODO debug: what if t == 1 ? Then we miss the first and last superkmer
-                    // TODO
                     warn!(
                         "minimizer {} of superkmer {} is found {} times but its hyperkmer is not",
                         minimizer,
@@ -602,11 +601,11 @@ fn second_stage_for_a_chunk(
             }
         }
 
-        if threshold == 1 {
-            // We have set a threshold of 1. But the first stage skips the last superkmer.
+        {
+            // The first stage skips the last superkmer.
             // Therefore, we have to check if the superkmer is present in the index (it might have been indexed if it is in the middle of a read).
             // If so, increase is count.
-            // Otherwise, we insert it.
+            // Otherwise, we insert it with a count of 1.
             if let Some(last_truncated_superkmer) = last_superkmer {
                 increase_count_of_sk_or_insert_it(
                     k,
