@@ -294,7 +294,7 @@ where
         )
     }
 
-    pub fn par_write_kmers<P: AsRef<Path>>(&self, path: P) {
+    pub fn par_write_kmers<P: AsRef<Path>>(&self, kmer_threshold: Count, path: P) {
         // create file and wrap it in mutex
         let file = File::create(path).unwrap();
         let buffer = BufWriter::with_capacity(100_000, file);
@@ -328,10 +328,12 @@ where
 
             let mut buffer = buffer.as_ref().lock().unwrap();
             for (kmer, count) in kmers_and_count {
-                buffer
-                    .write_all(&kmer)
-                    .expect("could not write to the file");
-                writeln!(buffer, "\t{}", count).unwrap();
+                if count >= kmer_threshold {
+                    buffer
+                        .write_all(&kmer)
+                        .expect("could not write to the file");
+                    writeln!(buffer, "\t{}", count).unwrap();
+                }
             }
         });
     }
