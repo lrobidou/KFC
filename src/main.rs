@@ -209,7 +209,9 @@ fn main() {
     match args.command {
         Command::Build(args) => {
             let k = args.k;
+            assert!(k % 2 == 1, "k must be odd");
             let m = args.m;
+            assert!(m % 2 == 1, "m must be odd");
             let threshold = args.threshold;
 
             // set the number of threads
