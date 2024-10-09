@@ -1,8 +1,34 @@
+use crate::simd::minimizer::minimizer_simd_it;
 use core::cmp::min;
 use core::hash::Hash;
+use itertools::Itertools;
 use minimizer_queue::MinimizerQueue;
 use num_traits::{AsPrimitive, PrimInt};
 use std::collections::VecDeque;
+
+pub struct MinimizerItem {
+    pub position: usize,
+    pub window_start: usize,
+}
+
+pub fn simd_minimizer_iter(
+    seq: &[u8],
+    minimizer_size: usize,
+    width: usize,
+) -> impl Iterator<Item = MinimizerItem> + '_ {
+    assert_eq!(
+        width % 2,
+        1,
+        "width must be odd to break ties between multiple minimizers"
+    );
+    let it = minimizer_simd_it::<true>(seq, minimizer_size, width);
+    it.enumerate()
+        .dedup_by(|(_, p), (_, q)| p == q)
+        .map(|(window_start, pos)| MinimizerItem {
+            position: pos as usize,
+            window_start,
+        })
+}
 
 /// An iterator over the canonical minimizers of a sequence and their positions
 /// with the starting positions of the associated windows and a boolean indicating a reverse complement.
@@ -24,6 +50,7 @@ pub struct CanonicalMinimizerIterator<'a, T: PrimInt + Hash = u64> {
 }
 
 impl<'a, T: PrimInt + Hash> CanonicalMinimizerIterator<'a, T> {
+    #[deprecated(note = "This is a deprecated implementation, the SIMD version is recommended.")]
     pub fn new(seq: &'a [u8], minimizer_size: usize, width: u16) -> Self {
         let queue = MinimizerQueue::new(width);
         let width = width as usize;
