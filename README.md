@@ -32,22 +32,22 @@ This will create a binary located at `target/release/kfc`.
 ## Run
 ### Build a KFC index
 The first step to any KFC usage is to build a KFC index.
-```bash
-cargo run --release -- build -k <k>> -m <m> -t <threshold_count> --input <file>.fasta --output <index>.kfc
+```sh
+./kfc build -k <k> -m <m> -t <threshold_count> --input <file>.fasta --output <index>.kfc
 ```
 
 ### Dump a KFC index to text
 Once the KFC index is computed, it is possible to dump it to text. The k-mers are *not* ordered.
-```bash
-cargo run --release -- dump --input-index <index>.kfc --output-text <kmers.txt>
+```sh
+./kfc dump --input-index <index>.kfc --output-text <kmers.txt>
 ```
 
 ### Dump a KFC index to the k-mer file format (KFF)
 KFC supports the k-mer file format (see [Dufresne et al, The K-mer File Format: a standardized and compact disk representation of sets of k-mers](https://doi.org/10.1093/bioinformatics/btac528)).
 As such, it is possible to dump a KFC index into a KFF file.
 The count of each k-mer is encoded in the KFF file.
-```bash
-cargo run --release -- dump --input-index <index>.kfc --output-kff <index>.kff
+```sh
+./kfc dump --input-index <index>.kfc --output-kff <index>.kff
 ```
 
 ### Dump a KFF to text
@@ -55,8 +55,8 @@ cargo run --release -- dump --input-index <index>.kfc --output-kff <index>.kff
 
 Reading the KFF file produced by KFC should be possible with any implementation supporting KFF, but we recommand relying on KFC for this task. Indeed, a KFF built by KFC respects some assumptions on the count of k-mers, which can be used to dump the KFF file with a lower memory consumption. This also means that files not respecting these assumptions would produce invalid count if dumped by KFC.
 
-```bash
-cargo run --release -- kff-dump --input-kff <index>.kff --output-text <index>.txt
+```sh
+./kfc kff-dump --input-kff <index>.kff --output-text <index>.txt
 ```
 
 # Tests
@@ -71,7 +71,7 @@ Place [https://www.ebi.ac.uk/ena/browser/view/U00096](https://www.ebi.ac.uk/ena/
 
 * [cargo-nextest](https://nexte.st/)
 * [cargo-llvm-cov](https://crates.io/crates/cargo-llvm-cov)
-```bash
+```sh
 cargo install cargo-llvm-cov
 cargo install cargo-nextest
 ```
@@ -79,7 +79,7 @@ cargo install cargo-nextest
 ### Generate report on terminal
 
 At the workspace root:
-```bash
+```sh
 cargo nextest run
 ```
 
@@ -89,7 +89,7 @@ See at the beginning of the bellow script the packages to install.
 
 At the workspace root:
 
-```bash
+```sh
 ./coverage.sh
 cargo llvm-cov --open # open HTML report into the navigator
 ```
@@ -99,7 +99,7 @@ It also generates a `.lcov.info` lcov file.
 ## If you have a performance issue:
 ### Flamegraph
 You can generate a flamegraph using [cargo flamegraph](https://github.com/flamegraph-rs/flamegraph):
-```bash
+```sh
 sudo apt install -y linux-perf  # for debian distributions
 cargo install flamegraph
 echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid  # do this each time you reboot
@@ -110,7 +110,7 @@ This graph allows you to quickly check wich function is taking the more time: th
 ### Using vtune
 If you you accept to run arbitrary closed-source binary on you system, you can install vtune from here : https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler-download.html?operatingsystem=linux&linux-install-type=offline. You do not need to create an account, just continue as guest.
 Execute the script, it will install a binary. Locate it and execture it.
-```bash
+```sh
 ~/intel/oneapi/vtune/2024.2/bin64/vtune-gui
 ```
 vtune is able to give much more informaton, including a nicer version of the flamegraph.
