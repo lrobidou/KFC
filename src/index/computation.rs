@@ -427,11 +427,9 @@ fn first_stage_for_a_chunck(
                     m,
                     &hyperkmers,
                     large_hyperkmers,
-                    id_left_bucket,
                     left_change_orientation,
                     &left_hk_metadata,
                     &left_extended_hk,
-                    id_right_bucket,
                     right_change_orientation,
                     &right_hk_metadata,
                     &right_extended_hk,
@@ -659,29 +657,31 @@ fn check_correct_inclusion_first_stage(
     m: usize,
     hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
-    id_left_bucket: usize,
     left_change_orientation: bool,
     left_hk_metadata: &HKMetadata,
     left_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
-    id_right_bucket: usize,
     right_change_orientation: bool,
     right_hk_metadata: &HKMetadata,
     right_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
 ) {
-    // DEBUG might cause deadlock ?
     use crate::index::components::get_subsequence_from_metadata;
 
-    let left_hyperkmers = hyperkmers.get_bucket_from_id(id_left_bucket);
-    let left_hyperkmers = left_hyperkmers.read().unwrap();
-    let right_hyperkmers = hyperkmers.get_bucket_from_id(id_right_bucket);
-    let right_hyperkmers = right_hyperkmers.read().unwrap();
+    let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+        left_hk_metadata.get_bucket_id(),
+        right_hk_metadata.get_bucket_id(),
+    );
+    let right_hyperkmers = match right_hyperkmers.as_ref() {
+        Some(x) => x,
+        None => &left_hyperkmers,
+    };
+
     let large_hyperkmers = large_hyperkmers.read().unwrap();
 
     let candidate_left_ext_hk =
         &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata)
             .change_orientation_if(left_change_orientation);
     let candidate_right_ext_hk =
-        &get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata)
+        &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata)
             .change_orientation_if(right_change_orientation);
 
     debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
@@ -690,7 +690,7 @@ fn check_correct_inclusion_first_stage(
         &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata,)
     ));
     debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
-        &get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata,)
+        &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata,)
     ));
 
     let left_ext_hk =
@@ -698,7 +698,7 @@ fn check_correct_inclusion_first_stage(
             .change_orientation_if(left_hk_metadata.get_change_orientation());
 
     let right_ext_hk =
-        get_subsequence_from_metadata(&right_hyperkmers, &large_hyperkmers, right_hk_metadata)
+        get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata)
             .change_orientation_if(right_hk_metadata.get_change_orientation());
 
     // extract candidate hyperkmers

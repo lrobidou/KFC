@@ -260,77 +260,65 @@ impl HKCount {
         right_sk: &Subsequence<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         let minimizer = superkmer.get_minimizer();
-        for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count_hk) in
-            self.data.get_iter(&minimizer)
-        {
+        for (c_left_hk_metadata, c_right_hk_metadata, _count_hk) in self.data.get_iter(&minimizer) {
             // get sequences as they would appear if the current superkmer was canonical
-            let is_large_left = candidate_left_ext_hk_metadata.get_is_large();
-            let left_hyperkmers =
-                hyperkmers.get_bucket_from_id(candidate_left_ext_hk_metadata.get_bucket_id());
-            let left_hyperkmers = left_hyperkmers.read().unwrap();
-            let subseq_left = get_subsequence_from_metadata(
+
+            // extract whole contexts
+            let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+                c_left_hk_metadata.get_bucket_id(),
+                c_right_hk_metadata.get_bucket_id(),
+            );
+            let right_hyperkmers = match right_hyperkmers.as_ref() {
+                Some(x) => x,
+                None => &left_hyperkmers,
+            };
+
+            // extract relevant subsequences frome whole context
+            let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
                 &left_hyperkmers,
+                right_hyperkmers,
                 large_hyperkmers,
-                candidate_left_ext_hk_metadata,
+                c_left_hk_metadata,
+                c_right_hk_metadata,
             );
-            let candidate_left_ext_hk: Subsequence<BitPacked> = subseq_left
-                .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
 
-            let is_large_right = candidate_right_ext_hk_metadata.get_is_large();
-            let right_hyperkmers =
-                hyperkmers.get_bucket_from_id(candidate_right_ext_hk_metadata.get_bucket_id());
-            let right_hyperkmers = right_hyperkmers.read().unwrap();
-            let subseq_right = get_subsequence_from_metadata(
-                &right_hyperkmers,
-                large_hyperkmers,
-                candidate_right_ext_hk_metadata,
-            );
-            let candidate_right_ext_hk: Subsequence<BitPacked> = subseq_right
-                .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
-
-            let match_start_left = candidate_left_ext_hk.starts_with_nobitpacked(left_sk);
-            let match_end_left = candidate_left_ext_hk.ends_with_nobitpacked(left_sk);
+            let match_start_left = c_left_hk.starts_with_nobitpacked(left_sk);
+            let match_end_left = c_left_hk.ends_with_nobitpacked(left_sk);
             let match_left = match_start_left || match_end_left;
 
-            let match_start_right = candidate_right_ext_hk.starts_with_nobitpacked(right_sk);
-            let match_end_right = candidate_right_ext_hk.ends_with_nobitpacked(right_sk);
+            let match_start_right = c_right_hk.starts_with_nobitpacked(right_sk);
+            let match_end_right = c_right_hk.ends_with_nobitpacked(right_sk);
             let match_right = match_start_right || match_end_right;
 
             if match_left && match_right {
                 let (start_left, end_left) = if match_start_left {
                     (0, left_sk.len())
                 } else {
-                    (
-                        candidate_left_ext_hk.len() - left_sk.len(),
-                        candidate_left_ext_hk.len(),
-                    )
+                    (c_left_hk.len() - left_sk.len(), c_left_hk.len())
                 };
 
                 let (start_right, end_right) = if match_start_right {
                     (0, right_sk.len())
                 } else {
-                    (
-                        candidate_right_ext_hk.len() - right_sk.len(),
-                        candidate_right_ext_hk.len(),
-                    )
+                    (c_right_hk.len() - right_sk.len(), c_right_hk.len())
                 };
 
                 return Some((
                     HKMetadata::new(
-                        candidate_left_ext_hk_metadata.get_bucket_id(),
-                        candidate_left_ext_hk_metadata.get_index(),
+                        c_left_hk_metadata.get_bucket_id(),
+                        c_left_hk_metadata.get_index(),
                         start_left,
                         end_left,
-                        is_large_left,
-                        candidate_left_ext_hk_metadata.get_change_orientation(),
+                        c_left_hk_metadata.get_is_large(),
+                        c_left_hk_metadata.get_change_orientation(),
                     ),
                     HKMetadata::new(
-                        candidate_right_ext_hk_metadata.get_bucket_id(),
-                        candidate_right_ext_hk_metadata.get_index(),
+                        c_right_hk_metadata.get_bucket_id(),
+                        c_right_hk_metadata.get_index(),
                         start_right,
                         end_right,
-                        is_large_right,
-                        candidate_right_ext_hk_metadata.get_change_orientation(),
+                        c_right_hk_metadata.get_is_large(),
+                        c_right_hk_metadata.get_change_orientation(),
                     ),
                 ));
             }
@@ -363,45 +351,30 @@ impl HKCount {
         // caution: this includes the (m - 1) duplicationbases in the minimizer (twice)
         let max_inclusion = left_sk.len() + right_sk.len();
 
-        for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, _count) in
-            self.data.get_iter(minimizer)
-        {
-            let left_bucket_id = candidate_left_ext_hk_metadata.get_bucket_id();
-            let left_hyperkmers = hyperkmers.get_bucket_from_id(left_bucket_id);
-            let left_hyperkmers = left_hyperkmers.read().unwrap();
-            let subseq_left = get_subsequence_from_metadata(
+        for (c_left_hk_metadata, c_right_hk_metadata, _count) in self.data.get_iter(minimizer) {
+            // get sequences as they would appear if the current superkmer was canonical
+
+            // extract whole contexts
+            let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+                c_left_hk_metadata.get_bucket_id(),
+                c_right_hk_metadata.get_bucket_id(),
+            );
+            let right_hyperkmers = match right_hyperkmers.as_ref() {
+                Some(x) => x,
+                None => &left_hyperkmers,
+            };
+
+            // extract relevant subsequences frome whole context
+            let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
                 &left_hyperkmers,
+                right_hyperkmers,
                 large_hyperkmers,
-                candidate_left_ext_hk_metadata,
-            );
-            let candidate_left_ext_hk: Subsequence<BitPacked> = subseq_left
-                .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
-
-            let right_bucket_id = candidate_right_ext_hk_metadata.get_bucket_id();
-            let right_hyperkmers = hyperkmers.get_bucket_from_id(right_bucket_id);
-            let right_hyperkmers = right_hyperkmers.read().unwrap();
-            let subseq_right = get_subsequence_from_metadata(
-                &right_hyperkmers,
-                large_hyperkmers,
-                candidate_right_ext_hk_metadata,
-            );
-            let candidate_right_ext_hk: Subsequence<BitPacked> = subseq_right
-                .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
-
-            // extract candidate hyperkmers
-            let candidate_left_hyperkmer = &candidate_left_ext_hk.subsequence(
-                candidate_left_ext_hk_metadata.get_start(),
-                candidate_left_ext_hk_metadata.get_end(),
-            );
-            let candidate_right_hyperkmer = &candidate_right_ext_hk.subsequence(
-                candidate_right_ext_hk_metadata.get_start(),
-                candidate_right_ext_hk_metadata.get_end(),
+                c_left_hk_metadata,
+                c_right_hk_metadata,
             );
 
-            let len_current_match_left =
-                left_sk.common_suffix_length_with_bitpacked(candidate_left_hyperkmer);
-            let len_current_match_right =
-                right_sk.common_prefix_length_with_bitpacked(candidate_right_hyperkmer);
+            let len_current_match_left = left_sk.common_suffix_length_with_bitpacked(&c_left_hk);
+            let len_current_match_right = right_sk.common_prefix_length_with_bitpacked(&c_right_hk);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             debug_assert!(len_current_match_left >= m - 1);
@@ -413,21 +386,21 @@ impl HKCount {
                 match_metadata = Some((
                     // same suffix => same end, but different start
                     HKMetadata::new(
-                        left_bucket_id,
-                        candidate_left_ext_hk_metadata.get_index(),
-                        candidate_left_ext_hk_metadata.get_end() - len_current_match_left,
-                        candidate_left_ext_hk_metadata.get_end(),
-                        candidate_left_ext_hk_metadata.get_is_large(),
-                        candidate_left_ext_hk_metadata.get_change_orientation(),
+                        c_left_hk_metadata.get_bucket_id(),
+                        c_left_hk_metadata.get_index(),
+                        c_left_hk_metadata.get_end() - len_current_match_left,
+                        c_left_hk_metadata.get_end(),
+                        c_left_hk_metadata.get_is_large(),
+                        c_left_hk_metadata.get_change_orientation(),
                     ),
                     // same prefix => same start, but different end
                     HKMetadata::new(
-                        right_bucket_id,
-                        candidate_right_ext_hk_metadata.get_index(),
-                        candidate_right_ext_hk_metadata.get_start(),
-                        candidate_right_ext_hk_metadata.get_start() + len_current_match_right,
-                        candidate_right_ext_hk_metadata.get_is_large(),
-                        candidate_right_ext_hk_metadata.get_change_orientation(),
+                        c_right_hk_metadata.get_bucket_id(),
+                        c_right_hk_metadata.get_index(),
+                        c_right_hk_metadata.get_start(),
+                        c_right_hk_metadata.get_start() + len_current_match_right,
+                        c_right_hk_metadata.get_is_large(),
+                        c_right_hk_metadata.get_change_orientation(),
                     ),
                 ));
 
@@ -453,48 +426,38 @@ impl HKCount {
         m: usize,
     ) -> Count {
         let mut total_count = 0;
-        for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count) in
-            self.data.get_iter(minimizer)
-        {
-            let left_hyperkmers_bucket_id = candidate_left_ext_hk_metadata.get_bucket_id();
-            let left_hyperkmers = hyperkmers.get_bucket_from_id(left_hyperkmers_bucket_id);
-            // TODO check for deadlocks
-            let left_hyperkmers = left_hyperkmers.read().unwrap();
+        for (c_left_hk_metadata, c_right_hk_metadata, count) in self.data.get_iter(minimizer) {
             // get sequences as they would appear if the current superkmer was canonical
-            let candidate_left_hyperkmer = get_subsequence_from_metadata(
+
+            // extract whole contexts
+            let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+                c_left_hk_metadata.get_bucket_id(),
+                c_right_hk_metadata.get_bucket_id(),
+            );
+            let right_hyperkmers = match right_hyperkmers.as_ref() {
+                Some(x) => x,
+                None => &left_hyperkmers,
+            };
+
+            // extract relevant subsequences frome whole context
+            let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
                 &left_hyperkmers,
+                right_hyperkmers,
                 large_hyperkmers,
-                candidate_left_ext_hk_metadata,
-            )
-            .change_orientation_if(candidate_left_ext_hk_metadata.get_change_orientation());
-            let candidate_left_hyperkmer = candidate_left_hyperkmer.subsequence(
-                candidate_left_ext_hk_metadata.get_start(),
-                candidate_left_ext_hk_metadata.get_end(),
+                c_left_hk_metadata,
+                c_right_hk_metadata,
             );
 
-            let right_hyperkmers_bucket_id = candidate_right_ext_hk_metadata.get_bucket_id();
-            let right_hyperkmers = hyperkmers.get_bucket_from_id(right_hyperkmers_bucket_id);
-            let right_hyperkmers = right_hyperkmers.read().unwrap();
-            let candidate_right_hyperkmer = get_subsequence_from_metadata(
-                &right_hyperkmers,
-                large_hyperkmers,
-                candidate_right_ext_hk_metadata,
-            )
-            .change_orientation_if(candidate_right_ext_hk_metadata.get_change_orientation());
-            let candidate_right_hyperkmer = candidate_right_hyperkmer.subsequence(
-                candidate_right_ext_hk_metadata.get_start(),
-                candidate_right_ext_hk_metadata.get_end(),
-            );
             let len_current_match_left =
-                left_context.common_suffix_length_with_bitpacked(&candidate_left_hyperkmer);
+                left_context.common_suffix_length_with_bitpacked(&c_left_hk);
             let len_current_match_right =
-                right_context.common_prefix_length_with_bitpacked(&candidate_right_hyperkmer);
+                right_context.common_prefix_length_with_bitpacked(&c_right_hk);
             let current_match_size = len_current_match_left + len_current_match_right;
 
             #[cfg(debug_assertions)]
             {
-                let left_string = candidate_left_hyperkmer.to_string();
-                let right_string = candidate_right_hyperkmer.to_string();
+                let left_string = c_left_hk.to_string();
+                let right_string = c_right_hk.to_string();
 
                 debug_assert_eq!(
                     left_string[(left_string.len() - (m - 2))..left_string.len()],
@@ -520,84 +483,78 @@ impl HKCount {
         right_sk: &Subsequence<NoBitPacked>,
     ) {
         let mut match_case = MatchCases::default();
-        {
-            // let mut found_match_right = false;
-            for (c_left_hk_metadata, c_right_hk_metadata, count) in
-                self.data.get_mut_iter(minimizer)
-            {
-                // extract ids
-                let left_bucket_id = c_left_hk_metadata.get_bucket_id();
-                let right_bucket_id = c_right_hk_metadata.get_bucket_id();
 
-                // extract buckets
-                let (left_hyperkmers, right_hyperkmers) =
-                    hyperkmers.acquire_two_locks_read_mode(left_bucket_id, right_bucket_id);
-                let right_hyperkmers = match right_hyperkmers.as_ref() {
-                    Some(x) => x,
-                    None => &left_hyperkmers,
-                };
+        // let mut found_match_right = false;
+        for (c_left_hk_metadata, c_right_hk_metadata, count) in self.data.get_mut_iter(minimizer) {
+            let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+                c_left_hk_metadata.get_bucket_id(),
+                c_right_hk_metadata.get_bucket_id(),
+            );
+            let right_hyperkmers = match right_hyperkmers.as_ref() {
+                Some(x) => x,
+                None => &left_hyperkmers,
+            };
 
-                // extract subsequences
-                let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
-                    &left_hyperkmers,
-                    right_hyperkmers,
-                    large_hyperkmers,
-                    c_left_hk_metadata,
-                    c_right_hk_metadata,
-                );
+            // extract relevant subsequences frome whole context
+            let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
+                &left_hyperkmers,
+                right_hyperkmers,
+                large_hyperkmers,
+                c_left_hk_metadata,
+                c_right_hk_metadata,
+            );
 
-                let left_suffix_size = left_sk.common_suffix_length_with_bitpacked(&c_left_hk);
-                let right_prefix_size = right_sk.common_prefix_length_with_bitpacked(&c_right_hk);
+            let left_suffix_size = left_sk.common_suffix_length_with_bitpacked(&c_left_hk);
+            let right_prefix_size = right_sk.common_prefix_length_with_bitpacked(&c_right_hk);
 
-                let left_match = if left_suffix_size == left_sk.len() {
-                    if left_sk.len() == c_left_hk.len() {
-                        MatchCase::Exact(*c_left_hk_metadata)
-                    } else {
-                        let new_left_metadata = HKMetadata::new(
-                            c_left_hk_metadata.get_bucket_id(),
-                            c_left_hk_metadata.get_index(),
-                            c_left_hk_metadata.get_end() - left_suffix_size,
-                            c_left_hk_metadata.get_end(),
-                            c_left_hk_metadata.get_is_large(),
-                            c_left_hk_metadata.get_change_orientation(),
-                        );
-                        MatchCase::Inclusion(new_left_metadata)
-                    }
+            let left_match = if left_suffix_size == left_sk.len() {
+                if left_sk.len() == c_left_hk.len() {
+                    MatchCase::Exact(*c_left_hk_metadata)
                 } else {
-                    // left_prefix_size < left_sk.len()
-                    MatchCase::Nothing
-                };
-                let right_match = if right_prefix_size == right_sk.len() {
-                    if right_sk.len() == c_right_hk.len() {
-                        MatchCase::Exact(*c_right_hk_metadata)
-                    } else {
-                        let new_right_metadata = HKMetadata::new(
-                            c_right_hk_metadata.get_bucket_id(),
-                            c_right_hk_metadata.get_index(),
-                            c_right_hk_metadata.get_start(),
-                            c_right_hk_metadata.get_start() + right_prefix_size,
-                            c_right_hk_metadata.get_is_large(),
-                            c_right_hk_metadata.get_change_orientation(),
-                        );
-                        MatchCase::Inclusion(new_right_metadata)
-                    }
-                } else {
-                    // right_prefix_size < right_sk.len()
-                    MatchCase::Nothing
-                };
-
-                match_case = std::cmp::min(match_case, MatchCases::new(left_match, right_match));
-
-                // if the cost of the case is low enough, we stop
-                // higher threshold => we accept worst solutions (potentially leading to more memory consumption)
-                // but this let us stop the search quicker than when using low thresholds => indexation is faster
-                let cost = match_case.cost();
-                if cost == 0 {
-                    *count += 1;
-                    break;
-                } else if match_case.cost() <= 8 {
-                    break;
+                    let new_left_metadata = HKMetadata::new(
+                        c_left_hk_metadata.get_bucket_id(),
+                        c_left_hk_metadata.get_index(),
+                        c_left_hk_metadata.get_end() - left_suffix_size,
+                        c_left_hk_metadata.get_end(),
+                        c_left_hk_metadata.get_is_large(),
+                        c_left_hk_metadata.get_change_orientation(),
+                    );
+                    MatchCase::Inclusion(new_left_metadata)
                 }
+            } else {
+                // left_prefix_size < left_sk.len()
+                MatchCase::Nothing
+            };
+            let right_match = if right_prefix_size == right_sk.len() {
+                if right_sk.len() == c_right_hk.len() {
+                    MatchCase::Exact(*c_right_hk_metadata)
+                } else {
+                    let new_right_metadata = HKMetadata::new(
+                        c_right_hk_metadata.get_bucket_id(),
+                        c_right_hk_metadata.get_index(),
+                        c_right_hk_metadata.get_start(),
+                        c_right_hk_metadata.get_start() + right_prefix_size,
+                        c_right_hk_metadata.get_is_large(),
+                        c_right_hk_metadata.get_change_orientation(),
+                    );
+                    MatchCase::Inclusion(new_right_metadata)
+                }
+            } else {
+                // right_prefix_size < right_sk.len()
+                MatchCase::Nothing
+            };
+
+            match_case = std::cmp::min(match_case, MatchCases::new(left_match, right_match));
+
+            // if the cost of the case is low enough, we stop
+            // higher threshold => we accept worst solutions (potentially leading to more memory consumption)
+            // but this let us stop the search quicker than when using low thresholds => indexation is faster
+            let cost = match_case.cost();
+            if cost == 0 {
+                *count += 1;
+                break;
+            } else if match_case.cost() <= 8 {
+                break;
             }
         }
 
@@ -875,32 +832,25 @@ pub fn search_exact_hyperkmer_match(
     left_ext_hk_metadata: &HKMetadata,
     right_ext_hk_metadata: &HKMetadata,
 ) -> bool {
-    let left_bucket_id = left_ext_hk_metadata.get_bucket_id();
-    let right_bucket_id = right_ext_hk_metadata.get_bucket_id();
-    let (left_hyperkmers, right_hyperkmers) =
-        hyperkmers.acquire_two_locks_read_mode(left_bucket_id, right_bucket_id);
+    // get sequences as they would appear if the current superkmer was canonical
+
+    // extract whole contexts
+    let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+        left_ext_hk_metadata.get_bucket_id(),
+        right_ext_hk_metadata.get_bucket_id(),
+    );
     let right_hyperkmers = match right_hyperkmers.as_ref() {
         Some(x) => x,
         None => &left_hyperkmers,
     };
 
-    // get sequences as they would appear if the current superkmer was canonical
-    let left_hyperkmer =
-        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata);
-    let left_hyperkmer =
-        left_hyperkmer.change_orientation_if(left_ext_hk_metadata.get_change_orientation());
-    let left_hyperkmer = left_hyperkmer.subsequence(
-        left_ext_hk_metadata.get_start(),
-        left_ext_hk_metadata.get_end(),
-    );
-
-    let right_hyperkmer =
-        get_subsequence_from_metadata(right_hyperkmers, large_hyperkmers, right_ext_hk_metadata);
-    let right_hyperkmer =
-        right_hyperkmer.change_orientation_if(right_ext_hk_metadata.get_change_orientation());
-    let right_hyperkmer = right_hyperkmer.subsequence(
-        right_ext_hk_metadata.get_start(),
-        right_ext_hk_metadata.get_end(),
+    // extract relevant subsequences frome whole context
+    let (left_hyperkmer, right_hyperkmer) = extract_left_and_right_subsequences(
+        &left_hyperkmers,
+        right_hyperkmers,
+        large_hyperkmers,
+        left_ext_hk_metadata,
+        right_ext_hk_metadata,
     );
 
     let match_left = left_hk.equal_bitpacked(&left_hyperkmer);

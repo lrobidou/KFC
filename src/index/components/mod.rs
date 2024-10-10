@@ -3,7 +3,9 @@ mod hyperkmers_counts;
 mod superkmers_count;
 
 pub use extended_hyperkmers::{ExtendedHyperkmers, ParallelExtendedHyperkmers};
-pub use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
+pub use hyperkmers_counts::{
+    extract_left_and_right_subsequences, search_exact_hyperkmer_match, HKCount, HKMetadata,
+};
 pub use superkmers_count::SuperKmerCounts;
 pub type LargeExtendedHyperkmer = (usize, Vec<u64>);
 

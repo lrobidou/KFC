@@ -1,3 +1,4 @@
+use crate::index::components::extract_left_and_right_subsequences;
 use crate::{index::components::get_subsequence_from_metadata, Count};
 
 use super::components::{HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers};
@@ -54,32 +55,26 @@ pub fn extract_context(
     large_hyperkmers: &[LargeExtendedHyperkmer],
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
-    // get sequences as they would appear if the current superkmer was canonical
-    let left_hyperkmers = hyperkmers.get_bucket_from_id(left_ext_hk_metadata.get_bucket_id());
-    let left_hyperkmers = left_hyperkmers.read().unwrap();
-    let right_hyperkmers = hyperkmers.get_bucket_from_id(right_ext_hk_metadata.get_bucket_id());
-    let right_hyperkmers = right_hyperkmers.read().unwrap();
-
-    let left_ext_hk =
-        get_subsequence_from_metadata(&left_hyperkmers, large_hyperkmers, left_ext_hk_metadata)
-            .change_orientation_if(left_ext_hk_metadata.get_change_orientation());
-
-    let right_ext_hk =
-        get_subsequence_from_metadata(&right_hyperkmers, large_hyperkmers, right_ext_hk_metadata)
-            .change_orientation_if(right_ext_hk_metadata.get_change_orientation());
-
-    // extract candidate hyperkmers
-    let left_hyperkmer = &left_ext_hk.subsequence(
-        left_ext_hk_metadata.get_start(),
-        left_ext_hk_metadata.get_end(),
+    let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
+        left_ext_hk_metadata.get_bucket_id(),
+        right_ext_hk_metadata.get_bucket_id(),
     );
-    let right_hyperkmer = &right_ext_hk.subsequence(
-        right_ext_hk_metadata.get_start(),
-        right_ext_hk_metadata.get_end(),
+    let right_hyperkmers = match right_hyperkmers.as_ref() {
+        Some(x) => x,
+        None => &left_hyperkmers,
+    };
+
+    // extract relevant subsequences frome whole context
+    let (left_hk, right_hk) = extract_left_and_right_subsequences(
+        &left_hyperkmers,
+        right_hyperkmers,
+        large_hyperkmers,
+        left_ext_hk_metadata,
+        right_ext_hk_metadata,
     );
 
-    let left_string = left_hyperkmer.as_vec();
-    let right_string = right_hyperkmer.as_vec();
+    let left_string = left_hk.as_vec();
+    let right_string = right_hk.as_vec();
 
     // TODO there might be a way to prevent copy here
     debug_assert_eq!(
