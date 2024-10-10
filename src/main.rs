@@ -74,7 +74,7 @@ struct BuildArgs {
     m: usize,
     /// Expert parameter: solidity threshold for superkmers
     #[arg(short, long, default_value_t = 2)]
-    superkmer_threshold: Count,
+    threshold_superkmer: Count,
     /// Input file (FASTA/Q, possibly gzipped)
     #[arg(short, long)]
     input: String,
@@ -214,7 +214,7 @@ fn main() {
             assert!(k % 2 == 1, "k must be odd");
             let m = args.m;
             assert!(m % 2 == 1, "m must be odd");
-            let threshold = args.superkmer_threshold;
+            let threshold = args.threshold_superkmer;
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {
