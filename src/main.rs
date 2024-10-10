@@ -58,7 +58,9 @@ struct Cli {
 enum Command {
     /// Build an index counting the k-mers of a FASTA/Q file
     Build(BuildArgs),
+    /// Dump an index into a text or KFF file
     Dump(DumpArgs),
+    /// Dump a KFF file into a text file (warning: KFC only handles KFF files produced by KFC)
     KFFDump(KFFDumpArgs),
 }
 
@@ -70,9 +72,9 @@ struct BuildArgs {
     /// Minimizer size
     #[arg(short, default_value_t = 21)]
     m: usize,
-    /// Solidity threshold (for superkmers)
+    /// Expert parameter: solidity threshold for superkmers
     #[arg(short, long, default_value_t = 2)]
-    threshold: Count,
+    superkmer_threshold: Count,
     /// Input file (FASTA/Q, possibly gzipped)
     #[arg(short, long)]
     input: String,
@@ -212,7 +214,7 @@ fn main() {
             assert!(k % 2 == 1, "k must be odd");
             let m = args.m;
             assert!(m % 2 == 1, "m must be odd");
-            let threshold = args.threshold;
+            let threshold = args.superkmer_threshold;
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {
