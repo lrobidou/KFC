@@ -441,8 +441,8 @@ mod tests {
         let superkmer = superkmers[0];
 
         // let's assume the minimizer is as follow
-        assert_eq!(superkmer.start_of_minimizer(), 12);
-        assert_eq!(superkmer.end_of_minimizer(), 22);
+        assert_eq!(superkmer.start_of_minimizer(), 24);
+        assert_eq!(superkmer.end_of_minimizer(), 34);
 
         let hyperkmers = ParallelExtendedHyperkmers::new(kmer.len(), 7);
         let large_hyperkmers = Vec::new();
@@ -557,8 +557,8 @@ mod tests {
         let superkmer = superkmers[0];
 
         // let's assume the minimizer is as follow
-        assert_eq!(superkmer.start_of_minimizer(), 12);
-        assert_eq!(superkmer.end_of_minimizer(), 22);
+        assert_eq!(superkmer.start_of_minimizer(), 24);
+        assert_eq!(superkmer.end_of_minimizer(), 34);
 
         let hyperkmers = ParallelExtendedHyperkmers::new(kmer.len(), 7);
         let count = 34;
