@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// A custom RingBuf implementation that has a fixed size `w` and wraps around.
 pub struct RingBuf<V> {
     w: usize,

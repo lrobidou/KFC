@@ -1,6 +1,7 @@
-// Adapted from Ragnar Groot Koerkamp's minimizers crate
+// Adapted from Ragnar Groot Koerkamp's minimizers crate to handle ties in a window.
 // https://github.com/RagnarGrootKoerkamp/minimizers/tree/master/src/simd
 
+#![allow(dead_code)]
 #![cfg_attr(
     not(any(
         all(

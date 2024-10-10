@@ -1,5 +1,5 @@
 use super::superkmer::Superkmer;
-use crate::minimizer_iter::{simd_minimizer_iter, MinimizerItem};
+use crate::minimizer_iter::CanonicalMinimizerIterator;
 use crate::superkmer::REVCOMP_TAB;
 use std::cmp::Ordering;
 use std::iter::{Copied, Map, Rev};
@@ -40,18 +40,23 @@ pub fn is_canonical(seq: &[u8]) -> bool {
     true
 }
 
-pub struct SuperkmerIterator<'a, I: Iterator<Item = MinimizerItem>> {
+pub struct SuperkmerIterator<'a> {
     sequence: &'a [u8],
-    minimizer_iter: std::iter::Peekable<I>,
+    minimizer_iter: std::iter::Peekable<CanonicalMinimizerIterator<'a>>,
     k: usize,
     m: usize,
-    previous_minimizer: Option<MinimizerItem>,
+    previous_minimizer: Option<(u64, usize, usize, bool)>,
 }
 
-impl<'a, I: Iterator<Item = MinimizerItem>> SuperkmerIterator<'a, I> {
-    fn new(sequence: &'a [u8], minimizer_iter: I, k: usize, m: usize) -> Self {
+impl<'a> SuperkmerIterator<'a> {
+    fn new(
+        sequence: &'a [u8],
+        minimizer_iter: CanonicalMinimizerIterator<'a>,
+        k: usize,
+        m: usize,
+    ) -> Self {
         let mut minimizer_iter = minimizer_iter.peekable();
-        let previous_minimizer: Option<MinimizerItem> = minimizer_iter.next();
+        let previous_minimizer: Option<(u64, usize, usize, bool)> = minimizer_iter.next();
         Self {
             sequence,
             minimizer_iter,
@@ -62,36 +67,32 @@ impl<'a, I: Iterator<Item = MinimizerItem>> SuperkmerIterator<'a, I> {
     }
 }
 
-impl<'a, I: Iterator<Item = MinimizerItem>> Iterator for SuperkmerIterator<'a, I> {
+impl<'a> Iterator for SuperkmerIterator<'a> {
     type Item = Superkmer<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.previous_minimizer {
             Some(ref previous_minimizer) => match self.minimizer_iter.next() {
                 Some(current_minimizer) => {
-                    let mid = previous_minimizer.position + self.m / 2;
-                    let same_orientation = self.sequence[mid] & 0b100 == 0;
                     let sk = Superkmer::new(
                         self.sequence,
-                        previous_minimizer.position,
-                        previous_minimizer.position + self.m,
-                        previous_minimizer.window_start,
-                        current_minimizer.window_start + self.k - 1,
-                        same_orientation,
+                        previous_minimizer.1,
+                        previous_minimizer.1 + self.m,
+                        previous_minimizer.2,
+                        current_minimizer.2 + self.k - 1,
+                        !previous_minimizer.3,
                     );
                     self.previous_minimizer = Some(current_minimizer);
                     Some(sk)
                 }
                 None => {
-                    let mid = previous_minimizer.position + self.m / 2;
-                    let same_orientation = self.sequence[mid] & 0b100 == 0;
                     let sk = Superkmer::new(
                         self.sequence,
-                        previous_minimizer.position,
-                        previous_minimizer.position + self.m,
-                        previous_minimizer.window_start,
+                        previous_minimizer.1,
+                        previous_minimizer.1 + self.m,
+                        previous_minimizer.2,
                         self.sequence.len(),
-                        same_orientation,
+                        !previous_minimizer.3,
                     );
                     self.previous_minimizer = None;
                     Some(sk)
@@ -106,11 +107,12 @@ pub fn compute_superkmers_linear_streaming(
     sequence: &[u8],
     k: usize,
     m: usize,
-) -> Option<SuperkmerIterator<impl Iterator<Item = MinimizerItem> + '_>> {
+) -> Option<SuperkmerIterator> {
     if sequence.len() < k {
         None
     } else {
-        let minimizer_iter = simd_minimizer_iter(sequence, m, k - m + 1);
+        let minimizer_iter: CanonicalMinimizerIterator<u64> =
+            CanonicalMinimizerIterator::new(sequence, m, (k - m + 1) as u16);
         let superkmer_iter = SuperkmerIterator::new(sequence, minimizer_iter, k, m);
         Some(superkmer_iter)
     }

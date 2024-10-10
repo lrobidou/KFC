@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::simd::minimizer::minimizer_simd_it;
 use core::cmp::min;
 use core::hash::Hash;
@@ -50,7 +52,6 @@ pub struct CanonicalMinimizerIterator<'a, T: PrimInt + Hash = u64> {
 }
 
 impl<'a, T: PrimInt + Hash> CanonicalMinimizerIterator<'a, T> {
-    #[deprecated(note = "This is a deprecated implementation, the SIMD version is recommended.")]
     pub fn new(seq: &'a [u8], minimizer_size: usize, width: u16) -> Self {
         let queue = MinimizerQueue::new(width);
         let width = width as usize;
