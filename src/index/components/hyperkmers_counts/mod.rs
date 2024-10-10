@@ -588,8 +588,14 @@ impl HKCount {
 
                 match_case = std::cmp::min(match_case, MatchCases::new(left_match, right_match));
 
-                if match_case.is_min_cost() {
+                // if the cost of the case is low enough, we stop
+                // higher threshold => we accept worst solutions (potentially leading to more memory consumption)
+                // but this let us stop the search quicker than when using low thresholds => indexation is faster
+                let cost = match_case.cost();
+                if cost == 0 {
                     *count += 1;
+                    break;
+                } else if match_case.cost() <= 8 {
                     break;
                 }
             }
