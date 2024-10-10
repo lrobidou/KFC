@@ -509,6 +509,7 @@ fn second_stage_for_a_chunk(
     replace_n(sequences);
     // large hyperkmers are not going to be modified
     // => we can acquire them here
+    let hyperkmers = hyperkmers.read().unwrap();
     let large_hyperkmers = large_hyperkmers.read().unwrap();
     for sequence in sequences {
         let mut superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
@@ -532,12 +533,10 @@ fn second_stage_for_a_chunk(
                 k,
                 &first_truncated_sk,
                 hk_count,
-                hyperkmers,
+                &hyperkmers,
                 &large_hyperkmers,
             );
         }
-
-        let hyperkmers_lock = hyperkmers.read().unwrap();
 
         let mut last_superkmer = None;
         // iterates over all the superkmers exepct the first one
@@ -579,7 +578,7 @@ fn second_stage_for_a_chunk(
 
             let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
             let match_metadata = hk_count.search_for_maximal_inclusion(
-                &hyperkmers_lock,
+                &hyperkmers,
                 &large_hyperkmers,
                 k,
                 m,
@@ -611,7 +610,7 @@ fn second_stage_for_a_chunk(
                     k,
                     &last_truncated_superkmer,
                     hk_count,
-                    hyperkmers,
+                    &hyperkmers,
                     &large_hyperkmers,
                 );
             }
@@ -623,22 +622,21 @@ fn increase_count_of_sk_or_insert_it(
     k: usize,
     superkmer: &Superkmer,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Vec<LargeExtendedHyperkmer>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &[LargeExtendedHyperkmer],
 ) {
     let minimizer = superkmer.get_minimizer();
 
     // get locks
     let hk_count_lock = hk_count.get_from_id_u64(minimizer);
     let mut hk_count = hk_count_lock.write().unwrap();
-    let hyperkmers = hyperkmers.read().unwrap();
 
     // get left and right parts of the superkmer
     let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
 
     hk_count.increase_count_of_sk_if_found_else_insert_it(
         k,
-        &hyperkmers,
+        hyperkmers,
         large_hyperkmers,
         &minimizer,
         &left_sk,
@@ -648,7 +646,7 @@ fn increase_count_of_sk_or_insert_it(
     {
         debug_assert!(hk_count.search_exact_match(
             &minimizer,
-            &hyperkmers,
+            hyperkmers,
             large_hyperkmers,
             &left_sk,
             &right_sk
@@ -672,9 +670,7 @@ fn check_correct_inclusion_first_stage(
 ) {
     // DEBUG might cause deadlock ?
     use crate::index::components::get_subsequence_from_metadata;
-    // let left_hyperkmers if id_left_bucket == id_right_bucket {
 
-    // }
     let left_hyperkmers = hyperkmers.get_bucket_from_id(id_left_bucket);
     let left_hyperkmers = left_hyperkmers.read().unwrap();
     let right_hyperkmers = hyperkmers.get_bucket_from_id(id_right_bucket);

@@ -339,6 +339,7 @@ impl HKCount {
     }
 
     /// Return true if the minimizer is present, false otherwise
+    #[inline]
     pub fn contains_minimizer(&self, minimizer: &Minimizer) -> bool {
         self.data.contains_key(minimizer)
     }
@@ -513,7 +514,7 @@ impl HKCount {
         &mut self,
         k: usize,
         hyperkmers: &ParallelExtendedHyperkmers,
-        large_hyperkmers: &Vec<LargeExtendedHyperkmer>,
+        large_hyperkmers: &[LargeExtendedHyperkmer],
         minimizer: &Minimizer,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
@@ -524,7 +525,6 @@ impl HKCount {
             for (c_left_hk_metadata, c_right_hk_metadata, count) in
                 self.data.get_mut_iter(minimizer)
             {
-                // TODO check for deadlocks
                 // extract ids
                 let left_bucket_id = c_left_hk_metadata.get_bucket_id();
                 let right_bucket_id = c_right_hk_metadata.get_bucket_id();
