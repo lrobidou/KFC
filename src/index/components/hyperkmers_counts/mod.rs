@@ -664,8 +664,19 @@ fn insert_new_right_hyperkmer_and_compute_associated_metadata(
         let mut start = sequence.as_vec();
         start.extend_from_slice(&vec![b'A'; nb_base_missing]);
         let full_sequence = Subsequence::new(&start, 0, k - 1, true);
-        // TODO prove it
-        assert!(full_sequence.is_canonical()); // Adding A at the end of a canonical read does not make it canonical
+
+        #[cfg(debug_assertions)]
+        {
+            // Adding A at the end of a canonical read keeps it canonical
+            if !full_sequence.is_canonical() {
+                // oops, we juste changed the canonicity of this sequence...
+                // ... or did we ?
+                // maybe it was a palindrome all along !
+                if !full_sequence.is_equal_to_its_revcomp() {
+                    panic!("Adding A at the end of a canonical read made it canonical");
+                }
+            }
+        }
 
         let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
         // create the associated metadata
@@ -676,7 +687,19 @@ fn insert_new_right_hyperkmer_and_compute_associated_metadata(
         start.extend_from_slice(&vec![b'T'; nb_base_missing]);
         let full_sequence = Subsequence::new(&start, 0, k - 1, true);
         // TODO prove it
-        assert!(!full_sequence.is_canonical()); // Adding T at the end of a non canonical read does not make it canonical
+
+        #[cfg(debug_assertions)]
+        {
+            // Adding T at the end of a non canonical read does not make it canonical
+            if full_sequence.is_canonical() {
+                // oops, we juste changed the canonicity of this sequence...
+                // ... or did we ?
+                // maybe it was a palindrome all along !
+                if !full_sequence.is_equal_to_its_revcomp() {
+                    panic!();
+                }
+            }
+        }
         let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
         // create the associated metadata
         HKMetadata::new(id_bucket, id_hk, 0, sequence.len(), false, true)
@@ -697,8 +720,20 @@ fn insert_new_left_hyperkmer_and_compute_associated_metadata(
         let mut start = vec![b'A'; nb_base_missing];
         start.extend_from_slice(&sequence.as_vec());
         let full_sequence = Subsequence::new(&start, 0, k - 1, true);
-        // TODO prove it
-        assert!(full_sequence.is_canonical()); // Adding T at the beginning of a non canonical read does not make it canonical
+        assert!(full_sequence.is_canonical()); // Adding A at the beginning of a canonical read keep it canonical
+
+        #[cfg(debug_assertions)]
+        {
+            // Adding T at the beginning of a non canonical read does not make it canonical
+            if !full_sequence.is_canonical() {
+                // oops, we juste changed the canonicity of this sequence...
+                // ... or did we ?
+                // maybe it was a palindrome all along !
+                if !full_sequence.is_equal_to_its_revcomp() {
+                    panic!();
+                }
+            }
+        }
 
         let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
         // create the associated metadata
@@ -714,9 +749,19 @@ fn insert_new_left_hyperkmer_and_compute_associated_metadata(
     } else {
         let mut start = vec![b'T'; nb_base_missing];
         start.extend_from_slice(&sequence.as_vec());
-        let full_sequence = Subsequence::new(&start, 0, k - 1, true);
-        // TODO prove it
-        assert!(!full_sequence.is_canonical()); // Adding T at the beginning of a non canonical read does not make it canonical
+        let full_sequence = Subsequence::new(&start, 0, k - 1, true); // DEBUG
+        #[cfg(debug_assertions)]
+        {
+            // Adding T at the beginning of a non canonical read does not make it canonical
+            if full_sequence.is_canonical() {
+                // oops, we juste changed the canonicity of this sequence...
+                // ... or did we ?
+                // maybe it was a palindrome all along !
+                if !full_sequence.is_equal_to_its_revcomp() {
+                    panic!();
+                }
+            }
+        }
         let (id_bucket, id_hk) = hyperkmers.add_new_ext_hyperkmer(&full_sequence);
         // create the associated metadata
         HKMetadata::new(
