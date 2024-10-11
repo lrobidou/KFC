@@ -182,13 +182,16 @@ impl Index<CompleteIndex> {
     /// Constructs a new `Index` indexing a set of sequences
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
     pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: P) -> Self {
-        let start_fisrt_step = Instant::now();
+        let start_fisrt_stage = Instant::now();
         let (super_kmer_counts, hk_count, hyperkmers, large_hyperkmers) =
             first_stage(&path, k, m, threshold);
+        let time_first_stage = start_fisrt_stage.elapsed().as_secs();
         println!(
-            "time first stage: {} milliseconds",
-            start_fisrt_step.elapsed().as_millis()
+            "time first stage: {} second{}",
+            time_first_stage,
+            if time_first_stage > 1 { "s" } else { "" }
         );
+
         let start_second_stage = Instant::now();
         let discarded_minimizers = second_stage(
             &super_kmer_counts,
@@ -200,9 +203,11 @@ impl Index<CompleteIndex> {
             m,
             threshold,
         );
+        let time_second_stage = start_second_stage.elapsed().as_secs();
         println!(
-            "time second stage: {} milliseconds",
-            start_second_stage.elapsed().as_millis()
+            "time second stage: {} second{}",
+            time_second_stage,
+            if time_second_stage > 1 { "s" } else { "" }
         );
 
         Self {
