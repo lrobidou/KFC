@@ -130,6 +130,24 @@ struct KFFDumpArgs {
     threads: Option<usize>,
 }
 
+/// Checks a file exists. Exits the program if the path is not a file.
+fn check_file_exists<P>(filepath: P)
+where
+    P: AsRef<Path>,
+{
+    if filepath.as_ref().exists() {
+        if !filepath.as_ref().is_file() {
+            let filepath = filepath.as_ref().to_str().unwrap();
+            eprintln!("Error: '{filepath}' is not a file.");
+            std::process::exit(1);
+        }
+    } else {
+        let filepath = filepath.as_ref().to_str().unwrap();
+        eprintln!("Error: file '{filepath}' does not exist.");
+        std::process::exit(1);
+    }
+}
+
 /// Prints some statistics about the index
 fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
     index: &Index<FI>,
@@ -216,6 +234,11 @@ fn main() {
             assert!(m % 2 == 1, "m must be odd");
             let threshold = args.threshold_superkmer;
 
+            check_file_exists(&args.input);
+            if let Some(ref kmc_file) = args.check_kmc {
+                check_file_exists(kmc_file);
+            }
+
             // set the number of threads
             if let Some(nb_threads) = args.threads {
                 rayon::ThreadPoolBuilder::new()
@@ -262,6 +285,8 @@ fn main() {
             let input = args.input_index;
             let kmer_threshold = args.kmer_threshold;
 
+            check_file_exists(&input);
+
             // set the number of threads
             if let Some(nb_threads) = args.threads {
                 rayon::ThreadPoolBuilder::new()
@@ -280,6 +305,8 @@ fn main() {
         }
         Command::KFFDump(args) => {
             let kmer_threshold = args.kmer_threshold;
+
+            check_file_exists(&args.input_kff);
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {
