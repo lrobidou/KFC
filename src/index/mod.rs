@@ -5,11 +5,11 @@ mod extraction;
 
 use super::Minimizer;
 use crate::serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING};
-use crate::Count;
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear_streaming,
 };
+use crate::{format_number, Count};
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 
 use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
@@ -188,7 +188,7 @@ impl Index<CompleteIndex> {
         let time_first_stage = start_fisrt_stage.elapsed().as_secs();
         println!(
             "time first stage: {} second{}",
-            time_first_stage,
+            format_number(time_first_stage),
             if time_first_stage > 1 { "s" } else { "" }
         );
 
@@ -206,7 +206,7 @@ impl Index<CompleteIndex> {
         let time_second_stage = start_second_stage.elapsed().as_secs();
         println!(
             "time second stage: {} second{}",
-            time_second_stage,
+            format_number(time_second_stage),
             if time_second_stage > 1 { "s" } else { "" }
         );
 

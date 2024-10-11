@@ -130,6 +130,18 @@ struct KFFDumpArgs {
     threads: Option<usize>,
 }
 
+/// Formats the number in a String
+fn format_number(number: u64) -> String {
+    number
+        .to_string()
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .unwrap()
+        .join(",")
+}
 /// Checks a file exists. Exits the program if the path is not a file.
 fn check_file_exists<P>(filepath: P)
 where
@@ -161,17 +173,29 @@ fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
         .read()
         .expect("could not acquire read lock");
 
-    let nb_base_in_large_hyperkmers: usize =
-        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
     let number_of_hyperkmers = hyperkmers.get_nb_inserted();
     let number_of_large_hyperkmers = large_hyperkmers.len();
+    let nb_base_in_hyperkmers: usize = number_of_hyperkmers * (k - 1);
+    let nb_base_in_large_hyperkmers: usize =
+        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
+
     println!("===== stats =====");
-    p!(number_of_hyperkmers);
-    p!(number_of_large_hyperkmers);
-    println!("nb bases in hyperkmers: {}", number_of_hyperkmers * (k - 1));
+    println!(
+        "number_of_hyperkmers: {}",
+        format_number(number_of_hyperkmers.try_into().unwrap())
+    );
+    println!(
+        "number_of_large_hyperkmers: {}",
+        format_number(number_of_large_hyperkmers.try_into().unwrap())
+    );
+
+    println!(
+        "nb bases in hyperkmers: {}",
+        format_number(nb_base_in_hyperkmers.try_into().unwrap())
+    );
     println!(
         "nb base in large hyperkmers: {}",
-        nb_base_in_large_hyperkmers
+        format_number(nb_base_in_large_hyperkmers.try_into().unwrap())
     );
 }
 
