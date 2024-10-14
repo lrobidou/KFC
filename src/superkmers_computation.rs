@@ -1,5 +1,6 @@
 use super::superkmer::Superkmer;
 use crate::minimizer_iter::CanonicalMinimizerIterator;
+use crate::minimizer_iter::{simd_minimizer_iter, MinimizerItem};
 use crate::superkmer::REVCOMP_TAB;
 use std::cmp::Ordering;
 use std::iter::{Copied, Map, Rev};
@@ -133,6 +134,8 @@ pub fn compute_superkmers_linear_streaming(
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+
     use super::*;
 
     #[test]
@@ -146,6 +149,33 @@ mod tests {
         let revcomp: Vec<u8> = reverse_complement("ACTGTGCAGTNNGNCA".as_bytes()).collect();
         // assert_eq!(revcomp, b"TG\0C\0\0ACTGCACAGT");
         assert_eq!(revcomp, b"TGTCTTACTGCACAGT");
+    }
+
+    #[test]
+    fn test_single_kmer() {
+        let kmer = "GTCCTTTTGAAATTAATACGAATCCTGAACGGTGGAATACTATTAAACCAGGTCGTAGTTTTTTGTTGAGTATAACCTTAAATGATATGTATGCCTTTATACCAGGAGATAATTATTATTTTATAAAATCATCTGGCTATAAATTTGTTAA";
+        let rc = "TTAACAAATTTATAGCCAGATGATTTTATAAAATAATAATTATCTCCTGGTATAAAGGCATACATATCATTTAAGGTTATACTCAACAAAAAACTACGACCTGGTTTAATAGTATTCCACCGTTCAGGATTCGTATTAATTTCAAAAGGAC";
+
+        let k = 151;
+        let m = 21;
+
+        assert_eq!(kmer.len(), k);
+        assert_eq!(rc.len(), k);
+
+        let superkmers = compute_superkmers_linear_streaming(kmer.as_bytes(), k, m)
+            .unwrap()
+            .collect_vec();
+        let superkmers_rc = compute_superkmers_linear_streaming(rc.as_bytes(), k, m)
+            .unwrap()
+            .collect_vec();
+
+        assert_eq!(superkmers.len(), 1);
+        assert_eq!(superkmers_rc.len(), 1);
+
+        let superkmer = superkmers[0];
+        let superkmer_rc = superkmers_rc[0];
+
+        assert_eq!(superkmer.get_minimizer(), superkmer_rc.get_minimizer());
     }
 
     // #[test]
