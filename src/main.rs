@@ -276,10 +276,18 @@ fn main() {
     match args.command {
         Command::Build(args) => {
             let k = args.k;
-            assert!(k % 2 == 1, "k must be odd");
             let m = args.m;
-            assert!(m % 2 == 1, "m must be odd");
             let threshold = args.threshold_superkmer;
+
+            // check that k and m are odd
+            if k % 2 != 1 {
+                eprintln!("Error: k must be odd.");
+                std::process::exit(1);
+            }
+            if m % 2 != 1 {
+                eprintln!("Error: m must be odd.");
+                std::process::exit(1);
+            }
 
             check_file_exists(&args.input);
             if let Some(ref kmc_file) = args.check_kmc {
