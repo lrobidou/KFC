@@ -74,6 +74,14 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
         self.same_orientation == is_original_subsequence_canonical
     }
 
+    #[cfg(debug_assertions)]
+    pub fn is_equal_to_its_revcomp(&self) -> bool {
+        use crate::superkmers_computation::is_equal_to_its_revcomp;
+
+        let subsequence = &self.packing.read[self.start..self.end];
+        is_equal_to_its_revcomp(subsequence)
+    }
+
     pub fn to_canonical(self) -> Self {
         let subsequence = &self.packing.read[self.start..self.end];
 

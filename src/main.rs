@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use superkmers_computation::is_canonical;
 
 type Minimizer = u64;
@@ -78,7 +78,7 @@ struct BuildArgs {
     /// Input file (FASTA/Q, possibly gzipped)
     #[arg(short, long)]
     input: String,
-    /// Output file (no dump by default)
+    /// Output file ({input}.kff by default)
     #[arg(short, long)]
     output: Option<String>,
     /// Number of threads (use all core by default)
@@ -87,7 +87,7 @@ struct BuildArgs {
     /// Check against the results of KMC (no check by default)
     #[arg(long)]
     check_kmc: Option<String>,
-    /// Dump full index, with superkmer informations (partial dump by default)
+    /// Expert parameter: dump additional information with the index. KFC cannot read these indexes from the CLI. (partial dump by default)
     #[arg(short, long)]
     fulldump: bool,
     /// Print some statistics about the index (no print by default)
@@ -130,6 +130,50 @@ struct KFFDumpArgs {
     threads: Option<usize>,
 }
 
+/// Formats a u64 in a String
+fn format_number_u64(number: u64) -> String {
+    number
+        .to_string()
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .unwrap()
+        .join(",")
+}
+
+/// Formats a usize in a String
+fn format_number_usize(number: usize) -> String {
+    number
+        .to_string()
+        .as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(std::str::from_utf8)
+        .collect::<Result<Vec<&str>, _>>()
+        .unwrap()
+        .join(",")
+}
+
+/// Checks a file exists. Exits the program if the path is not a file.
+fn check_file_exists<P>(filepath: P)
+where
+    P: AsRef<Path>,
+{
+    if filepath.as_ref().exists() {
+        if !filepath.as_ref().is_file() {
+            let filepath = filepath.as_ref().to_str().unwrap();
+            eprintln!("Error: '{filepath}' is not a file.");
+            std::process::exit(1);
+        }
+    } else {
+        let filepath = filepath.as_ref().to_str().unwrap();
+        eprintln!("Error: file '{filepath}' does not exist.");
+        std::process::exit(1);
+    }
+}
+
 /// Prints some statistics about the index
 fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
     index: &Index<FI>,
@@ -143,17 +187,38 @@ fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
         .read()
         .expect("could not acquire read lock");
 
-    let nb_base_in_large_hyperkmers: usize =
-        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
     let number_of_hyperkmers = hyperkmers.get_nb_inserted();
     let number_of_large_hyperkmers = large_hyperkmers.len();
+    let nb_base_in_hyperkmers: usize = number_of_hyperkmers * (k - 1);
+    let nb_base_in_large_hyperkmers: usize =
+        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
+    let (nb_minimizers, nb_kmers) = index.count_minimizers_and_kmers();
+
     println!("===== stats =====");
-    p!(number_of_hyperkmers);
-    p!(number_of_large_hyperkmers);
-    println!("nb bases in hyperkmers: {}", number_of_hyperkmers * (k - 1));
     println!(
-        "nb base in large hyperkmers: {}",
-        nb_base_in_large_hyperkmers
+        "indexed {} kmers with {} minimizers",
+        format_number_usize(nb_minimizers),
+        format_number_usize(nb_kmers)
+    );
+    println!(
+        "number of hyperkmers: {}",
+        format_number_usize(number_of_hyperkmers + number_of_large_hyperkmers)
+    );
+
+    #[cfg(debug_assertions)]
+    println!(
+        "    [debug] including {} large hyperkmers",
+        format_number_usize(number_of_large_hyperkmers)
+    );
+
+    println!(
+        "number of bases in hyperkmers: {}",
+        format_number_usize(nb_base_in_hyperkmers + nb_base_in_large_hyperkmers)
+    );
+    #[cfg(debug_assertions)]
+    println!(
+        "    [debug] including {} bases in large hyperkmers",
+        format_number_usize(nb_base_in_large_hyperkmers)
     );
 }
 
@@ -211,10 +276,23 @@ fn main() {
     match args.command {
         Command::Build(args) => {
             let k = args.k;
-            assert!(k % 2 == 1, "k must be odd");
             let m = args.m;
-            assert!(m % 2 == 1, "m must be odd");
             let threshold = args.threshold_superkmer;
+
+            // check that k and m are odd
+            if k % 2 != 1 {
+                eprintln!("Error: k must be odd.");
+                std::process::exit(1);
+            }
+            if m % 2 != 1 {
+                eprintln!("Error: m must be odd.");
+                std::process::exit(1);
+            }
+
+            check_file_exists(&args.input);
+            if let Some(ref kmc_file) = args.check_kmc {
+                check_file_exists(kmc_file);
+            }
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {
@@ -223,6 +301,17 @@ fn main() {
                     .build_global()
                     .expect("unable to configure the threads");
             }
+
+            // get output filename
+            let output_file = match args.output {
+                Some(filename) => filename,
+                None => {
+                    let mut path = PathBuf::from(&args.input);
+                    // Set the new extension or add one if there's none
+                    path.set_extension("kfc");
+                    path.to_string_lossy().to_string()
+                }
+            };
 
             // build the index
             let index = Index::<CompleteIndex>::index(k, m, threshold, args.input);
@@ -236,31 +325,31 @@ fn main() {
             }
 
             // write the index to disk
-            if let Some(output_file) = args.output {
-                if args.fulldump {
-                    serde::bin::dump(&index, &output_file).expect("impossible to dump");
+            if args.fulldump {
+                serde::bin::dump(&index, &output_file).expect("impossible to dump");
 
-                    #[cfg(debug_assertions)]
-                    {
-                        let index2 = serde::bin::load(&output_file).expect("impossible to load");
-                        debug_assert!(index == index2);
-                    }
-                } else {
-                    // not a full dump: let's remove infos from the index
-                    let index = index.remove_superkmer_infos();
-                    serde::bin::dump(&index, &output_file).expect("impossible to dump");
+                #[cfg(debug_assertions)]
+                {
+                    let index2 = serde::bin::load(&output_file).expect("impossible to load");
+                    debug_assert!(index == index2);
+                }
+            } else {
+                // not a full dump: let's remove infos from the index
+                let index = index.remove_superkmer_infos();
+                serde::bin::dump(&index, &output_file).expect("impossible to dump");
 
-                    #[cfg(debug_assertions)]
-                    {
-                        let index2 = serde::bin::load(&output_file).expect("impossible to load");
-                        debug_assert!(index == index2);
-                    }
+                #[cfg(debug_assertions)]
+                {
+                    let index2 = serde::bin::load(&output_file).expect("impossible to load");
+                    debug_assert!(index == index2);
                 }
             }
         }
         Command::Dump(args) => {
             let input = args.input_index;
             let kmer_threshold = args.kmer_threshold;
+
+            check_file_exists(&input);
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {
@@ -280,6 +369,8 @@ fn main() {
         }
         Command::KFFDump(args) => {
             let kmer_threshold = args.kmer_threshold;
+
+            check_file_exists(&args.input_kff);
 
             // set the number of threads
             if let Some(nb_threads) = args.threads {

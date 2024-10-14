@@ -5,16 +5,15 @@ mod extraction;
 
 use super::Minimizer;
 use crate::serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING};
-use crate::Count;
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear_streaming,
 };
+use crate::{format_number_u64, Count};
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 
-use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
-
 use crate::buckets::Buckets;
+use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
 use computation::{first_stage, second_stage};
 use kff::Kff;
 use rayon::prelude::*;
@@ -30,6 +29,8 @@ use std::io::BufWriter;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -182,13 +183,16 @@ impl Index<CompleteIndex> {
     /// Constructs a new `Index` indexing a set of sequences
     #[allow(clippy::self_named_constructors)] // Self named constructor ? I want it that way 🎵
     pub fn index<P: AsRef<Path>>(k: usize, m: usize, threshold: Count, path: P) -> Self {
-        let start_fisrt_step = Instant::now();
+        let start_fisrt_stage = Instant::now();
         let (super_kmer_counts, hk_count, hyperkmers, large_hyperkmers) =
             first_stage(&path, k, m, threshold);
+        let time_first_stage = start_fisrt_stage.elapsed().as_secs();
         println!(
-            "time first stage: {} milliseconds",
-            start_fisrt_step.elapsed().as_millis()
+            "time first stage: {} second{}",
+            format_number_u64(time_first_stage),
+            if time_first_stage > 1 { "s" } else { "" }
         );
+
         let start_second_stage = Instant::now();
         let discarded_minimizers = second_stage(
             &super_kmer_counts,
@@ -200,9 +204,11 @@ impl Index<CompleteIndex> {
             m,
             threshold,
         );
+        let time_second_stage = start_second_stage.elapsed().as_secs();
         println!(
-            "time second stage: {} milliseconds",
-            start_second_stage.elapsed().as_millis()
+            "time second stage: {} second{}",
+            format_number_u64(time_second_stage),
+            if time_second_stage > 1 { "s" } else { "" }
         );
 
         Self {
@@ -336,6 +342,37 @@ where
                 }
             }
         });
+    }
+
+    pub fn count_minimizers_and_kmers(&self) -> (usize, usize) {
+        let nb_minimizers = AtomicUsize::new(0);
+        let nb_kmers = AtomicUsize::new(0);
+        let hk_count_chunks = self.hk_count.chunks();
+
+        hk_count_chunks.par_iter().for_each(|chunk| {
+            let k = self.k;
+            let m = self.m;
+            let hyperkmers = self.hyperkmers.read().unwrap();
+            let large_hyperkmers = self.large_hyperkmers.read().unwrap();
+            let hk_count_chunk = chunk.read().unwrap();
+
+            let mut km_counts_grouped_by_key =
+                hk_count_chunk.get_data().iter_group_by_key().peekable();
+
+            while let Some(kmers) = extract_kmers_from_contexts_associated_to_a_minimizer(
+                &mut km_counts_grouped_by_key,
+                &hyperkmers,
+                &large_hyperkmers,
+                &k,
+                &m,
+            ) {
+                nb_minimizers.fetch_add(1, SeqCst);
+                nb_kmers.fetch_add(kmers.len(), SeqCst);
+            }
+        });
+        let nb_minimizers = nb_minimizers.load(SeqCst);
+        let nb_kmers = nb_kmers.load(SeqCst);
+        (nb_minimizers, nb_kmers)
     }
 
     pub fn par_write_kff<P: AsRef<Path>>(&self, path: P) -> Result<(), KFFError> {

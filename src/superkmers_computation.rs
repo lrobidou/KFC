@@ -40,6 +40,19 @@ pub fn is_canonical(seq: &[u8]) -> bool {
     true
 }
 
+pub fn is_equal_to_its_revcomp(seq: &[u8]) -> bool {
+    let mut orientation_1 = same_orientation(seq);
+    let mut orientation_2 = reverse_complement(seq);
+    while let (Some(xc), Some(yc)) = (orientation_1.next(), orientation_2.next()) {
+        let xc = if unlikely(xc == b'N') { b'A' } else { xc };
+
+        if xc != yc {
+            return false;
+        }
+    }
+    true
+}
+
 pub struct SuperkmerIterator<'a> {
     sequence: &'a [u8],
     minimizer_iter: std::iter::Peekable<CanonicalMinimizerIterator<'a>>,
