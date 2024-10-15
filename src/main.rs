@@ -57,10 +57,13 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Build an index counting the k-mers of a FASTA/Q file
+    #[clap(alias = "b")]
     Build(BuildArgs),
     /// Dump an index into a text or KFF file
+    #[clap(alias = "d")]
     Dump(DumpArgs),
     /// Dump a KFF file into a text file (warning: KFC only handles KFF files produced by KFC)
+    #[clap(alias = "kd")]
     KFFDump(KFFDumpArgs),
 }
 
