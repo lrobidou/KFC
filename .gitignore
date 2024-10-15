@@ -20,4 +20,5 @@ coverage/
 test_empty_serde
 test_serde
 
+.lcov.info
 .DS_Store
