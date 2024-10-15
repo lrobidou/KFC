@@ -72,9 +72,6 @@ struct BuildArgs {
     /// Minimizer size
     #[arg(short, default_value_t = 21)]
     m: usize,
-    /// Expert parameter: solidity threshold for superkmers
-    #[arg(short, long, default_value_t = 2)]
-    threshold_superkmer: Count,
     /// Input file (FASTA/Q, possibly gzipped)
     #[arg(short, long)]
     input: String,
@@ -84,15 +81,18 @@ struct BuildArgs {
     /// Number of threads (use all core by default)
     #[arg(short = 'T', long)]
     threads: Option<usize>,
-    /// Check against the results of KMC (no check by default)
-    #[arg(long)]
-    check_kmc: Option<String>,
+    /// Expert parameter: solidity threshold for superkmers
+    #[arg(short, long, default_value_t = 2)]
+    threshold_superkmer: Count,
     /// Expert parameter: dump additional information with the index. KFC cannot read these indexes from the CLI. (partial dump by default)
     #[arg(short, long)]
     fulldump: bool,
     /// Print some statistics about the index (no print by default)
     #[arg(short, long)]
     print_stats: bool,
+    /// Check against the results of KMC (no check by default)
+    #[arg(long)]
+    check_kmc: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -101,10 +101,10 @@ struct DumpArgs {
     #[arg(short, long)]
     input_index: String,
     /// Output txt file (no txt output by default)
-    #[arg(long)]
+    #[arg(short, long)]
     output_text: Option<String>,
     /// Output kff file (no kff output by default)
-    #[arg(long)]
+    #[arg(short = 'K', long)]
     output_kff: Option<String>,
     /// Minimum abundance of the k-mers to output (if text output)
     #[arg(short = 't', long)]
