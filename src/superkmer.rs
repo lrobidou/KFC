@@ -1,3 +1,5 @@
+use xxhash_rust::const_xxh3::xxh3_64;
+
 use crate::subsequence::NoBitPacked;
 use crate::subsequence::Subsequence;
 use crate::Minimizer;
@@ -75,6 +77,8 @@ impl<'a> Superkmer<'a> {
                 minizer_subsequence.iter().copied(),
             ))
         };
+
+        let minimizer = xxh3_64(&minimizer.to_le_bytes());
 
         Self {
             minimizer,
