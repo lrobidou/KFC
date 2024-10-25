@@ -1,3 +1,4 @@
+#![allow(internal_features)]
 #![cfg_attr(feature = "nightly", feature(core_intrinsics))]
 
 use ::serde::Serialize;
