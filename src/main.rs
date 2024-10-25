@@ -4,7 +4,6 @@ use ::serde::Serialize;
 use clap::{Args, Parser, Subcommand};
 use index::{CompleteIndex, FullIndexTrait, Index, StrippedIndex};
 use itertools::Itertools;
-use macros::p;
 use mashmap::MashMap;
 use serde::bin;
 use std::collections::HashMap;
@@ -31,11 +30,15 @@ mod superkmer;
 mod superkmers_computation;
 mod two_bits;
 
+#[allow(unused_imports)]
+use macros::p;
+
 // use hyperkmers_counts::{search_exact_hyperkmer_match, HKCount, HKMetadata};
 use superkmer::{reverse_complement, Superkmer};
 
 /// Macro to print the name of a variable and its value
 mod macros {
+    #[allow(unused_macros)]
     macro_rules! debug_print {
         ($var:expr) => {{
             let value = $var;

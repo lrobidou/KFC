@@ -26,13 +26,6 @@ use needletail::{parse_fastx_file, FastxReader};
 
 const BATCH_SIZE: usize = 100;
 
-// Branch prediction hint. This is currently only available on nightly but it
-// consistently improves performance by 10-15%.
-#[cfg(not(feature = "nightly"))]
-use core::convert::identity as likely;
-#[cfg(feature = "nightly")]
-use core::intrinsics::likely;
-
 fn replace_n(sequences: &mut Vec<Vec<u8>>) {
     for sequence in sequences {
         for char in sequence {

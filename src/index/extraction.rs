@@ -1,5 +1,5 @@
 use crate::index::components::extract_left_and_right_subsequences;
-use crate::{index::components::get_subsequence_from_metadata, Count};
+use crate::Count;
 
 use super::components::{HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers};
 

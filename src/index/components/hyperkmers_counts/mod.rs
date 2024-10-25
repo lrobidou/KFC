@@ -6,19 +6,15 @@ use serde::{
     ser::SerializeMap,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::{
-    collections::HashSet,
-    sync::{Arc, RwLock},
-};
+use std::collections::HashSet;
 
-use super::{add_new_hyperkmer, extended_hyperkmers::ParallelExtendedHyperkmers};
+use super::extended_hyperkmers::ParallelExtendedHyperkmers;
 use super::{get_subsequence_from_metadata, ExtendedHyperkmers, LargeExtendedHyperkmer};
 use crate::{
     check_equal_mashmap,
     subsequence::{BitPacked, NoBitPacked, Subsequence},
-    Count, Minimizer,
+    Count, Minimizer, Superkmer,
 };
-use crate::{subsequence, Superkmer};
 
 pub use hyperkmer_metadata::HKMetadata;
 
@@ -822,9 +818,9 @@ impl MatchCases {
         }
     }
 
-    fn is_min_cost(&self) -> bool {
-        self.cost() == 0
-    }
+    // fn is_min_cost(&self) -> bool {
+    //     self.cost() == 0
+    // }
 }
 
 impl Default for MatchCases {
