@@ -3,7 +3,7 @@
 ![tests](https://github.com/lrobidou/KFC/workflows/tests/badge.svg)
 [![license](https://img.shields.io/badge/license-AGPL-purple)](https://github.com/lrobidou/KFC//blob/main/LICENSE)
 
-KFC is a fast and space-efficient *k*-mer counter based on hyper-*k*-mers.
+KFC (**K**-mer **F**ast **C**ounter) is a fast and space-efficient *k*-mer counter based on hyper-*k*-mers.
 
 It is particularly well-suited for counting large *k*-mers (with *k* ≥ 63) from long reads with a low error-rate.
 
