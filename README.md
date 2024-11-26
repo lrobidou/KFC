@@ -1,7 +1,10 @@
 # KFC
+<img src="https://github.com/user-attachments/assets/2668556d-fc96-4735-9fec-16c5c731f4ad" width="150">
 
 ![tests](https://github.com/lrobidou/KFC/workflows/tests/badge.svg)
 [![license](https://img.shields.io/badge/license-AGPL-purple)](https://github.com/lrobidou/KFC//blob/main/LICENSE)
+
+
 
 KFC (**K**-mer **F**ast **C**ounter) is a fast and space-efficient *k*-mer counter based on hyper-*k*-mers.
 
