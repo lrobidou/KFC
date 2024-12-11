@@ -38,6 +38,25 @@ pub fn encode_minimizer(bytes: impl Iterator<Item = u8>) -> u64 {
     result
 }
 
+#[cfg(test)]
+pub fn decode_minimizer(bytes: u64, m: usize) -> String {
+    const NB_BASES_MAX: usize = 64 / 2;
+    // let mut nb_base = 0;
+    // let mut result: u64 = 0;
+    let nb_base_not_inserted = NB_BASES_MAX - m;
+    let mut bytes = bytes >> (2 * nb_base_not_inserted);
+
+    let mut chars = vec![];
+    for _ in 0..m {
+        let encoded_base = (bytes & 0b11) as u8;
+        bytes >>= 2;
+        let char = u8_to_char(encoded_base);
+        chars.push(char);
+    }
+    chars.reverse();
+    String::from_utf8(chars).unwrap()
+}
+
 // pub fn encode_2bits(bytes: impl Iterator<Item = u8>, len: usize) -> Vec<u8> {
 //     let add_one = (len % 4) != 0;
 //     let mut result: Vec<u8> = vec![0; (len / 4) + usize::from(add_one)];
@@ -184,6 +203,16 @@ mod tests {
         assert_eq!(char_to_2bit(g), 3);
     }
 
+    #[test]
+    fn encode_decode() {
+        let minimizer = String::from("ACTGCAGCTA");
+        let m = minimizer.len();
+
+        let encoded = encode_minimizer(minimizer.as_bytes().iter().copied());
+        let decoded = decode_minimizer(encoded, m);
+
+        assert_eq!(decoded, minimizer);
+    }
     // #[test]
     // fn test_encode_2bits_multiple_of_4() {
     //     let seq = "ACGTGCAG";
