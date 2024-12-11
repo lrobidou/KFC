@@ -68,6 +68,10 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
         self.packing.read
     }
 
+    pub fn get_subsequence_as_in_read(&self) -> &[u8] {
+        &self.packing.read[self.start..self.end]
+    }
+
     pub fn is_canonical(&self) -> bool {
         let subsequence = &self.packing.read[self.start..self.end];
         let is_original_subsequence_canonical = is_canonical(subsequence);

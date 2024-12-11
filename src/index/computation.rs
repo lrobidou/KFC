@@ -1,5 +1,6 @@
 use crate::{
     buckets::{Buckets, LockPosition, NB_BUCKETS},
+    complexity::{self, ComplexityComputation},
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::{
         components::{
@@ -19,6 +20,8 @@ use std::{
     path::Path,
     sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+
+const COMPLEXITY_THRESHOLD: u16 = 8;
 
 use itertools::Itertools;
 use log::warn;
@@ -305,9 +308,22 @@ fn first_stage_for_a_chunck(
     for sequence in sequences {
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
-            None => continue,
+            None => continue, // no superkmer in this string => we skip it
         };
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
+            // skip superkmer is they only have k-mer with low complexity
+
+            if COMPLEXITY_THRESHOLD > 0 {
+                // only computes complexity if it makes sense
+                if !complexity::is_complexity_above_threshold(
+                    current_sk.superkmer.get_subsequence_as_in_read(),
+                    k,
+                    COMPLEXITY_THRESHOLD,
+                ) {
+                    continue;
+                }
+            }
+
             let (previous_sk, next_sk) = if current_sk.is_canonical_in_the_read() {
                 (previous_sk, next_sk)
             } else {
@@ -527,6 +543,17 @@ fn second_stage_for_a_chunk(
                 None => continue,
             };
 
+            if COMPLEXITY_THRESHOLD > 0 {
+                // only computes complexity if it makes sense
+                if !complexity::is_complexity_above_threshold(
+                    first_truncated_sk.superkmer.get_subsequence_as_in_read(),
+                    k,
+                    COMPLEXITY_THRESHOLD,
+                ) {
+                    continue;
+                }
+            }
+
             increase_count_of_sk_or_insert_it(
                 k,
                 &first_truncated_sk,
@@ -543,6 +570,18 @@ fn second_stage_for_a_chunk(
                 last_superkmer = Some(superkmer);
                 break;
             }
+
+            if COMPLEXITY_THRESHOLD > 0 {
+                // only computes complexity if it makes sense
+                if !complexity::is_complexity_above_threshold(
+                    superkmer.superkmer.get_subsequence_as_in_read(),
+                    k,
+                    COMPLEXITY_THRESHOLD,
+                ) {
+                    continue;
+                }
+            }
+
             let minimizer = superkmer.get_minimizer();
             let sk_count = sk_count.get_from_id_u64(minimizer);
             let sk_count = sk_count.read().unwrap();
@@ -604,6 +643,18 @@ fn second_stage_for_a_chunk(
             // If so, increase is count.
             // Otherwise, we insert it with a count of 1.
             if let Some(last_truncated_superkmer) = last_superkmer {
+                if COMPLEXITY_THRESHOLD > 0 {
+                    // only computes complexity if it makes sense
+                    if !complexity::is_complexity_above_threshold(
+                        last_truncated_superkmer
+                            .superkmer
+                            .get_subsequence_as_in_read(),
+                        k,
+                        COMPLEXITY_THRESHOLD,
+                    ) {
+                        continue;
+                    }
+                }
                 increase_count_of_sk_or_insert_it(
                     k,
                     &last_truncated_superkmer,

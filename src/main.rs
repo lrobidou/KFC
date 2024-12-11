@@ -20,6 +20,7 @@ type Count = u16;
 
 mod buckets;
 mod codec;
+mod complexity;
 mod compute_left_and_right;
 mod index;
 mod minimizer_iter;
