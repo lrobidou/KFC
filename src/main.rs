@@ -221,6 +221,18 @@ fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
         "    [debug] including {} bases in large hyperkmers",
         format_number_usize(nb_base_in_large_hyperkmers)
     );
+
+    #[cfg(debug_assertions)]
+    {
+        println!(
+            "    [debug] minimizers =  {:?}",
+            index.get_nb_minimizers_in_each_bucket()
+        );
+        println!(
+            "    [debug] entries =  {:?}",
+            index.get_nb_entries_in_each_bucket()
+        );
+    }
 }
 
 /// Query the index with the output of KMC

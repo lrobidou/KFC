@@ -5,12 +5,14 @@ mod extraction;
 
 use super::Minimizer;
 use crate::serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING};
+use crate::two_bits::decode_minimizer;
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
     superkmers_computation::compute_superkmers_linear_streaming,
 };
 use crate::{format_number_u64, Count};
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
+use itertools::Itertools;
 
 use crate::buckets::Buckets;
 use components::{HKCount, LargeExtendedHyperkmer, ParallelExtendedHyperkmers, SuperKmerCounts};
@@ -22,7 +24,7 @@ use serde::{
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
 use std::io::BufWriter;
@@ -426,6 +428,67 @@ where
 
     pub fn get_m(&self) -> usize {
         self.m
+    }
+}
+
+// #[cfg(test)]
+impl<FI> Index<FI>
+where
+    FI: FullIndexTrait + Serialize + Sync + Send + Serialize,
+{
+    pub fn get_nb_minimizers_in_each_bucket(&self) -> Vec<usize> {
+        // closure to count the number of minimizer in a bucket
+        let get_nb_minimizer_in_a_bucket = |hk_count_bucket: &Arc<RwLock<HKCount>>| {
+            let hk_count = hk_count_bucket.read().unwrap();
+            let minimizer_set: HashSet<&u64> = hk_count
+                .get_data() // get the underlying MashMap
+                .iter()
+                .map(|(minimizer, _v)| minimizer) // get the minimizer
+                .collect(); // collect in HashSet
+            minimizer_set.len()
+        };
+
+        self.hk_count
+            .chunks()
+            .iter()
+            .map(get_nb_minimizer_in_a_bucket)
+            .collect_vec()
+    }
+
+    pub fn get_nb_entries_in_each_bucket(&self) -> Vec<usize> {
+        // closure to count the number of minimizer in a bucket
+        let get_nb_entry_in_a_bucket = |hk_count_bucket: &Arc<RwLock<HKCount>>| {
+            let hk_count = hk_count_bucket.read().unwrap();
+            hk_count.get_data().len()
+        };
+
+        self.hk_count
+            .chunks()
+            .iter()
+            .map(get_nb_entry_in_a_bucket)
+            .collect_vec()
+    }
+
+    pub fn get_minimizer_with_most_entries(&self, id_bucket: usize) -> (String, usize) {
+        let bucket = &self.hk_count.chunks()[id_bucket];
+        let bucket = bucket.read().unwrap();
+        let minimizer_map = bucket.get_data();
+        let mut minimizer_count_map = HashMap::new();
+        for (minimizer, _v) in minimizer_map.iter() {
+            minimizer_count_map
+                .entry(minimizer)
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+        }
+        let (max_minimizer, max_count) = minimizer_count_map
+            .iter()
+            .max_by_key(|(_k, v)| *v)
+            .map(|(k, v)| (**k, *v))
+            .unwrap();
+
+        let minimizer = decode_minimizer(max_minimizer, self.m);
+
+        (minimizer, max_count)
     }
 }
 
