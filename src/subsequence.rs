@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use xxhash_rust::const_xxh3::xxh3_64;
 
+// TODO test
+
 use crate::{
     codec::{
         align_left_iterator::AlignLeftIterator,
@@ -387,24 +389,3 @@ fn iter_suffix_len(
     }
     length
 }
-
-// #[cfg(test)]
-// mod tests {
-// use two_bits::encode_2bits;
-
-// use super::*;
-
-// #[test]
-// pub fn test_dump() {
-//     // TODO
-//     // let read = "ACTGAGCTA";
-//     // let bytes = read.as_bytes();
-//     // let hk = Subsequence::new(bytes, 0, bytes.len(), true);
-
-//     // let dest = &mut [0, 0, 0];
-//     // hk.to_canonical().dump_as_2bits(dest);
-
-//     // let expected: Vec<u8> = encode_2bits(bytes.iter().copied(), read.len()).collect();
-//     // assert_eq!(dest, expected.as_slice())
-// }
-// }

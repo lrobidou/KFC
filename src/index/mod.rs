@@ -737,36 +737,4 @@ mod tests {
         bin::dump(&index, filename).unwrap();
         assert!(index == bin::load(filename).unwrap());
     }
-
-    // #[test]
-    // fn test_iter_kmers_empty() {
-    //     let index: Index<CompleteIndex> = Index::<CompleteIndex>::index(21, 11, 1, &vec![]);
-    //     let kmers_iter = index.iter_kmers().flatten();
-    //     let kmers = kmers_iter.collect_vec();
-    //     assert_eq!(kmers, vec![]);
-    // }
-
-    // #[test]
-    // fn test_iter_kmers_one_element() {
-    //     let v: HashSet<(String, Count)> = HashSet::from_iter(
-    //         vec![
-    //             ("TAGCTTCTCGCTATTAGCTTC", 1),
-    //             ("AGCTTCTCGCTATTAGCTTCA", 1),
-    //             ("GCTTCTCGCTATTAGCTTCAA", 1),
-    //             ("CTTCTCGCTATTAGCTTCAAT", 1),
-    //             ("TTCTCGCTATTAGCTTCAATG", 1),
-    //             ("TCTCGCTATTAGCTTCAATGA", 1),
-    //             ("CTCGCTATTAGCTTCAATGAT", 1),
-    //             ("TCGCTATTAGCTTCAATGATA", 1),
-    //             ("CGCTATTAGCTTCAATGATAC", 1),
-    //             ("GCTATTAGCTTCAATGATACG", 1),
-    //         ]
-    //         .into_iter()
-    //         .map(|x| (x.0.into(), x.1)),
-    //     );
-
-    //     let index = Index::index(21, 11, 1, &vec!["TAGCTTCTCGCTATTAGCTTCAATGATACG"]);
-    //     let kmers_results: HashSet<(String, Count)> = HashSet::from_iter(index.iter_kmers());
-    //     assert_eq!(kmers_results, v);
-    // }
 }
