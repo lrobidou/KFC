@@ -1,6 +1,6 @@
 use crate::{
     buckets::{Buckets, LockPosition, NB_BUCKETS},
-    complexity::{self, ComplexityComputation},
+    complexity,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::{
         components::{
@@ -168,13 +168,7 @@ impl Iterator for LinesIter {
 fn get_bucket_of_previous_hk(
     current_sk: &Superkmer,
     previous_sk: &Superkmer,
-    hk_count_locks: &(
-        RwLockWriteGuard<HKCount>,
-        Option<RwLockReadGuard<HKCount>>,
-        Option<RwLockReadGuard<HKCount>>,
-        LockPosition,
-        LockPosition,
-    ),
+    hk_count_locks: &ThreeLocks<HKCount>,
     left_extended_hk: &Subsequence<NoBitPacked>,
     hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
@@ -214,13 +208,7 @@ fn get_bucket_of_previous_hk(
 fn get_bucket_of_next_hk(
     current_sk: &Superkmer,
     next_sk: &Superkmer,
-    hk_count_locks: &(
-        RwLockWriteGuard<HKCount>,
-        Option<RwLockReadGuard<HKCount>>,
-        Option<RwLockReadGuard<HKCount>>,
-        LockPosition,
-        LockPosition,
-    ),
+    hk_count_locks: &ThreeLocks<HKCount>,
     right_extended_hk: &Subsequence<NoBitPacked>,
     hyperkmers: &ParallelExtendedHyperkmers,
     large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
@@ -255,13 +243,7 @@ fn get_bucket_of_next_hk(
 }
 
 fn is_previous_sk_solid(
-    sk_count_locks: &(
-        RwLockWriteGuard<SuperKmerCounts>,
-        Option<RwLockReadGuard<SuperKmerCounts>>,
-        Option<RwLockReadGuard<SuperKmerCounts>>,
-        LockPosition,
-        LockPosition,
-    ),
+    sk_count_locks: &ThreeLocks<SuperKmerCounts>,
     previous_sk: &Superkmer,
     threshold: Count,
 ) -> bool {
@@ -274,13 +256,7 @@ fn is_previous_sk_solid(
 }
 
 fn is_next_sk_solid(
-    sk_count_locks: &(
-        RwLockWriteGuard<SuperKmerCounts>,
-        Option<RwLockReadGuard<SuperKmerCounts>>,
-        Option<RwLockReadGuard<SuperKmerCounts>>,
-        LockPosition,
-        LockPosition,
-    ),
+    sk_count_locks: &ThreeLocks<SuperKmerCounts>,
     next_sk: &Superkmer,
     threshold: Count,
 ) -> bool {
@@ -290,6 +266,127 @@ fn is_next_sk_solid(
         LockPosition::OtherLock => sk_count_locks.1.as_ref().unwrap(),
     };
     next_sk_count.get_count_superkmer(next_sk) >= threshold
+}
+
+#[derive(Debug, Clone)]
+struct CachedValue {
+    id_bucket: usize,
+    id_hk: usize,
+    is_large: bool,
+}
+
+impl CachedValue {
+    pub fn new(id_bucket: usize, id_hk: usize, is_large: bool) -> Self {
+        Self {
+            id_bucket,
+            id_hk,
+            is_large,
+        }
+    }
+    pub fn get_id_bucket(&self) -> usize {
+        self.id_bucket
+    }
+    pub fn get_id_hk(&self) -> usize {
+        self.id_hk
+    }
+    pub fn get_is_large(&self) -> bool {
+        self.is_large
+    }
+}
+
+fn get_bucket_of_previous_hk_or_insert_if_not_found(
+    current_sk: &Superkmer,
+    previous_sk: &Superkmer,
+    previous_sk_is_solid: bool,
+    hk_count_locks: &ThreeLocks<HKCount>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    left_extended_hk: (Subsequence<NoBitPacked>, usize, usize, bool),
+    cached_value: &Option<CachedValue>,
+) -> (usize, usize, bool) {
+    if previous_sk_is_solid {
+        if current_sk.is_canonical_in_the_read() {
+            debug_assert!(previous_sk.start_of_minimizer() < current_sk.start_of_minimizer());
+            // previous sk might be inserted already, let's look at the cache
+            if let Some(cached_value) = cached_value {
+                return (
+                    cached_value.get_id_bucket(),
+                    cached_value.get_id_hk(),
+                    cached_value.get_is_large(),
+                );
+                // TODO test if cahced value is correct
+            }
+        }
+        get_bucket_of_previous_hk(
+            current_sk,
+            previous_sk,
+            hk_count_locks,
+            &left_extended_hk.0,
+            hyperkmers,
+            large_hyperkmers,
+        )
+    } else {
+        // previous sk is not solid => our hyperkmer is not already present
+        // let's add it
+        add_new_hyperkmer(
+            left_extended_hk.3,
+            &left_extended_hk.0,
+            hyperkmers,
+            large_hyperkmers,
+        )
+    }
+}
+
+type ThreeLocks<'a, T> = (
+    RwLockWriteGuard<'a, T>,
+    Option<RwLockReadGuard<'a, T>>,
+    Option<RwLockReadGuard<'a, T>>,
+    LockPosition,
+    LockPosition,
+);
+
+fn get_bucket_of_next_hk_or_insert_if_not_found(
+    current_sk: &Superkmer,
+    next_sk: &Superkmer,
+    next_sk_is_solid: bool,
+    hk_count_locks: &ThreeLocks<HKCount>,
+    hyperkmers: &ParallelExtendedHyperkmers,
+    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    right_extended_hk: &(Subsequence<NoBitPacked>, usize, usize, bool),
+    cached_value: &Option<CachedValue>,
+) -> (usize, usize, bool) {
+    if next_sk_is_solid {
+        if !current_sk.is_canonical_in_the_read() {
+            debug_assert!(next_sk.start_of_minimizer() < current_sk.start_of_minimizer());
+            // next sk might be inserted already, let's look at the cache
+            if let Some(cached_value) = cached_value {
+                return (
+                    cached_value.get_id_bucket(),
+                    cached_value.get_id_hk(),
+                    cached_value.get_is_large(),
+                );
+                // TODO test if cahced value is correct
+            }
+        }
+
+        get_bucket_of_next_hk(
+            current_sk,
+            next_sk,
+            hk_count_locks,
+            &right_extended_hk.0,
+            hyperkmers,
+            large_hyperkmers,
+        )
+    } else {
+        // previous sk is not solid => our hyperkmer is not already present
+        // let's add it
+        add_new_hyperkmer(
+            right_extended_hk.3,
+            &right_extended_hk.0,
+            hyperkmers,
+            large_hyperkmers,
+        )
+    }
 }
 // TODO "style" find a better name for the first stage function
 #[allow(clippy::too_many_arguments)]
@@ -310,6 +407,7 @@ fn first_stage_for_a_chunck(
             Some(superkmers_iter) => superkmers_iter,
             None => continue, // no superkmer in this string => we skip it
         };
+        let mut cached_value: Option<CachedValue> = None;
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
             // skip superkmer is they only have k-mer with low complexity
 
@@ -367,45 +465,29 @@ fn first_stage_for_a_chunck(
 
                 // OPTIMIZE maybe it is posssible to call get_hyperkmer_{left, right}_id and ignore get_count_superkmer
                 // OPTIMIZE of even better: access the count of sk in streaming, so that no recomputation is needed
-                let (id_left_bucket, id_left_hk, is_large_left) = if previous_sk_is_solid {
-                    get_bucket_of_previous_hk(
+                let (id_left_bucket, id_left_hk, is_large_left) =
+                    get_bucket_of_previous_hk_or_insert_if_not_found(
                         &current_sk,
                         &previous_sk,
+                        previous_sk_is_solid,
                         &hk_count_locks,
-                        &left_extended_hk.0,
                         &hyperkmers,
                         large_hyperkmers,
-                    )
-                } else {
-                    // previous sk is not solid => our hyperkmer is not already present
-                    // let's add it
-                    add_new_hyperkmer(
-                        left_extended_hk.3,
-                        &left_extended_hk.0,
-                        &hyperkmers,
-                        large_hyperkmers,
-                    )
-                };
+                        left_extended_hk,
+                        &cached_value,
+                    );
                 debug_assert!(id_left_bucket < NB_BUCKETS);
-                let (id_right_bucket, id_right_hk, is_large_right) = if next_sk_is_solid {
-                    get_bucket_of_next_hk(
+                let (id_right_bucket, id_right_hk, is_large_right) =
+                    get_bucket_of_next_hk_or_insert_if_not_found(
                         &current_sk,
                         &next_sk,
+                        next_sk_is_solid,
                         &hk_count_locks,
-                        &right_extended_hk.0,
                         &hyperkmers,
                         large_hyperkmers,
-                    )
-                } else {
-                    // previous sk is not solid => our hyperkmer is not already present
-                    // let's add it
-                    add_new_hyperkmer(
-                        right_extended_hk.3,
-                        &right_extended_hk.0,
-                        &hyperkmers,
-                        large_hyperkmers,
-                    )
-                };
+                        &right_extended_hk,
+                        &cached_value,
+                    );
                 debug_assert!(id_right_bucket < NB_BUCKETS);
 
                 // TODO drop sk before ?
@@ -413,6 +495,13 @@ fn first_stage_for_a_chunck(
                 drop(sk_count_locks.2);
                 drop(hk_count_locks.1);
                 drop(hk_count_locks.2);
+
+                // update the cache
+                cached_value = Some(if current_sk.is_canonical_in_the_read() {
+                    CachedValue::new(id_right_bucket, id_right_hk, is_large_right)
+                } else {
+                    CachedValue::new(id_left_bucket, id_left_hk, is_large_left)
+                });
 
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
@@ -461,6 +550,8 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
+                // TODO how to cache?
+                cached_value = None;
                 // TODO fusionnner les deux passes
                 let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
@@ -502,6 +593,9 @@ fn first_stage_for_a_chunck(
                         &metadata_to_insert_right
                     ));
                 }
+            } else {
+                // nothing to report => clear cache
+                cached_value = None;
             }
         }
     }
@@ -520,6 +614,7 @@ fn second_stage_for_a_chunk(
     threshold: Count,
     discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
+    // TODO cache?
     replace_n(sequences);
     // large hyperkmers are not going to be modified
     // => we can acquire them here
