@@ -28,7 +28,6 @@ pub fn get_left_and_rigth_extended_hk<'a>(
     // * but still in the order they would appear if the current superkmer was canonical *
     // this leads to conceptually having to reverse the left and right sequences' content
     // if the superkmer was not read in its canonical form
-    // let m = current_sk.minimizer.len();
 
     // this is the left and rigth part of the superkmer
     let (previous_left_sk, previous_right_sk) = get_left_and_rigth_of_sk(previous_sk);
