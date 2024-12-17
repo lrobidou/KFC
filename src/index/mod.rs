@@ -4,13 +4,14 @@ mod computation;
 mod extraction;
 
 use super::Minimizer;
-use crate::serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING};
-use crate::two_bits::decode_minimizer;
 use crate::{
     compute_left_and_right::get_left_and_rigth_of_sk,
+    format_number_u64,
+    serde::kff::{build_values, create_block, write_blocks, KFFError, ENCODING},
     superkmers_computation::compute_superkmers_linear_streaming,
+    two_bits::decode_minimizer,
+    Count,
 };
-use crate::{format_number_u64, Count};
 use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_minimizer};
 use itertools::Itertools;
 
@@ -27,14 +28,13 @@ use serde::{
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::path::Path;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
-use std::sync::RwLock;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering::SeqCst},
+    Arc, Mutex, RwLock,
+};
 use std::time::Instant;
 // -- type state pattern
 pub trait FullIndexTrait: std::marker::Sync {}
