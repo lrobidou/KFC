@@ -7,10 +7,12 @@ use crate::subsequence::{NoBitPacked, Subsequence};
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
 pub struct ArrayOfHyperkmer {
-    ptr: Rc<RwLock<*mut u64>>,
+    ptr: *mut u64,
 
+    // used to assert that the pointer is correclty deallocated before dropping it
+    // removed if not in test or not in debug_assertions mode
     #[cfg(any(debug_assertions, test))]
-    is_dealloc: bool,
+    is_dealloc: Rc<RwLock<bool>>,
 }
 
 // TODO is it safe ?
@@ -33,13 +35,16 @@ impl ArrayOfHyperkmer {
         }
 
         let ptr = ptr as *mut u64;
-        let ptr = Rc::new(RwLock::new(ptr));
 
-        ArrayOfHyperkmer {
-            ptr,
-            #[cfg(any(debug_assertions, test))]
-            is_dealloc: false,
+        // if in test mode or in debug_assertions mode, add a boolean to track if the pointer has been freed before dropping it
+        #[cfg(any(debug_assertions, test))]
+        {
+            let is_dealloc = Rc::new(RwLock::new(false));
+            ArrayOfHyperkmer { ptr, is_dealloc }
         }
+
+        #[cfg(not(any(debug_assertions, test)))]
+        ArrayOfHyperkmer { ptr }
     }
 
     /// Constructs a `Self` from a u64 iterator.
@@ -55,7 +60,7 @@ impl ArrayOfHyperkmer {
                 panic!("Iterator provided more elements than expected size");
             }
             // DEBUG: no need to use `write` as this is a new vector ?
-            let ptr = simple_vec.ptr.read().expect("could not acquire read lock");
+            let ptr = simple_vec.ptr;
             unsafe {
                 *ptr.add(i) = value;
             }
@@ -67,12 +72,12 @@ impl ArrayOfHyperkmer {
     /// Computes a slice.
     /// `len` is the number of `u64` in the slice.
     pub fn as_slice(&self, len: usize) -> &[u64] {
-        let ptr = self.ptr.read().expect("could not acquire read lock");
+        let ptr = &self.ptr;
         unsafe { std::slice::from_raw_parts(*ptr, len * 64) }
     }
 
     pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
-        let ptr = self.ptr.read().expect("could not acquire read lock");
+        let ptr = &self.ptr;
         let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len * 64) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
@@ -80,23 +85,28 @@ impl ArrayOfHyperkmer {
     // DEBUG this lets the memory be accessed out of the lock (but not modified)
     // How to prevent memory from being modified ?
     pub fn as_u64_slice(&self, len: usize) -> &[u64] {
-        let ptr = self.ptr.read().expect("could not acquire read lock");
+        let ptr = &self.ptr;
         unsafe { std::slice::from_raw_parts(*ptr, len) }
     }
 
-    pub fn dealloc(&mut self, size: usize) {
+    // SAFETY: no one else should be accessing the memory
+    pub unsafe fn dealloc(&self, size: usize) {
         // Create a memory layout for the array
         let layout = Layout::array::<u8>(size).expect("Failed to create layout");
 
         // Deallocate the memory
-        let ptr = self.ptr.read().expect("could not acquire write lock");
+        let ptr = &self.ptr;
         unsafe {
             dealloc(*ptr as *mut u8, layout);
         }
 
         #[cfg(any(debug_assertions, test))]
         {
-            self.is_dealloc = true;
+            let mut is_dealloc = self
+                .is_dealloc
+                .write()
+                .expect("could not acquire write lock");
+            *is_dealloc = true;
         }
     }
 }
@@ -105,7 +115,8 @@ impl Drop for ArrayOfHyperkmer {
     fn drop(&mut self) {
         #[cfg(any(debug_assertions, test))]
         {
-            if !self.is_dealloc {
+            let is_dealloc = self.is_dealloc.read().expect("could not acquire read lock");
+            if !*is_dealloc {
                 panic!()
             }
         }
