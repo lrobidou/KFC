@@ -7,6 +7,14 @@ use std::{cmp, fmt};
 
 pub const NB_BUCKETS: usize = 255;
 
+pub type ThreeLocks<'a, T> = (
+    RwLockWriteGuard<'a, T>,
+    Option<RwLockReadGuard<'a, T>>,
+    Option<RwLockReadGuard<'a, T>>,
+    LockPosition,
+    LockPosition,
+);
+
 pub struct Buckets<T: PartialEq + Serialize + for<'a> Deserialize<'a>> {
     data: [Arc<RwLock<T>>; NB_BUCKETS],
 }
@@ -121,13 +129,7 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
         idx0: u64, // current minimizer will be locked for sure
         idx1: u64, // previous minimizer
         idx2: u64, // next minimizer
-    ) -> (
-        RwLockWriteGuard<T>,
-        Option<RwLockReadGuard<T>>,
-        Option<RwLockReadGuard<T>>,
-        LockPosition,
-        LockPosition,
-    ) {
+    ) -> ThreeLocks<T> {
         let idx0 = usize::try_from(idx0).unwrap() % NB_BUCKETS;
         let idx1 = usize::try_from(idx1).unwrap() % NB_BUCKETS;
         let idx2 = usize::try_from(idx2).unwrap() % NB_BUCKETS;
@@ -205,7 +207,7 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
 
     /// Acquire two locks in read mode. The first one is always acquired.
     /// If the second one is equal to the same one, it is set to None.
-    /// The locks are sorted before TODO acquiring them.
+    /// The smallest bucket is aquired first.
     /// This prevents deadlocks.
     pub fn acquire_two_locks_read_mode(
         &self,
@@ -235,6 +237,8 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
     }
 }
 
+// the names all contains "Lock" but it is more clear that way
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub enum LockPosition {
     ThisLock,

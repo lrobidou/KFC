@@ -24,6 +24,7 @@ mod complexity;
 mod compute_left_and_right;
 mod index;
 mod minimizer_iter;
+mod read_modification;
 mod ringbuf;
 mod serde;
 mod simd;

@@ -1,5 +1,5 @@
 use crate::{
-    buckets::{Buckets, LockPosition, NB_BUCKETS},
+    buckets::{Buckets, LockPosition, ThreeLocks, NB_BUCKETS},
     complexity,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::{
@@ -9,6 +9,7 @@ use crate::{
         },
         LargeExtendedHyperkmer,
     },
+    read_modification::replace_n,
     subsequence::{NoBitPacked, Subsequence},
     superkmer::Superkmer,
     superkmers_computation::compute_superkmers_linear_streaming,
@@ -18,33 +19,23 @@ use crate::{
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, Mutex, RwLock},
 };
 
-const COMPLEXITY_THRESHOLD: u16 = 8;
+mod cache;
+mod lines_iter;
+
+use cache::CachedValue;
+
+use lines_iter::LinesIter;
+
+const COMPLEXITY_THRESHOLD: u16 = 0;
 
 use itertools::Itertools;
 use log::warn;
-use needletail::{parse_fastx_file, FastxReader};
+use needletail::parse_fastx_file;
 
 const BATCH_SIZE: usize = 100;
-
-// Branch prediction hint. This is currently only available on nightly but it
-// consistently improves performance by 10-15%.
-#[cfg(not(feature = "nightly"))]
-use core::convert::identity as likely;
-#[cfg(feature = "nightly")]
-use core::intrinsics::likely;
-
-fn replace_n(sequences: &mut Vec<Vec<u8>>) {
-    for sequence in sequences {
-        for char in sequence {
-            if char == &b'N' {
-                *char = b'A';
-            }
-        }
-    }
-}
 
 /// First stage of the construction of the KFC index.
 ///
@@ -143,26 +134,6 @@ pub fn second_stage<P: AsRef<Path>>(
         }
     });
     discarded_minimizers
-}
-struct LinesIter {
-    data: Box<dyn FastxReader>,
-}
-
-impl LinesIter {
-    fn new(data: Box<dyn FastxReader>) -> Self {
-        Self { data }
-    }
-}
-
-impl Iterator for LinesIter {
-    type Item = Vec<u8>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let record = self.data.next()?.unwrap();
-        let sequence = record.seq();
-        let sequence_vec = sequence.iter().copied().collect(); // TODO copy
-        Some(sequence_vec)
-    }
 }
 
 fn get_bucket_of_previous_hk(
@@ -268,32 +239,6 @@ fn is_next_sk_solid(
     next_sk_count.get_count_superkmer(next_sk) >= threshold
 }
 
-#[derive(Debug, Clone)]
-struct CachedValue {
-    id_bucket: usize,
-    id_hk: usize,
-    is_large: bool,
-}
-
-impl CachedValue {
-    pub fn new(id_bucket: usize, id_hk: usize, is_large: bool) -> Self {
-        Self {
-            id_bucket,
-            id_hk,
-            is_large,
-        }
-    }
-    pub fn get_id_bucket(&self) -> usize {
-        self.id_bucket
-    }
-    pub fn get_id_hk(&self) -> usize {
-        self.id_hk
-    }
-    pub fn get_is_large(&self) -> bool {
-        self.is_large
-    }
-}
-
 fn get_bucket_of_previous_hk_or_insert_if_not_found(
     current_sk: &Superkmer,
     previous_sk: &Superkmer,
@@ -314,7 +259,15 @@ fn get_bucket_of_previous_hk_or_insert_if_not_found(
                     cached_value.get_id_hk(),
                     cached_value.get_is_large(),
                 );
-                // TODO test if cahced value is correct
+                // let u = get_bucket_of_previous_hk(
+                //     current_sk,
+                //     previous_sk,
+                //     hk_count_locks,
+                //     &left_extended_hk.0,
+                //     hyperkmers,
+                //     large_hyperkmers,
+                // );
+                // assert_eq!(v, u);
             }
         }
         get_bucket_of_previous_hk(
@@ -337,14 +290,6 @@ fn get_bucket_of_previous_hk_or_insert_if_not_found(
     }
 }
 
-type ThreeLocks<'a, T> = (
-    RwLockWriteGuard<'a, T>,
-    Option<RwLockReadGuard<'a, T>>,
-    Option<RwLockReadGuard<'a, T>>,
-    LockPosition,
-    LockPosition,
-);
-
 fn get_bucket_of_next_hk_or_insert_if_not_found(
     current_sk: &Superkmer,
     next_sk: &Superkmer,
@@ -358,15 +303,23 @@ fn get_bucket_of_next_hk_or_insert_if_not_found(
     if next_sk_is_solid {
         if !current_sk.is_canonical_in_the_read() {
             debug_assert!(next_sk.start_of_minimizer() < current_sk.start_of_minimizer());
-            // next sk might be inserted already, let's look at the cache
-            if let Some(cached_value) = cached_value {
-                return (
-                    cached_value.get_id_bucket(),
-                    cached_value.get_id_hk(),
-                    cached_value.get_is_large(),
-                );
-                // TODO test if cahced value is correct
-            }
+            // previous sk might be inserted already, let's look at the cache
+            // if let Some(cached_value) = cached_value {
+            //     return (
+            //         cached_value.get_id_bucket(),
+            //         cached_value.get_id_hk(),
+            //         cached_value.get_is_large(),
+            //     );
+            // let u = get_bucket_of_previous_hk(
+            //     current_sk,
+            //     previous_sk,
+            //     hk_count_locks,
+            //     &left_extended_hk.0,
+            //     hyperkmers,
+            //     large_hyperkmers,
+            // );
+            // assert_eq!(v, u);
+            // }
         }
 
         get_bucket_of_next_hk(
@@ -410,7 +363,7 @@ fn first_stage_for_a_chunck(
         let mut cached_value: Option<CachedValue> = None;
         for (previous_sk, current_sk, next_sk) in superkmers.into_iter().tuple_windows() {
             // skip superkmer is they only have k-mer with low complexity
-
+            #[allow(clippy::absurd_extreme_comparisons)]
             if COMPLEXITY_THRESHOLD > 0 {
                 // only computes complexity if it makes sense
                 if !complexity::is_complexity_above_threshold(
@@ -550,7 +503,7 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
-                // TODO how to cache?
+                // TODO cache
                 cached_value = None;
                 // TODO fusionnner les deux passes
                 let large_hyperkmers = large_hyperkmers.read().unwrap();
@@ -614,7 +567,7 @@ fn second_stage_for_a_chunk(
     threshold: Count,
     discarded_minimizers: &Buckets<HashMap<Minimizer, Count>>,
 ) {
-    // TODO cache?
+    // TODO cache
     replace_n(sequences);
     // large hyperkmers are not going to be modified
     // => we can acquire them here
@@ -638,6 +591,7 @@ fn second_stage_for_a_chunk(
                 None => continue,
             };
 
+            #[allow(clippy::absurd_extreme_comparisons)]
             if COMPLEXITY_THRESHOLD > 0 {
                 // only computes complexity if it makes sense
                 if !complexity::is_complexity_above_threshold(
@@ -665,7 +619,7 @@ fn second_stage_for_a_chunk(
                 last_superkmer = Some(superkmer);
                 break;
             }
-
+            #[allow(clippy::absurd_extreme_comparisons)]
             if COMPLEXITY_THRESHOLD > 0 {
                 // only computes complexity if it makes sense
                 if !complexity::is_complexity_above_threshold(
@@ -738,6 +692,7 @@ fn second_stage_for_a_chunk(
             // If so, increase is count.
             // Otherwise, we insert it with a count of 1.
             if let Some(last_truncated_superkmer) = last_superkmer {
+                #[allow(clippy::absurd_extreme_comparisons)]
                 if COMPLEXITY_THRESHOLD > 0 {
                     // only computes complexity if it makes sense
                     if !complexity::is_complexity_above_threshold(
@@ -860,36 +815,4 @@ fn check_correct_inclusion_first_stage(
         left_string[(left_string.len() - (m - 2))..left_string.len()],
         right_string[0..(m - 2)]
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_replace_n() {
-        let input0 = String::from("ATGGAGCAGCTGACGANNNATGCA");
-        let input1 = String::from("ANNAGTAGNCNGAT");
-        let input2 = String::from("NNACNGATTAGCN");
-
-        let expected = vec![
-            String::from("ATGGAGCAGCTGACGAAAAATGCA"),
-            String::from("AAAAGTAGACAGAT"),
-            String::from("AAACAGATTAGCA"),
-        ];
-        let mut inputs = vec![
-            input0.as_bytes().to_vec(),
-            input1.as_bytes().to_vec(),
-            input2.as_bytes().to_vec(),
-        ];
-
-        replace_n(&mut inputs);
-
-        let got = inputs
-            .into_iter()
-            .map(|v| String::from_utf8(v).unwrap())
-            .collect_vec();
-
-        assert_eq!(expected, got);
-    }
 }
