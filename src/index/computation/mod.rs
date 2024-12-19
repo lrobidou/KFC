@@ -304,22 +304,22 @@ fn get_bucket_of_next_hk_or_insert_if_not_found(
         if !current_sk.is_canonical_in_the_read() {
             debug_assert!(next_sk.start_of_minimizer() < current_sk.start_of_minimizer());
             // previous sk might be inserted already, let's look at the cache
-            // if let Some(cached_value) = cached_value {
-            //     return (
-            //         cached_value.get_id_bucket(),
-            //         cached_value.get_id_hk(),
-            //         cached_value.get_is_large(),
-            //     );
-            // let u = get_bucket_of_previous_hk(
-            //     current_sk,
-            //     previous_sk,
-            //     hk_count_locks,
-            //     &left_extended_hk.0,
-            //     hyperkmers,
-            //     large_hyperkmers,
-            // );
-            // assert_eq!(v, u);
-            // }
+            if let Some(cached_value) = cached_value {
+                return (
+                    cached_value.get_id_bucket(),
+                    cached_value.get_id_hk(),
+                    cached_value.get_is_large(),
+                );
+                // let u = get_bucket_of_previous_hk(
+                //     current_sk,
+                //     previous_sk,
+                //     hk_count_locks,
+                //     &left_extended_hk.0,
+                //     hyperkmers,
+                //     large_hyperkmers,
+                // );
+                // assert_eq!(v, u);
+            }
         }
 
         get_bucket_of_next_hk(
