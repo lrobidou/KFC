@@ -40,6 +40,7 @@ pub fn is_canonical(seq: &[u8]) -> bool {
     true
 }
 
+#[cfg(debug_assertions)]
 pub fn is_equal_to_its_revcomp(seq: &[u8]) -> bool {
     let mut orientation_1 = same_orientation(seq);
     let mut orientation_2 = reverse_complement(seq);

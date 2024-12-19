@@ -1,9 +1,9 @@
 use serde::de::{SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::{cmp, fmt};
 
 pub const NB_BUCKETS: usize = 255;
 
@@ -203,37 +203,6 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
             lock_1_position,
             lock_2_position,
         )
-    }
-
-    /// Acquire two locks in read mode. The first one is always acquired.
-    /// If the second one is equal to the same one, it is set to None.
-    /// The smallest bucket is aquired first.
-    /// This prevents deadlocks.
-    pub fn acquire_two_locks_read_mode(
-        &self,
-        idx0: usize, // will be locked for sure
-        idx1: usize, // might not be locked
-    ) -> (RwLockReadGuard<T>, Option<RwLockReadGuard<T>>) {
-        let idx0 = idx0 % NB_BUCKETS;
-        let idx1 = idx1 % NB_BUCKETS;
-
-        match idx0.cmp(&idx1) {
-            cmp::Ordering::Less => {
-                let lock_1 = self.data[idx0].read().unwrap();
-                let lock_2 = Some(self.data[idx1].read().unwrap());
-                (lock_1, lock_2)
-            }
-            cmp::Ordering::Equal => {
-                let lock_1 = self.data[idx0].read().unwrap();
-                let lock_2 = None;
-                (lock_1, lock_2)
-            }
-            cmp::Ordering::Greater => {
-                let lock_2 = Some(self.data[idx1].read().unwrap());
-                let lock_1 = self.data[idx0].read().unwrap();
-                (lock_1, lock_2)
-            }
-        }
     }
 }
 

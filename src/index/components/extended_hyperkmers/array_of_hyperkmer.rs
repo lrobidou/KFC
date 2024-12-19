@@ -1,6 +1,10 @@
 use std::alloc::{alloc_zeroed, dealloc, Layout};
-use std::rc::Rc;
+
+#[cfg(any(debug_assertions, test))]
 use std::sync::RwLock;
+
+#[cfg(any(debug_assertions, test))]
+use std::rc::Rc;
 
 use crate::subsequence::{NoBitPacked, Subsequence};
 
