@@ -28,6 +28,7 @@ rand = "0.8.5"
 needletail = "0.5.1"
 wide = "0.7"
 num = "0.4"
+boxcar = "0.2.7"
 
 [dev-dependencies]
 rand = "0.8.5"

@@ -1,7 +1,7 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::atomic::AtomicUsize;
 
 use crate::{
-    buckets::{Buckets, NB_BUCKETS},
+    buckets::NB_BUCKETS,
     subsequence::{BitPacked, NoBitPacked, Subsequence},
 };
 use rand::Rng;
@@ -11,36 +11,28 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
+use std::sync::atomic::Ordering::SeqCst;
+
 use super::array_of_hyperkmer::ArrayOfHyperkmer;
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ParallelExtendedHyperkmers {
-    buckets: Buckets<ExtendedHyperkmers>,
+    buckets: Vec<ExtendedHyperkmers>,
 }
 
 impl ParallelExtendedHyperkmers {
     pub fn new(k: usize, nb_hk_in_a_buffer: usize) -> Self {
-        Self {
-            buckets: Buckets::new(|| ExtendedHyperkmers::new(k, nb_hk_in_a_buffer)),
+        let mut buckets = Vec::with_capacity(NB_BUCKETS);
+        for _ in 0..NB_BUCKETS {
+            buckets.push(ExtendedHyperkmers::new(k, nb_hk_in_a_buffer));
         }
+        Self { buckets }
     }
 
-    pub fn get_bucket_from_id(&self, bucket_id: usize) -> Arc<RwLock<ExtendedHyperkmers>> {
-        // cloning Arc is cheap
-        self.buckets.get_from_id_u64(bucket_id.try_into().unwrap())
+    pub fn get_bucket_from_id(&self, bucket_id: usize) -> &ExtendedHyperkmers {
+        &self.buckets[bucket_id]
     }
 
-    pub fn acquire_two_locks_read_mode(
-        &self,
-        bucket_id0: usize,
-        bucket_id1: usize,
-    ) -> (
-        RwLockReadGuard<'_, ExtendedHyperkmers>,
-        Option<RwLockReadGuard<'_, ExtendedHyperkmers>>,
-    ) {
-        self.buckets
-            .acquire_two_locks_read_mode(bucket_id0, bucket_id1)
-    }
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
     pub fn add_new_ext_hyperkmer(
@@ -50,20 +42,17 @@ impl ParallelExtendedHyperkmers {
         let mut rng = rand::thread_rng();
         let id_of_chunk: usize = rng.gen_range(0..NB_BUCKETS); // TODO can we use a different number of chunk here
 
-        let extended_hk = self.buckets.get_from_id_usize(id_of_chunk);
-        let mut extended_hk = extended_hk.write().unwrap();
+        let extended_hk = self.get_bucket_from_id(id_of_chunk);
 
         let id_in_this_chunk = extended_hk.add_new_ext_hyperkmer(new_ext_hyperkmer);
 
-        drop(extended_hk);
         (id_of_chunk, id_in_this_chunk)
     }
 
     pub fn get_nb_inserted(&self) -> usize {
         self.buckets
-            .chunks()
             .iter()
-            .map(|chunk| chunk.read().unwrap().get_nb_inserted())
+            .map(|chunk| chunk.get_nb_inserted())
             .sum()
     }
 }
@@ -73,12 +62,12 @@ pub struct ExtendedHyperkmers {
     k: usize,
     /// the size in byte taken by a single (extended) hyper kmer
     how_many_u64_for_a_hk: usize,
-    /// the numer of extended hyperkmer inserted
-    nb_inserted: usize,
+    /// the number of extended hyperkmer inserted
+    nb_inserted: AtomicUsize,
     /// number of extended hyperkmer fitting in a single array
     nb_hk_in_an_array: usize,
     /// the vector of arrays containing extended hyperkmers
-    ext_hyperkmers_arrays: Vec<ArrayOfHyperkmer>,
+    ext_hyperkmers_arrays: boxcar::Vec<ArrayOfHyperkmer>,
     /// the size of each array in u64
     array_size: usize,
 }
@@ -87,14 +76,14 @@ impl PartialEq for ExtendedHyperkmers {
     fn eq(&self, other: &Self) -> bool {
         let quick_check = self.k == other.k
             && self.how_many_u64_for_a_hk == other.how_many_u64_for_a_hk
-            && self.nb_inserted == other.nb_inserted
+            && self.nb_inserted.load(SeqCst) == other.nb_inserted.load(SeqCst)
             && self.nb_hk_in_an_array == other.nb_hk_in_an_array;
         if !quick_check {
             return false;
         }
 
         // as `self.nb_inserted == other.nb_inserted`, we can do this:
-        for index in 0..self.nb_inserted {
+        for index in 0..self.nb_inserted.load(SeqCst) {
             if self.get_slice_from_id(index) != other.get_slice_from_id(index) {
                 return false;
             }
@@ -125,7 +114,7 @@ impl Serialize for ExtendedHyperkmers {
 }
 struct StreamingArrays<'a> {
     size: usize,
-    arrays: &'a [ArrayOfHyperkmer],
+    arrays: &'a boxcar::Vec<ArrayOfHyperkmer>,
 }
 
 impl<'a> Serialize for StreamingArrays<'a> {
@@ -135,8 +124,8 @@ impl<'a> Serialize for StreamingArrays<'a> {
     {
         use serde::ser::SerializeSeq;
 
-        let mut seq = serializer.serialize_seq(Some(self.arrays.len()))?;
-        for array in self.arrays {
+        let mut seq = serializer.serialize_seq(Some(self.arrays.count()))?;
+        for (_index, array) in self.arrays {
             seq.serialize_element(array.as_u64_slice(self.size))?;
         }
         seq.end()
@@ -225,11 +214,18 @@ impl ExtendedHyperkmers {
         let how_many_u64_for_a_hk =
             (k - 1) / how_many_base_in_a_u64 + ((k - 1) % how_many_base_in_a_u64 != 0) as usize;
         let array_size = nb_hk_in_an_array * how_many_u64_for_a_hk;
+
+        // pre-allocate one chunk of hyperkmer parts
+        let ext_hyperkmers_arrays = boxcar::Vec::new();
+        ext_hyperkmers_arrays.push(ArrayOfHyperkmer::new(
+            how_many_u64_for_a_hk * nb_hk_in_an_array,
+        ));
+
         Self {
             k,
-            ext_hyperkmers_arrays: Vec::new(),
+            ext_hyperkmers_arrays,
             how_many_u64_for_a_hk,
-            nb_inserted: 0,
+            nb_inserted: AtomicUsize::new(0),
             nb_hk_in_an_array,
             array_size,
         }
@@ -240,23 +236,20 @@ impl ExtendedHyperkmers {
         Subsequence::whole_bitpacked(slice, self.k - 1)
     }
 
-    pub fn len(&self) -> usize {
-        self.nb_inserted
-    }
-
-    fn dump_hk(&mut self, id: usize, subseq: Subsequence<NoBitPacked>) {
-        debug_assert!(id < self.nb_inserted);
+    // SAFETY: no one else should be reading or writing from the memory we are writing to
+    unsafe fn dump_hk(&self, id: usize, subseq: Subsequence<NoBitPacked>) {
+        debug_assert!(id < self.nb_inserted.load(SeqCst));
         let id_buffer = id / self.nb_hk_in_an_array;
         let pos_in_buffer = id % self.nb_hk_in_an_array; // which hyperkmer is it from the buffer `id_buffer`?
         let start = pos_in_buffer * self.how_many_u64_for_a_hk;
         let end = (pos_in_buffer + 1) * (self.how_many_u64_for_a_hk);
 
-        let buffer = &mut self.ext_hyperkmers_arrays[id_buffer];
+        let buffer = &self.ext_hyperkmers_arrays[id_buffer];
         buffer.dump(self.array_size, start, end, subseq);
     }
 
     fn get_slice_from_id(&self, id: usize) -> &[u64] {
-        debug_assert!(id < self.nb_inserted);
+        debug_assert!(id < self.nb_inserted.load(SeqCst));
         let id_buffer = id / self.nb_hk_in_an_array;
         let pos_in_buffer = id % self.nb_hk_in_an_array; // which hyperkmer is it from the buffer `id_buffer`?
         let start = pos_in_buffer * self.how_many_u64_for_a_hk;
@@ -268,33 +261,36 @@ impl ExtendedHyperkmers {
 
     /// Adds `new_hyperkmer` in `hyperkmers` and return its index
     /// `new_hyperkmer` does not have to be in canonical form
-    pub fn add_new_ext_hyperkmer(&mut self, new_ext_hyperkmer: &Subsequence<NoBitPacked>) -> usize {
-        let is_full = self.nb_inserted % self.nb_hk_in_an_array == 0;
-
-        // allocates memory
-        if is_full {
+    pub fn add_new_ext_hyperkmer(&self, new_ext_hyperkmer: &Subsequence<NoBitPacked>) -> usize {
+        // let is_full = self.nb_inserted % self.nb_hk_in_an_array == 0;
+        let unique_id = self.nb_inserted.fetch_add(1, SeqCst);
+        if unique_id % self.nb_hk_in_an_array == 0 {
+            // we push to `self.ext_hyperkmers_arrays`
+            // while there is some space left (because we pre-allocated it), this signals that we are nearing the end of the capacity
+            // TODO annotate that unlikely ???
             self.ext_hyperkmers_arrays.push(ArrayOfHyperkmer::new(
                 self.how_many_u64_for_a_hk * self.nb_hk_in_an_array,
             ));
         }
-        let id_hyperkmer = self.len();
-        self.nb_inserted += 1;
 
         // dump into memory
-        self.dump_hk(id_hyperkmer, new_ext_hyperkmer.to_canonical());
+        unsafe { self.dump_hk(unique_id, new_ext_hyperkmer.to_canonical()) };
 
-        id_hyperkmer
+        unique_id
     }
 
     pub fn get_nb_inserted(&self) -> usize {
-        self.nb_inserted
+        self.nb_inserted.load(SeqCst)
     }
 }
 
 impl Drop for ExtendedHyperkmers {
     fn drop(&mut self) {
-        for ext_hyperkmer in self.ext_hyperkmers_arrays.iter_mut() {
-            ext_hyperkmer.dealloc(self.k - 1);
+        for (_index, ext_hyperkmer) in &self.ext_hyperkmers_arrays {
+            // SAFETY: no one can access the hyperkmer parts when we are drop it
+            unsafe {
+                ext_hyperkmer.dealloc(self.k - 1);
+            }
         }
     }
 }
@@ -308,7 +304,7 @@ mod tests {
         let k = 31;
         let nb_hk_in_an_array = 7;
         let read: Vec<u8> = vec![65, 65, 65];
-        let mut ext_hk = ExtendedHyperkmers::new(k, nb_hk_in_an_array);
+        let ext_hk = ExtendedHyperkmers::new(k, nb_hk_in_an_array);
         for _ in 0..10 {
             ext_hk.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
         }
@@ -327,11 +323,8 @@ mod tests {
         assert!(ext_hks.buckets.len() > 9);
 
         let ext_hk_6 = ext_hks.get_bucket_from_id(6);
-        let mut ext_hk_6 = ext_hk_6.write().unwrap();
         let ext_hk_8 = ext_hks.get_bucket_from_id(8);
-        let mut ext_hk_8 = ext_hk_8.write().unwrap();
-        let ext_hk_9: Arc<RwLock<ExtendedHyperkmers>> = ext_hks.get_bucket_from_id(9);
-        let mut ext_hk_9 = ext_hk_9.write().unwrap();
+        let ext_hk_9 = ext_hks.get_bucket_from_id(9);
         let read: Vec<u8> = vec![b'N', b'A', b'A'];
         for _ in 0..10 {
             ext_hk_6.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
@@ -344,9 +337,6 @@ mod tests {
         for _ in 0..10 {
             ext_hk_9.add_new_ext_hyperkmer(&Subsequence::new(&read, 0, read.len(), true));
         }
-        drop(ext_hk_6);
-        drop(ext_hk_8);
-        drop(ext_hk_9);
         assert_eq!(ext_hks.get_nb_inserted(), 30);
     }
 }

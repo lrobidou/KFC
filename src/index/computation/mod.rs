@@ -767,19 +767,13 @@ fn check_correct_inclusion_first_stage(
 ) {
     use crate::index::components::get_subsequence_from_metadata;
 
-    let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
-        left_hk_metadata.get_bucket_id(),
-        right_hk_metadata.get_bucket_id(),
-    );
-    let right_hyperkmers = match right_hyperkmers.as_ref() {
-        Some(x) => x,
-        None => &left_hyperkmers,
-    };
+    let left_hyperkmers = hyperkmers.get_bucket_from_id(left_hk_metadata.get_bucket_id());
+    let right_hyperkmers = hyperkmers.get_bucket_from_id(right_hk_metadata.get_bucket_id());
 
     let large_hyperkmers = large_hyperkmers.read().unwrap();
 
     let candidate_left_ext_hk =
-        &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata)
+        &get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata)
             .change_orientation_if(left_change_orientation);
     let candidate_right_ext_hk =
         &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata)
@@ -788,14 +782,14 @@ fn check_correct_inclusion_first_stage(
     debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
     debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
     debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
-        &get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata,)
+        &get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata,)
     ));
     debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
         &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata,)
     ));
 
     let left_ext_hk =
-        get_subsequence_from_metadata(&left_hyperkmers, &large_hyperkmers, left_hk_metadata)
+        get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata)
             .change_orientation_if(left_hk_metadata.get_change_orientation());
 
     let right_ext_hk =

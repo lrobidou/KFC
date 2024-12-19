@@ -1,13 +1,13 @@
 use crate::index::components::extract_left_and_right_subsequences;
-use crate::{index::components::get_subsequence_from_metadata, Count};
+use crate::subsequence::Subsequence;
+use crate::Count;
 
 use super::components::{HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers};
 
-use mashmap::IterGroupByKey;
-
-use crate::subsequence::Subsequence;
 use std::collections::HashMap;
 use std::iter::Peekable;
+
+use mashmap::IterGroupByKey;
 
 pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     hk_counts_grouped_by_key: &mut Peekable<
@@ -55,18 +55,12 @@ pub fn extract_context(
     large_hyperkmers: &[LargeExtendedHyperkmer],
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
-    let (left_hyperkmers, right_hyperkmers) = hyperkmers.acquire_two_locks_read_mode(
-        left_ext_hk_metadata.get_bucket_id(),
-        right_ext_hk_metadata.get_bucket_id(),
-    );
-    let right_hyperkmers = match right_hyperkmers.as_ref() {
-        Some(x) => x,
-        None => &left_hyperkmers,
-    };
+    let left_hyperkmers = hyperkmers.get_bucket_from_id(left_ext_hk_metadata.get_bucket_id());
+    let right_hyperkmers = hyperkmers.get_bucket_from_id(right_ext_hk_metadata.get_bucket_id());
 
     // extract relevant subsequences frome whole context
     let (left_hk, right_hk) = extract_left_and_right_subsequences(
-        &left_hyperkmers,
+        left_hyperkmers,
         right_hyperkmers,
         large_hyperkmers,
         left_ext_hk_metadata,

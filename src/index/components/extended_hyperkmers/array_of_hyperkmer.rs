@@ -76,7 +76,14 @@ impl ArrayOfHyperkmer {
         unsafe { std::slice::from_raw_parts(*ptr, len * 64) }
     }
 
-    pub fn dump(&mut self, len: usize, start: usize, end: usize, subseq: Subsequence<NoBitPacked>) {
+    // SAFETY: no one else should read or write to this slice
+    pub unsafe fn dump(
+        &self,
+        len: usize,
+        start: usize,
+        end: usize,
+        subseq: Subsequence<NoBitPacked>,
+    ) {
         let ptr = &self.ptr;
         let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len * 64) };
         subseq.dump_as_2bits(&mut slice[start..end]);
