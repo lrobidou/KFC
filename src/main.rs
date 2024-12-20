@@ -182,18 +182,16 @@ fn print_stats<FI: FullIndexTrait + Serialize + Sync + Send + Serialize>(
     k: usize,
 ) {
     let hyperkmers = index.get_hyperkmers();
-    let hyperkmers = hyperkmers.read().expect("could not acquire read lock");
 
-    let large_hyperkmers = index.get_large_hyperkmers();
-    let large_hyperkmers = large_hyperkmers
-        .read()
-        .expect("could not acquire read lock");
-
-    let number_of_hyperkmers = hyperkmers.get_nb_inserted();
-    let number_of_large_hyperkmers = large_hyperkmers.len();
+    let number_of_hyperkmers = hyperkmers.get_typical_parts().get_nb_inserted();
+    let number_of_large_hyperkmers = hyperkmers.get_atypical_parts().len();
     let nb_base_in_hyperkmers: usize = number_of_hyperkmers * (k - 1);
-    let nb_base_in_large_hyperkmers: usize =
-        large_hyperkmers.iter().map(|large_hk| large_hk.0).sum();
+    let nb_base_in_large_hyperkmers: usize = hyperkmers
+        .get_atypical_parts()
+        .get_data()
+        .iter()
+        .map(|large_hk| large_hk.0)
+        .sum();
     let (nb_minimizers, nb_kmers) = index.count_minimizers_and_kmers();
 
     println!("===== stats =====");

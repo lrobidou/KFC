@@ -10,7 +10,7 @@ use crate::subsequence::{NoBitPacked, Subsequence};
 
 /// Wrapper around a pointer.
 /// YOU HAVE TO DEALLOCATE IT BEFORE DROPPING IT
-pub struct ArrayOfHyperkmer {
+pub struct ChunkOfHyperkmerParts {
     ptr: *mut u64,
 
     // used to assert that the pointer is correclty deallocated before dropping it
@@ -20,10 +20,10 @@ pub struct ArrayOfHyperkmer {
 }
 
 // TODO is it safe ?
-unsafe impl Send for ArrayOfHyperkmer {}
-unsafe impl Sync for ArrayOfHyperkmer {}
+unsafe impl Send for ChunkOfHyperkmerParts {}
+unsafe impl Sync for ChunkOfHyperkmerParts {}
 
-impl ArrayOfHyperkmer {
+impl ChunkOfHyperkmerParts {
     /// Creates a new `Self` of a given `size`.
     /// `size` should be the number of `u64` fitting into `Self`.
     pub fn new(size: usize) -> Self {
@@ -44,11 +44,11 @@ impl ArrayOfHyperkmer {
         #[cfg(any(debug_assertions, test))]
         {
             let is_dealloc = Rc::new(RwLock::new(false));
-            ArrayOfHyperkmer { ptr, is_dealloc }
+            ChunkOfHyperkmerParts { ptr, is_dealloc }
         }
 
         #[cfg(not(any(debug_assertions, test)))]
-        ArrayOfHyperkmer { ptr }
+        ChunkOfHyperkmerParts { ptr }
     }
 
     /// Constructs a `Self` from a u64 iterator.
@@ -122,7 +122,7 @@ impl ArrayOfHyperkmer {
     }
 }
 
-impl Drop for ArrayOfHyperkmer {
+impl Drop for ChunkOfHyperkmerParts {
     fn drop(&mut self) {
         #[cfg(any(debug_assertions, test))]
         {
@@ -141,6 +141,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn forgot_alloc() {
-        ArrayOfHyperkmer::new(100);
+        ChunkOfHyperkmerParts::new(100);
     }
 }

@@ -2,12 +2,8 @@ use crate::{
     buckets::{Buckets, LockPosition, ThreeLocks, NB_BUCKETS},
     complexity,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
-    index::{
-        components::{
-            add_new_hyperkmer, search_exact_hyperkmer_match, HKCount, HKMetadata,
-            ParallelExtendedHyperkmers, SuperKmerCounts,
-        },
-        LargeExtendedHyperkmer,
+    index::components::{
+        search_exact_hyperkmer_match, AllHyperkmerParts, HKCount, HKMetadata, SuperKmerCounts,
     },
     read_modification::replace_n,
     subsequence::{NoBitPacked, Subsequence},
@@ -19,7 +15,7 @@ use crate::{
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 mod cache;
@@ -48,27 +44,25 @@ pub fn first_stage<P: AsRef<Path>>(
 ) -> (
     Buckets<SuperKmerCounts>,
     Buckets<HKCount>,
-    Arc<RwLock<ParallelExtendedHyperkmers>>,
-    Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    AllHyperkmerParts,
 ) {
     let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Buckets::<HKCount>::new(HKCount::new);
-    let hyperkmers = Arc::new(RwLock::new(ParallelExtendedHyperkmers::new(k, 1000)));
-    let large_hyperkmers: Arc<RwLock<Vec<LargeExtendedHyperkmer>>> =
-        Arc::new(RwLock::new(Vec::new()));
+    let hyperkmers = AllHyperkmerParts::new(k, 1000);
 
     let sequences = parse_fastx_file(path).unwrap();
     let sequences = LinesIter::new(sequences);
 
     rayon::scope(|s| {
         let chunks = sequences.into_iter().chunks(BATCH_SIZE);
+        let hyperkmers = Arc::new(&hyperkmers);
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
-            let hyperkmers = hyperkmers.clone();
-            let large_hyperkmers = large_hyperkmers.clone();
             let lines = chunk.into_iter().collect_vec(); //TODO copy
             let lines = Arc::new(Mutex::new(lines));
+            let hyperkmers = hyperkmers.clone();
+
             s.spawn(move |_| {
                 let mut sequences = lines.lock().unwrap();
                 first_stage_for_a_chunck(
@@ -79,12 +73,11 @@ pub fn first_stage<P: AsRef<Path>>(
                     &sk_count,
                     &hk_count,
                     &hyperkmers,
-                    &large_hyperkmers,
                 )
             });
         }
     });
-    (sk_count, hk_count, hyperkmers, large_hyperkmers)
+    (sk_count, hk_count, hyperkmers)
 }
 
 /// Second stage of the construction of the KFC index.
@@ -94,8 +87,7 @@ pub fn first_stage<P: AsRef<Path>>(
 pub fn second_stage<P: AsRef<Path>>(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
     path: P,
     k: usize,
     m: usize,
@@ -111,8 +103,6 @@ pub fn second_stage<P: AsRef<Path>>(
         for chunk in chunks.into_iter() {
             let sk_count = sk_count.clone();
             let hk_count = hk_count.clone();
-            let hyperkmers = hyperkmers.clone();
-            let large_hyperkmers = large_hyperkmers.clone();
             let discarded_minimizers = discarded_minimizers.clone();
             let lines = chunk.into_iter().collect_vec(); // TODO copy
             let lines = Arc::new(Mutex::new(lines));
@@ -122,8 +112,7 @@ pub fn second_stage<P: AsRef<Path>>(
                 second_stage_for_a_chunk(
                     &sk_count,
                     &hk_count,
-                    &hyperkmers,
-                    &large_hyperkmers,
+                    hyperkmers,
                     &mut sequences,
                     k,
                     m,
@@ -141,12 +130,10 @@ fn get_bucket_of_previous_hk(
     previous_sk: &Superkmer,
     hk_count_locks: &ThreeLocks<HKCount>,
     left_extended_hk: &Subsequence<NoBitPacked>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
 ) -> (usize, usize, bool) {
     // used to access buckets and compute hyperkmer id
     // read hk_count table associated with the previous minimizer
-    let large_hyperkmers = large_hyperkmers.read().unwrap();
     let previous_minimizer = previous_sk.get_minimizer();
 
     let previous_hk_count: &HKCount = match hk_count_locks.3 {
@@ -157,21 +144,11 @@ fn get_bucket_of_previous_hk(
 
     if previous_sk.is_canonical_in_the_read() == current_sk.is_canonical_in_the_read() {
         previous_hk_count
-            .get_extended_hyperkmer_right_id(
-                hyperkmers,
-                &large_hyperkmers,
-                &previous_minimizer,
-                left_extended_hk,
-            )
+            .get_extended_hyperkmer_right_id(hyperkmers, &previous_minimizer, left_extended_hk)
             .expect("Hash collision on superkmers. Please change your seed.")
     } else {
         previous_hk_count
-            .get_extended_hyperkmer_left_id(
-                hyperkmers,
-                &large_hyperkmers,
-                &previous_minimizer,
-                left_extended_hk,
-            )
+            .get_extended_hyperkmer_left_id(hyperkmers, &previous_minimizer, left_extended_hk)
             .expect("Hash collision on superkmers. Please change your seed.")
     }
 }
@@ -181,11 +158,9 @@ fn get_bucket_of_next_hk(
     next_sk: &Superkmer,
     hk_count_locks: &ThreeLocks<HKCount>,
     right_extended_hk: &Subsequence<NoBitPacked>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
 ) -> (usize, usize, bool) {
     let next_minimizer = next_sk.get_minimizer();
-    let large_hyperkmers = large_hyperkmers.read().unwrap();
     let next_hk_count: &HKCount = match hk_count_locks.4 {
         LockPosition::ThisLock => hk_count_locks.2.as_ref().unwrap(),
         LockPosition::CurrentLock => &hk_count_locks.0,
@@ -194,21 +169,11 @@ fn get_bucket_of_next_hk(
 
     if current_sk.is_canonical_in_the_read() == next_sk.is_canonical_in_the_read() {
         next_hk_count
-            .get_extended_hyperkmer_left_id(
-                hyperkmers,
-                &large_hyperkmers,
-                &next_minimizer,
-                right_extended_hk,
-            )
+            .get_extended_hyperkmer_left_id(hyperkmers, &next_minimizer, right_extended_hk)
             .expect("Hash collision on superkmers. Please change your seed.")
     } else {
         next_hk_count
-            .get_extended_hyperkmer_right_id(
-                hyperkmers,
-                &large_hyperkmers,
-                &next_minimizer,
-                right_extended_hk,
-            )
+            .get_extended_hyperkmer_right_id(hyperkmers, &next_minimizer, right_extended_hk)
             .expect("Hash collision on superkmers. Please change your seed.")
     }
 }
@@ -244,8 +209,7 @@ fn get_bucket_of_previous_hk_or_insert_if_not_found(
     previous_sk: &Superkmer,
     previous_sk_is_solid: bool,
     hk_count_locks: &ThreeLocks<HKCount>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
     left_extended_hk: (Subsequence<NoBitPacked>, usize, usize, bool),
     cached_value: &Option<CachedValue>,
 ) -> (usize, usize, bool) {
@@ -276,17 +240,11 @@ fn get_bucket_of_previous_hk_or_insert_if_not_found(
             hk_count_locks,
             &left_extended_hk.0,
             hyperkmers,
-            large_hyperkmers,
         )
     } else {
         // previous sk is not solid => our hyperkmer is not already present
         // let's add it
-        add_new_hyperkmer(
-            left_extended_hk.3,
-            &left_extended_hk.0,
-            hyperkmers,
-            large_hyperkmers,
-        )
+        hyperkmers.add_new_hyperkmer(left_extended_hk.3, &left_extended_hk.0)
     }
 }
 
@@ -295,8 +253,7 @@ fn get_bucket_of_next_hk_or_insert_if_not_found(
     next_sk: &Superkmer,
     next_sk_is_solid: bool,
     hk_count_locks: &ThreeLocks<HKCount>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
     right_extended_hk: &(Subsequence<NoBitPacked>, usize, usize, bool),
     cached_value: &Option<CachedValue>,
 ) -> (usize, usize, bool) {
@@ -328,17 +285,11 @@ fn get_bucket_of_next_hk_or_insert_if_not_found(
             hk_count_locks,
             &right_extended_hk.0,
             hyperkmers,
-            large_hyperkmers,
         )
     } else {
         // previous sk is not solid => our hyperkmer is not already present
         // let's add it
-        add_new_hyperkmer(
-            right_extended_hk.3,
-            &right_extended_hk.0,
-            hyperkmers,
-            large_hyperkmers,
-        )
+        hyperkmers.add_new_hyperkmer(right_extended_hk.3, &right_extended_hk.0)
     }
 }
 // TODO "style" find a better name for the first stage function
@@ -350,11 +301,9 @@ fn first_stage_for_a_chunck(
     threshold: Count,
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
 ) {
     replace_n(sequences);
-    let hyperkmers = hyperkmers.read().unwrap();
     for sequence in sequences {
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
@@ -424,8 +373,7 @@ fn first_stage_for_a_chunck(
                         &previous_sk,
                         previous_sk_is_solid,
                         &hk_count_locks,
-                        &hyperkmers,
-                        large_hyperkmers,
+                        hyperkmers,
                         left_extended_hk,
                         &cached_value,
                     );
@@ -436,8 +384,7 @@ fn first_stage_for_a_chunck(
                         &next_sk,
                         next_sk_is_solid,
                         &hk_count_locks,
-                        &hyperkmers,
-                        large_hyperkmers,
+                        hyperkmers,
                         &right_extended_hk,
                         &cached_value,
                     );
@@ -483,8 +430,7 @@ fn first_stage_for_a_chunck(
                 #[cfg(debug_assertions)]
                 check_correct_inclusion_first_stage(
                     m,
-                    &hyperkmers,
-                    large_hyperkmers,
+                    hyperkmers,
                     left_change_orientation,
                     &left_hk_metadata,
                     &left_extended_hk,
@@ -506,21 +452,18 @@ fn first_stage_for_a_chunck(
                 // TODO cache
                 cached_value = None;
                 // TODO fusionnner les deux passes
-                let large_hyperkmers = large_hyperkmers.read().unwrap();
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
                 let mut current_hk_count = hk_count_locks.0;
                 let found = current_hk_count.increase_count_if_exact_match(
                     &current_sk.get_minimizer(),
-                    &hyperkmers,
-                    &large_hyperkmers,
+                    hyperkmers,
                     &left_sk,
                     &right_sk,
                 );
                 if !found {
                     // if no exact match, then we must at least have an approximate match
                     let new_left_and_right_metadata = current_hk_count.search_for_inclusion(
-                        &hyperkmers,
-                        &large_hyperkmers,
+                        hyperkmers,
                         &current_sk,
                         &left_sk,
                         &right_sk,
@@ -538,8 +481,7 @@ fn first_stage_for_a_chunck(
                     );
                     // ensure the hyperkmer was correctly inserted
                     debug_assert!(search_exact_hyperkmer_match(
-                        &hyperkmers,
-                        &large_hyperkmers,
+                        hyperkmers,
                         &left_sk,
                         &right_sk,
                         &metadata_to_insert_left,
@@ -559,8 +501,7 @@ fn first_stage_for_a_chunck(
 fn second_stage_for_a_chunk(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &Arc<RwLock<ParallelExtendedHyperkmers>>,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
@@ -569,10 +510,6 @@ fn second_stage_for_a_chunk(
 ) {
     // TODO cache
     replace_n(sequences);
-    // large hyperkmers are not going to be modified
-    // => we can acquire them here
-    let hyperkmers = hyperkmers.read().unwrap();
-    let large_hyperkmers = large_hyperkmers.read().unwrap();
     for sequence in sequences {
         let mut superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter.peekable(), // peekable needed to detect the last superkmer of a read
@@ -603,13 +540,7 @@ fn second_stage_for_a_chunk(
                 }
             }
 
-            increase_count_of_sk_or_insert_it(
-                k,
-                &first_truncated_sk,
-                hk_count,
-                &hyperkmers,
-                &large_hyperkmers,
-            );
+            increase_count_of_sk_or_insert_it(k, &first_truncated_sk, hk_count, hyperkmers);
         }
 
         let mut last_superkmer = None;
@@ -663,15 +594,8 @@ fn second_stage_for_a_chunk(
             }
 
             let (left_sk, right_sk) = get_left_and_rigth_of_sk(&superkmer);
-            let match_metadata = hk_count.search_for_maximal_inclusion(
-                &hyperkmers,
-                &large_hyperkmers,
-                k,
-                m,
-                &minimizer,
-                &left_sk,
-                &right_sk,
-            );
+            let match_metadata = hk_count
+                .search_for_maximal_inclusion(hyperkmers, k, m, &minimizer, &left_sk, &right_sk);
 
             drop(hk_count);
             let mut hk_count = hk_count_lock.write().unwrap();
@@ -709,8 +633,7 @@ fn second_stage_for_a_chunk(
                     k,
                     &last_truncated_superkmer,
                     hk_count,
-                    &hyperkmers,
-                    &large_hyperkmers,
+                    hyperkmers,
                 );
             }
         }
@@ -721,8 +644,7 @@ fn increase_count_of_sk_or_insert_it(
     k: usize,
     superkmer: &Superkmer,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[LargeExtendedHyperkmer],
+    hyperkmers: &AllHyperkmerParts,
 ) {
     let minimizer = superkmer.get_minimizer();
 
@@ -734,30 +656,18 @@ fn increase_count_of_sk_or_insert_it(
     let (left_sk, right_sk) = get_left_and_rigth_of_sk(superkmer);
 
     hk_count.increase_count_of_sk_if_found_else_insert_it(
-        k,
-        hyperkmers,
-        large_hyperkmers,
-        &minimizer,
-        &left_sk,
-        &right_sk,
+        k, hyperkmers, &minimizer, &left_sk, &right_sk,
     );
     #[cfg(debug_assertions)]
     {
-        debug_assert!(hk_count.search_exact_match(
-            &minimizer,
-            hyperkmers,
-            large_hyperkmers,
-            &left_sk,
-            &right_sk
-        ))
+        debug_assert!(hk_count.search_exact_match(&minimizer, hyperkmers, &left_sk, &right_sk))
     }
 }
 
 #[cfg(debug_assertions)]
 fn check_correct_inclusion_first_stage(
     m: usize,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &Arc<RwLock<Vec<LargeExtendedHyperkmer>>>,
+    hyperkmers: &AllHyperkmerParts,
     left_change_orientation: bool,
     left_hk_metadata: &HKMetadata,
     left_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
@@ -765,36 +675,31 @@ fn check_correct_inclusion_first_stage(
     right_hk_metadata: &HKMetadata,
     right_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
 ) {
-    use crate::index::components::get_subsequence_from_metadata;
+    let candidate_left_ext_hk = hyperkmers
+        .get_subsequence_from_metadata(left_hk_metadata)
+        .change_orientation_if(left_change_orientation);
+    let candidate_right_ext_hk = hyperkmers
+        .get_subsequence_from_metadata(right_hk_metadata)
+        .change_orientation_if(right_change_orientation);
 
-    let left_hyperkmers = hyperkmers.get_bucket_from_id(left_hk_metadata.get_bucket_id());
-    let right_hyperkmers = hyperkmers.get_bucket_from_id(right_hk_metadata.get_bucket_id());
+    debug_assert!(left_extended_hk.0.equal_bitpacked(&candidate_left_ext_hk));
+    debug_assert!(right_extended_hk.0.equal_bitpacked(&candidate_right_ext_hk));
+    debug_assert!(left_extended_hk
+        .0
+        .to_canonical()
+        .equal_bitpacked(&hyperkmers.get_subsequence_from_metadata(left_hk_metadata)));
+    debug_assert!(right_extended_hk
+        .0
+        .to_canonical()
+        .equal_bitpacked(&hyperkmers.get_subsequence_from_metadata(right_hk_metadata)));
 
-    let large_hyperkmers = large_hyperkmers.read().unwrap();
+    let left_ext_hk = hyperkmers
+        .get_subsequence_from_metadata(left_hk_metadata)
+        .change_orientation_if(left_hk_metadata.get_change_orientation());
 
-    let candidate_left_ext_hk =
-        &get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata)
-            .change_orientation_if(left_change_orientation);
-    let candidate_right_ext_hk =
-        &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata)
-            .change_orientation_if(right_change_orientation);
-
-    debug_assert!(left_extended_hk.0.equal_bitpacked(candidate_left_ext_hk));
-    debug_assert!(right_extended_hk.0.equal_bitpacked(candidate_right_ext_hk));
-    debug_assert!(left_extended_hk.0.to_canonical().equal_bitpacked(
-        &get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata,)
-    ));
-    debug_assert!(right_extended_hk.0.to_canonical().equal_bitpacked(
-        &get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata,)
-    ));
-
-    let left_ext_hk =
-        get_subsequence_from_metadata(left_hyperkmers, &large_hyperkmers, left_hk_metadata)
-            .change_orientation_if(left_hk_metadata.get_change_orientation());
-
-    let right_ext_hk =
-        get_subsequence_from_metadata(right_hyperkmers, &large_hyperkmers, right_hk_metadata)
-            .change_orientation_if(right_hk_metadata.get_change_orientation());
+    let right_ext_hk = hyperkmers
+        .get_subsequence_from_metadata(right_hk_metadata)
+        .change_orientation_if(right_hk_metadata.get_change_orientation());
 
     // extract candidate hyperkmers
     let left_hyperkmer =

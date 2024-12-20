@@ -2,7 +2,7 @@ use crate::index::components::extract_left_and_right_subsequences;
 use crate::subsequence::Subsequence;
 use crate::Count;
 
-use super::components::{HKMetadata, LargeExtendedHyperkmer, ParallelExtendedHyperkmers};
+use super::components::{AllHyperkmerParts, HKMetadata};
 
 use std::collections::HashMap;
 use std::iter::Peekable;
@@ -13,8 +13,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     hk_counts_grouped_by_key: &mut Peekable<
         IterGroupByKey<'_, u64, (HKMetadata, HKMetadata, u16), ahash::RandomState>,
     >,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[LargeExtendedHyperkmer],
+    hyperkmers: &AllHyperkmerParts,
     k: &usize,
     m: &usize,
 ) -> Option<std::collections::HashMap<Vec<u8>, u16>> {
@@ -30,8 +29,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
         }
         let hk_count_elem = hk_counts_grouped_by_key.next().unwrap().1; // safe as peek was not None
         let count = hk_count_elem.2;
-        let (context, _minimizer_start_pos) =
-            extract_context(&hk_count_elem, *m, hyperkmers, large_hyperkmers);
+        let (context, _minimizer_start_pos) = extract_context(&hk_count_elem, *m, hyperkmers);
         let context = Subsequence::new(context.as_bytes(), 0, context.len(), true);
         // extract canonical kmers from the whole context and add them to the set
         for i in 0..context.len() - k + 1 {
@@ -51,18 +49,13 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 pub fn extract_context(
     entry: &(HKMetadata, HKMetadata, Count),
     m: usize,
-    hyperkmers: &ParallelExtendedHyperkmers,
-    large_hyperkmers: &[LargeExtendedHyperkmer],
+    hyperkmers: &AllHyperkmerParts,
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
-    let left_hyperkmers = hyperkmers.get_bucket_from_id(left_ext_hk_metadata.get_bucket_id());
-    let right_hyperkmers = hyperkmers.get_bucket_from_id(right_ext_hk_metadata.get_bucket_id());
 
     // extract relevant subsequences frome whole context
     let (left_hk, right_hk) = extract_left_and_right_subsequences(
-        left_hyperkmers,
-        right_hyperkmers,
-        large_hyperkmers,
+        hyperkmers,
         left_ext_hk_metadata,
         right_ext_hk_metadata,
     );
