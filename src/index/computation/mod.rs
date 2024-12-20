@@ -431,10 +431,8 @@ fn first_stage_for_a_chunck(
                 check_correct_inclusion_first_stage(
                     m,
                     hyperkmers,
-                    left_change_orientation,
                     &left_hk_metadata,
                     &left_extended_hk,
-                    right_change_orientation,
                     &right_hk_metadata,
                     &right_extended_hk,
                 );
@@ -668,19 +666,17 @@ fn increase_count_of_sk_or_insert_it(
 fn check_correct_inclusion_first_stage(
     m: usize,
     hyperkmers: &AllHyperkmerParts,
-    left_change_orientation: bool,
     left_hk_metadata: &HKMetadata,
     left_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
-    right_change_orientation: bool,
     right_hk_metadata: &HKMetadata,
     right_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
 ) {
     let candidate_left_ext_hk = hyperkmers
         .get_subsequence_from_metadata(left_hk_metadata)
-        .change_orientation_if(left_change_orientation);
+        .change_orientation_if(left_hk_metadata.get_change_orientation());
     let candidate_right_ext_hk = hyperkmers
         .get_subsequence_from_metadata(right_hk_metadata)
-        .change_orientation_if(right_change_orientation);
+        .change_orientation_if(right_hk_metadata.get_change_orientation());
 
     debug_assert!(left_extended_hk.0.equal_bitpacked(&candidate_left_ext_hk));
     debug_assert!(right_extended_hk.0.equal_bitpacked(&candidate_right_ext_hk));
