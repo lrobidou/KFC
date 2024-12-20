@@ -12,7 +12,6 @@ pub fn replace_n(sequences: &mut Vec<Vec<u8>>) {
     }
 }
 
-// TODO test
 pub fn remove_homopolymers_and_n(sequences: &mut Vec<Vec<u8>>) {
     for sequence in sequences {
         let n = sequence.len();

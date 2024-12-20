@@ -13,12 +13,15 @@ impl CachedValue {
             is_large,
         }
     }
+
     pub fn get_id_bucket(&self) -> usize {
         self.id_bucket
     }
+
     pub fn get_id_hk(&self) -> usize {
         self.id_hk
     }
+
     pub fn get_is_large(&self) -> bool {
         self.is_large
     }
