@@ -1,6 +1,7 @@
 use crate::index::components::extract_left_and_right_subsequences;
 use crate::subsequence::Subsequence;
-use crate::Count;
+use crate::AtomicCount;
+use std::sync::atomic::Ordering::SeqCst;
 
 use super::components::{AllHyperkmerParts, HKMetadata};
 
@@ -11,7 +12,7 @@ use mashmap::IterGroupByKey;
 
 pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     hk_counts_grouped_by_key: &mut Peekable<
-        IterGroupByKey<'_, u64, (HKMetadata, HKMetadata, u16), ahash::RandomState>,
+        IterGroupByKey<'_, u64, (HKMetadata, HKMetadata, AtomicCount), ahash::RandomState>,
     >,
     hyperkmers: &AllHyperkmerParts,
     k: &usize,
@@ -27,9 +28,9 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
         if next_entry.0 != minimizer_for_this_loop {
             break;
         }
-        let hk_count_elem = hk_counts_grouped_by_key.next().unwrap().1; // safe as peek was not None
-        let count = hk_count_elem.2;
-        let (context, _minimizer_start_pos) = extract_context(&hk_count_elem, *m, hyperkmers);
+        let hk_count_elem = &hk_counts_grouped_by_key.next().unwrap().1; // safe as peek was not None
+        let count = &hk_count_elem.2;
+        let (context, _minimizer_start_pos) = extract_context(hk_count_elem, *m, hyperkmers);
         let context = Subsequence::new(context.as_bytes(), 0, context.len(), true);
         // extract canonical kmers from the whole context and add them to the set
         for i in 0..context.len() - k + 1 {
@@ -37,8 +38,8 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 
             kmers_counts
                 .entry(kmer)
-                .and_modify(|x| *x = x.saturating_add(count))
-                .or_insert(count);
+                .and_modify(|x| *x = x.saturating_add(count.load(SeqCst)))
+                .or_insert(count.load(SeqCst));
         }
     }
 
@@ -47,7 +48,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 }
 
 pub fn extract_context(
-    entry: &(HKMetadata, HKMetadata, Count),
+    entry: &(HKMetadata, HKMetadata, AtomicCount),
     m: usize,
     hyperkmers: &AllHyperkmerParts,
 ) -> (String, usize) {

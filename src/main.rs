@@ -12,11 +12,13 @@ use std::fs::File;
 use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU16;
 use superkmers_computation::is_canonical;
 
 type Minimizer = u64;
 type HashSuperKmer = u64;
 type Count = u16;
+type AtomicCount = AtomicU16;
 
 mod buckets;
 mod codec;

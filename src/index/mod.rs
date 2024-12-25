@@ -365,7 +365,8 @@ where
                 for entry in hk_entries {
                     let (context, minimizer_start_pos) = extract_context(entry, m, hyperkmers);
                     let kff_block =
-                        create_block(&context, &entry.2, &minimizer_start_pos, k).unwrap();
+                        create_block(&context, &entry.2.load(SeqCst), &minimizer_start_pos, k)
+                            .unwrap();
                     blocks.push(kff_block)
                 }
                 // TODO a bit stupid to write now

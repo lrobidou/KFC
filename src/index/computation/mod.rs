@@ -447,11 +447,17 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
+                drop(current_sk_sount);
+                drop(hk_count_locks.0);
                 // TODO cache
                 cached_value = None;
                 // TODO fusionnner les deux passes
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
-                let mut current_hk_count = hk_count_locks.0;
+                let current_hk_count_bucket = hk_count.get_from_id_u64(current_sk.get_minimizer());
+                let current_hk_count = current_hk_count_bucket
+                    .read()
+                    .expect("could not acquire read lock");
+
                 let found = current_hk_count.increase_count_if_exact_match(
                     &current_sk.get_minimizer(),
                     hyperkmers,
@@ -466,7 +472,10 @@ fn first_stage_for_a_chunck(
                         &left_sk,
                         &right_sk,
                     );
-
+                    drop(current_hk_count);
+                    let mut current_hk_count = current_hk_count_bucket
+                        .write()
+                        .expect("could not acquire write lock");
                     // If we are here, the superkmer is solid. Therefore, it must have been inserted.
                     let (metadata_to_insert_left, metadata_to_insert_right) =
                         new_left_and_right_metadata

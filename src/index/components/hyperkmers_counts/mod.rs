@@ -1,5 +1,6 @@
 mod hyperkmer_metadata;
 
+use itertools::Itertools;
 use mashmap::MashMap;
 use serde::{
     de::{MapAccess, Visitor},
@@ -7,12 +8,12 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::collections::HashSet;
+use std::sync::atomic::Ordering::SeqCst;
 
 use super::hyperkmer_parts::AllHyperkmerParts;
 use crate::{
-    check_equal_mashmap,
     subsequence::{BitPacked, NoBitPacked, Subsequence},
-    Count, Minimizer, Superkmer,
+    AtomicCount, Count, Minimizer, Superkmer,
 };
 
 pub use hyperkmer_metadata::HKMetadata;
@@ -21,13 +22,33 @@ pub use hyperkmer_metadata::HKMetadata;
 // e.g. variables computed by iterating over the `HKCount` table.
 
 pub struct HKCount {
-    data: MashMap<Minimizer, (HKMetadata, HKMetadata, Count)>,
+    data: MashMap<Minimizer, (HKMetadata, HKMetadata, AtomicCount)>,
 }
 
 impl PartialEq for HKCount {
     fn eq(&self, other: &Self) -> bool {
-        check_equal_mashmap(&self.data, &other.data)
+        check_equal_mashmap_atomic(&self.data, &other.data)
     }
+}
+
+// TODO implement this in mashmap ?
+/// Checks if two `MashMap` are equal
+fn check_equal_mashmap_atomic<K: Ord>(
+    map0: &MashMap<K, (HKMetadata, HKMetadata, AtomicCount)>,
+    map1: &MashMap<K, (HKMetadata, HKMetadata, AtomicCount)>,
+) -> bool {
+    // OPTIMIZE this is a naive implementation
+    let mut v0 = map0
+        .iter()
+        .map(|(k, v)| (k, v.0, v.1, v.2.load(SeqCst)))
+        .collect_vec();
+    let mut v1 = map1
+        .iter()
+        .map(|(k, v)| (k, v.0, v.1, v.2.load(SeqCst)))
+        .collect_vec();
+    v0.sort();
+    v1.sort();
+    v0 == v1
 }
 
 impl Serialize for HKCount {
@@ -63,17 +84,17 @@ impl<'de> Visitor<'de> for HKCountVisitor {
     where
         M: MapAccess<'de>,
     {
-        let mut super_kmer_counts_data =
-            MashMap::<Minimizer, (HKMetadata, HKMetadata, Count)>::with_capacity(
+        let mut hyper_kmer_counts_data =
+            MashMap::<Minimizer, (HKMetadata, HKMetadata, AtomicCount)>::with_capacity(
                 access.size_hint().unwrap_or(0),
             );
 
         while let Some((key, value)) = access.next_entry()? {
-            super_kmer_counts_data.insert(key, value);
+            hyper_kmer_counts_data.insert(key, value);
         }
 
         Ok(HKCount {
-            data: super_kmer_counts_data,
+            data: hyper_kmer_counts_data,
         })
     }
 }
@@ -94,7 +115,7 @@ impl HKCount {
         }
     }
 
-    pub fn get_data(&self) -> &MashMap<Minimizer, (HKMetadata, HKMetadata, Count)> {
+    pub fn get_data(&self) -> &MashMap<Minimizer, (HKMetadata, HKMetadata, AtomicCount)> {
         &self.data
     }
 
@@ -169,15 +190,17 @@ impl HKCount {
     ) {
         assert!(left_metadata.get_start() < left_metadata.get_end());
         assert!(right_metadata.get_start() < right_metadata.get_end());
-        self.data
-            .insert(*minimizer, (*left_metadata, *right_metadata, count));
+        self.data.insert(
+            *minimizer,
+            (*left_metadata, *right_metadata, AtomicCount::new(count)),
+        );
     }
 
     /// Search if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`
     /// If so, increase the count of the occurence and return `true`
     /// Else, return false
     pub fn increase_count_if_exact_match(
-        &mut self,
+        &self,
         minimizer: &Minimizer,
         hyperkmers: &AllHyperkmerParts,
         left_hk: &Subsequence<NoBitPacked>,
@@ -185,7 +208,7 @@ impl HKCount {
     ) -> bool {
         for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
             //DEBUG why not self mut ?
-            self.data.get_mut_iter(minimizer)
+            self.data.get_iter(minimizer)
         {
             let is_exact_match = search_exact_hyperkmer_match(
                 hyperkmers,
@@ -195,7 +218,7 @@ impl HKCount {
                 candidate_right_ext_hk_metadata,
             );
             if is_exact_match {
-                *count_hk += 1;
+                count_hk.fetch_add(1, SeqCst);
                 return true;
             }
         }
@@ -399,7 +422,7 @@ impl HKCount {
             }
 
             if current_match_size - 2 * (m - 1) + m >= k {
-                total_count += count;
+                total_count += count.load(SeqCst);
             }
         }
         total_count
@@ -472,7 +495,7 @@ impl HKCount {
             // but this let us stop the search quicker than when using low thresholds => indexation is faster
             let cost = match_case.cost();
             if cost == 0 {
-                *count += 1;
+                count.fetch_add(1, SeqCst);
                 break;
             } else if match_case.cost() <= 8 {
                 break;
