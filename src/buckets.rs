@@ -119,11 +119,6 @@ impl<T: PartialEq + Serialize + for<'a> Deserialize<'a>> Buckets<T> {
         &self.data
     }
 
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
     pub fn acquire_write_locks(
         &self,
         idx0: u64, // current minimizer will be locked for sure
