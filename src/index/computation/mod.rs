@@ -9,7 +9,7 @@ use crate::{
     subsequence::{NoBitPacked, Subsequence},
     superkmer::Superkmer,
     superkmers_computation::compute_superkmers_linear_streaming,
-    Count, Minimizer,
+    AtomicCount, Count, Minimizer,
 };
 
 use std::{
@@ -21,7 +21,8 @@ use std::{
 mod cache;
 mod lines_iter;
 
-use cache::CachedValue;
+pub use cache::CacheMisere;
+pub use cache::CachedValue;
 
 use lines_iter::LinesIter;
 
@@ -30,6 +31,8 @@ const COMPLEXITY_THRESHOLD: u16 = 0;
 use itertools::Itertools;
 use log::warn;
 use needletail::parse_fastx_file;
+
+use super::components::ExactMatchOrInclusion;
 
 const BATCH_SIZE: usize = 100;
 
@@ -304,6 +307,7 @@ fn first_stage_for_a_chunck(
     hyperkmers: &AllHyperkmerParts,
 ) {
     replace_n(sequences);
+    let mut cache = cache::CacheMisere::<(HKMetadata, HKMetadata, AtomicCount)>::new();
     for sequence in sequences {
         let superkmers = match compute_superkmers_linear_streaming(sequence, k, m) {
             Some(superkmers_iter) => superkmers_iter,
@@ -447,53 +451,90 @@ fn first_stage_for_a_chunck(
                     current_count,
                 );
             } else if current_count > threshold {
+                // I'll search for the minimizer in the hk count table.
+                // I have a write access to that table but searching in it only requires reading it.
+                // Holding the write access prevents other from reading it. This is no good. This is, in fact, bad.
+                // I'm a good person.
+                // Therefore, I drop the write mode and re aquire the hk count in read mode.
+                // This allows others to read the table while I search in it.
+                // I'm nice, am I?
+                // Yes I am.
+                // If the search does not return an exact match, I'll have to add a new entry in the hk count table.
+                // Only then will I acquire the table in write mode again.
+                // This will limit the amount of time I use the table in write mode, allowing more parallelization.
+
+                // we do not need to hold current_sk_sount
                 drop(current_sk_sount);
+                // we do not need to hold the current hk count lock in write mode
                 drop(hk_count_locks.0);
-                // TODO cache
-                cached_value = None;
-                // TODO fusionnner les deux passes
+
                 let (left_sk, right_sk) = get_left_and_rigth_of_sk(&current_sk);
+                // get current hk count lock in read mode
                 let current_hk_count_bucket = hk_count.get_from_id_u64(current_sk.get_minimizer());
                 let current_hk_count = current_hk_count_bucket
                     .read()
                     .expect("could not acquire read lock");
 
-                let found = current_hk_count.increase_count_if_exact_match(
-                    &current_sk.get_minimizer(),
-                    hyperkmers,
-                    &left_sk,
-                    &right_sk,
-                );
-                if !found {
-                    // if no exact match, then we must at least have an approximate match
-                    let new_left_and_right_metadata = current_hk_count.search_for_inclusion(
-                        hyperkmers,
-                        &current_sk,
-                        &left_sk,
-                        &right_sk,
-                    );
-                    drop(current_hk_count);
-                    let mut current_hk_count = current_hk_count_bucket
-                        .write()
-                        .expect("could not acquire write lock");
-                    // If we are here, the superkmer is solid. Therefore, it must have been inserted.
-                    let (metadata_to_insert_left, metadata_to_insert_right) =
-                        new_left_and_right_metadata
-                            .expect("Hash collision on superkmers. Please change your seed.");
-                    current_hk_count.insert_new_entry_in_hyperkmer_count(
+                let (found_or_inclusion, cache_temp) = current_hk_count
+                    .increase_count_if_exact_match_else_search_for_inclusion(
                         &current_sk.get_minimizer(),
-                        &metadata_to_insert_left,
-                        &metadata_to_insert_right,
-                        1,
-                    );
-                    // ensure the hyperkmer was correctly inserted
-                    debug_assert!(search_exact_hyperkmer_match(
+                        current_sk.is_canonical_in_the_read(),
                         hyperkmers,
                         &left_sk,
                         &right_sk,
-                        &metadata_to_insert_left,
-                        &metadata_to_insert_right
-                    ));
+                        cache,
+                        &cached_value,
+                    );
+
+                cache = cache_temp;
+
+                match found_or_inclusion {
+                    ExactMatchOrInclusion::ExactMatch(left, right) => {
+                        // update the cache
+                        // TODO
+                        cached_value = Some(if current_sk.is_canonical_in_the_read() {
+                            CachedValue::new(
+                                right.get_bucket_id(),
+                                right.get_index(),
+                                right.get_is_large(),
+                            )
+                        } else {
+                            CachedValue::new(
+                                left.get_bucket_id(),
+                                left.get_index(),
+                                left.get_is_large(),
+                            )
+                        });
+                        continue;
+                    }
+                    ExactMatchOrInclusion::NotFound => {
+                        // If we are here, the superkmer is solid. Therefore, it must have been inserted.
+                        panic!("Hash collision on superkmers. Please change your seed.")
+                    }
+                    ExactMatchOrInclusion::Inclusion(
+                        metadata_to_insert_left,
+                        metadata_to_insert_right,
+                    ) => {
+                        // we need to get current hk count lock in write mode to insert the new entry
+                        drop(current_hk_count);
+                        let mut current_hk_count = current_hk_count_bucket
+                            .write()
+                            .expect("could not acquire write lock");
+                        current_hk_count.insert_new_entry_in_hyperkmer_count(
+                            &current_sk.get_minimizer(),
+                            &metadata_to_insert_left,
+                            &metadata_to_insert_right,
+                            1,
+                        );
+                        // ensure the hyperkmer was correctly inserted
+                        debug_assert!(search_exact_hyperkmer_match(
+                            hyperkmers,
+                            &left_sk,
+                            &right_sk,
+                            &metadata_to_insert_left,
+                            &metadata_to_insert_right
+                        ));
+                    }
                 }
             } else {
                 // nothing to report => clear cache

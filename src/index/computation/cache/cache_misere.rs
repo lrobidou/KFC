@@ -1,35 +1,5 @@
 use std::marker::PhantomData;
 
-#[derive(Debug, Clone)]
-pub struct CachedValue {
-    id_bucket: usize,
-    id_hk: usize,
-    is_large: bool,
-}
-
-impl CachedValue {
-    pub fn new(id_bucket: usize, id_hk: usize, is_large: bool) -> Self {
-        Self {
-            id_bucket,
-            id_hk,
-            is_large,
-        }
-    }
-
-    pub fn get_id_bucket(&self) -> usize {
-        self.id_bucket
-    }
-
-    pub fn get_id_hk(&self) -> usize {
-        self.id_hk
-    }
-
-    pub fn get_is_large(&self) -> bool {
-        self.is_large
-    }
-}
-
-// #[repr(C)]  // TODO should I use it?
 /// A cache storing a vector of references.
 /// By storing a vector in the cache, the user can reuse the capacity of that vector e.g. in another part of their program,
 /// even if the lifetime of the references would have prevented that.
@@ -53,6 +23,7 @@ impl<T> CacheMisere<T> {
     /// Once this method is called on a `CacheMisere` instance, no other method of this particular instance should be called.
     #[allow(clippy::wrong_self_convention)]
     unsafe fn into_inner(&self) -> Vec<&T> {
+        // Safety: cache.data was made from a Vec<&T>
         let v: Vec<&T> =
             unsafe { Vec::from_raw_parts(self.data as *mut &T, self.len, self.capacity) };
         v
@@ -104,14 +75,6 @@ impl<'a, T> From<CacheMisere<T>> for Vec<&'a T> {
     }
 }
 
-// #[macro_export]
-// macro_rules! to_cache {
-//     ($v:ident) => {{
-//         $v.clear();
-//         $v.into_iter().map(|_| unreachable!()).collect_vec().into()
-//     }};
-// }
-
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -150,18 +113,6 @@ mod tests {
         assert_eq!(cache.capacity(), 128);
 
         cache.into()
-    }
-
-    #[test]
-    fn test_cache() {
-        let id_bucket: usize = 5;
-        let id_hk: usize = 9;
-        let is_large: bool = false;
-        let cache_value = CachedValue::new(id_bucket, id_hk, is_large);
-
-        assert_eq!(cache_value.get_id_bucket(), id_bucket);
-        assert_eq!(cache_value.get_id_hk(), id_hk);
-        assert_eq!(cache_value.get_is_large(), is_large);
     }
 
     #[test]
