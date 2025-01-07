@@ -31,6 +31,8 @@ impl ChunkOfHyperkmerParts {
         let layout = Layout::array::<u64>(size).expect("Failed to create layout");
 
         // Allocate the memory
+        assert!(size > 0);
+        // Safety: layout have a non-zero size
         let ptr = unsafe { alloc_zeroed(layout) };
 
         // Check for null pointer
