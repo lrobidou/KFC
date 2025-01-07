@@ -485,8 +485,7 @@ fn first_stage_for_a_chunck(
                         cache,
                         &cached_value,
                     );
-
-                cache = cache_temp;
+                cache = cache_temp; // reassign the cache
 
                 match found_or_inclusion {
                     ExactMatchOrInclusion::ExactMatch(left, right) => {
@@ -592,7 +591,7 @@ fn second_stage_for_a_chunk(
         }
 
         let mut last_superkmer = None;
-        // iterates over all the superkmers exepct the first one
+        // iterates over all the superkmers except the first one
         while let Some(superkmer) = superkmers.next() {
             if superkmers.peek().is_none() {
                 last_superkmer = Some(superkmer);
