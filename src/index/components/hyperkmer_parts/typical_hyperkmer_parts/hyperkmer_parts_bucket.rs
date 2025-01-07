@@ -243,7 +243,7 @@ impl Drop for HyperkmerPartsBucket {
         for (_index, ext_hyperkmer) in &self.ext_hyperkmers_arrays {
             // SAFETY: no one can access the hyperkmer parts when we are drop it
             unsafe {
-                ext_hyperkmer.dealloc(self.k - 1);
+                ext_hyperkmer.dealloc(self.how_many_u64_for_a_hk * self.nb_hk_in_an_array);
             }
         }
     }

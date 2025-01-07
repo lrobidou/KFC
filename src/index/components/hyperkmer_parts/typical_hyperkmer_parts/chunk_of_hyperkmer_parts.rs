@@ -105,7 +105,7 @@ impl ChunkOfHyperkmerParts {
     // SAFETY: no one else should be accessing the memory
     pub unsafe fn dealloc(&self, size: usize) {
         // Create a memory layout for the array
-        let layout = Layout::array::<u8>(size).expect("Failed to create layout");
+        let layout = Layout::array::<u64>(size).expect("Failed to create layout");
 
         // Deallocate the memory
         let ptr = &self.ptr;
