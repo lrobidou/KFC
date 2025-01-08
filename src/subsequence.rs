@@ -184,7 +184,7 @@ impl<'a> Subsequence<NoBitPacked<'a>> {
     }
 }
 
-impl<'a> std::fmt::Display for Subsequence<NoBitPacked<'a>> {
+impl std::fmt::Display for Subsequence<NoBitPacked<'_>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let subsequence = &self.packing.read[self.start..self.end];
         let string = if self.same_orientation {
@@ -196,7 +196,7 @@ impl<'a> std::fmt::Display for Subsequence<NoBitPacked<'a>> {
     }
 }
 
-impl<'a> Subsequence<NoBitPacked<'a>> {
+impl Subsequence<NoBitPacked<'_>> {
     pub fn as_vec(&self) -> Vec<u8> {
         let subsequence = &self.packing.read[self.start..self.end];
         if self.same_orientation {
@@ -252,7 +252,7 @@ impl<'a> Subsequence<BitPacked<'a>> {
     // }
 }
 
-impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
+impl std::fmt::Display for Subsequence<BitPacked<'_>> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let ascii = self.as_vec();
         let string = String::from_utf8(ascii).unwrap();
@@ -260,7 +260,7 @@ impl<'a> std::fmt::Display for Subsequence<BitPacked<'a>> {
     }
 }
 
-impl<'a> Subsequence<BitPacked<'a>> {
+impl Subsequence<BitPacked<'_>> {
     pub fn as_vec(&self) -> Vec<u8> {
         // TODO remove when the Decoder can handle different starts
         // TODO we decode more than necessary

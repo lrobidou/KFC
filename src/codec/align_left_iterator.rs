@@ -15,7 +15,7 @@ impl<'a> AlignLeftIterator<'a> {
     }
 }
 
-impl<'a> Iterator for AlignLeftIterator<'a> {
+impl Iterator for AlignLeftIterator<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {

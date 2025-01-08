@@ -64,7 +64,7 @@ impl<T> From<Vec<&T>> for CacheMisere<T> {
     }
 }
 
-impl<'a, T> From<CacheMisere<T>> for Vec<&'a T> {
+impl<T> From<CacheMisere<T>> for Vec<&'_ T> {
     /// Returns the vector stored in the cache
     fn from(cache: CacheMisere<T>) -> Self {
         // Safety: cache.data was made from a Vec<&T>

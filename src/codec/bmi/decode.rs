@@ -136,7 +136,7 @@ impl<'a> Decoder<'a> {
     }
 }
 
-impl<'a> Iterator for Decoder<'a> {
+impl Iterator for Decoder<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {

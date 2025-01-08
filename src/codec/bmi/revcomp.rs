@@ -47,7 +47,7 @@ impl<'a> FusedReverseIterator<'a> {
     }
 }
 
-impl<'a> Iterator for FusedReverseIterator<'a> {
+impl Iterator for FusedReverseIterator<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -159,7 +159,7 @@ impl<'a> RevCompIter<'a> {
     }
 }
 
-impl<'a> Iterator for RevCompIter<'a> {
+impl Iterator for RevCompIter<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -204,7 +204,7 @@ impl<'a> RevCompIterSRA<'a> {
     }
 }
 
-impl<'a> Iterator for RevCompIterSRA<'a> {
+impl Iterator for RevCompIterSRA<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {

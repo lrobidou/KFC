@@ -71,7 +71,7 @@ struct StreamingArrays<'a> {
     arrays: &'a boxcar::Vec<ChunkOfHyperkmerParts>,
 }
 
-impl<'a> Serialize for StreamingArrays<'a> {
+impl Serialize for StreamingArrays<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

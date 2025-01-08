@@ -68,7 +68,7 @@ impl<'a> Encoder<'a> {
     }
 }
 
-impl<'a> Iterator for Encoder<'a> {
+impl Iterator for Encoder<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,7 +106,7 @@ impl<'a> EncoderFromTheEndRightAligned<'a> {
     }
 }
 
-impl<'a> Iterator for EncoderFromTheEndRightAligned<'a> {
+impl Iterator for EncoderFromTheEndRightAligned<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -192,7 +192,7 @@ impl<'a> RevCompEncoder<'a> {
     }
 }
 
-impl<'a> Iterator for RevCompEncoder<'a> {
+impl Iterator for RevCompEncoder<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -230,7 +230,7 @@ impl<'a> RevCompEncoderSRA<'a> {
     }
 }
 
-impl<'a> Iterator for RevCompEncoderSRA<'a> {
+impl Iterator for RevCompEncoderSRA<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {

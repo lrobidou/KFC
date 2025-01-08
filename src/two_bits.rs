@@ -148,7 +148,7 @@ pub struct Decode2Bits<'a> {
     backward_index: usize,
 }
 
-impl<'a> Iterator for Decode2Bits<'a> {
+impl Iterator for Decode2Bits<'_> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -168,7 +168,7 @@ impl<'a> Iterator for Decode2Bits<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for Decode2Bits<'a> {
+impl DoubleEndedIterator for Decode2Bits<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.backward_index <= self.forward_index {
             return None;

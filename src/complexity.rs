@@ -107,7 +107,7 @@ impl<'a> ComplexityComputation<'a> {
     }
 }
 
-impl<'a> Iterator for ComplexityComputation<'a> {
+impl Iterator for ComplexityComputation<'_> {
     type Item = u16;
 
     fn next(&mut self) -> Option<u16> {
