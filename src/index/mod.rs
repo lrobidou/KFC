@@ -16,7 +16,7 @@ use extraction::{extract_context, extract_kmers_from_contexts_associated_to_a_mi
 use itertools::Itertools;
 
 use crate::buckets::Buckets;
-use components::{AllHyperkmerParts, HKCount, SuperKmerCounts};
+use components::{HKCount, HyperkmerParts, SuperKmerCounts};
 use computation::{first_stage, second_stage};
 use kff::Kff;
 use rayon::prelude::*;
@@ -56,7 +56,7 @@ impl FullIndexTrait for StrippedIndex {}
 /// During contruction, the index also holds the counts of superkmers and information about minimizers.
 pub struct Index<FI: FullIndexTrait + Sync + Send + Serialize> {
     hk_count: Buckets<HKCount>,
-    hyperkmers: AllHyperkmerParts,
+    hyperkmers: HyperkmerParts,
     k: usize,
     m: usize,
     superkmers_infos: FI,
@@ -219,7 +219,7 @@ where
     #[cfg(test)]
     pub fn new(
         hk_count: Buckets<HKCount>,
-        hyperkmers: AllHyperkmerParts,
+        hyperkmers: HyperkmerParts,
         superkmers_infos: FI,
         k: usize,
         m: usize,
@@ -233,7 +233,7 @@ where
         }
     }
 
-    pub fn get_hyperkmers(&self) -> &AllHyperkmerParts {
+    pub fn get_hyperkmers(&self) -> &HyperkmerParts {
         &self.hyperkmers
     }
 
@@ -473,7 +473,7 @@ mod tests {
         // nothing inserted => nothing is found
         let empty_index: Index<CompleteIndex> = Index::new(
             Buckets::<HKCount>::new(HKCount::new),
-            AllHyperkmerParts::new(k, 5),
+            HyperkmerParts::new(k, 5),
             CompleteIndex {
                 super_kmer_counts: Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new),
                 discarded_minimizers: Buckets::<HashMap<u64, u16>>::new(HashMap::new),
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let hyperkmers = AllHyperkmerParts::new(kmer.len(), 7);
+        let hyperkmers = HyperkmerParts::new(kmer.len(), 7);
         let count = 34;
 
         // computing the left and right context to insert them in vector of hyperkmer
@@ -585,7 +585,7 @@ mod tests {
 
         let empty_index: Index<CompleteIndex> = Index::new(
             Buckets::<HKCount>::new(HKCount::new),
-            AllHyperkmerParts::new(k, 5),
+            HyperkmerParts::new(k, 5),
             CompleteIndex {
                 super_kmer_counts: Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new),
                 discarded_minimizers: Buckets::<HashMap<u64, u16>>::new(HashMap::new),
@@ -615,7 +615,7 @@ mod tests {
         assert_eq!(superkmer.start_of_minimizer(), 24);
         assert_eq!(superkmer.end_of_minimizer(), 34);
 
-        let hyperkmers = AllHyperkmerParts::new(kmer.len(), 7);
+        let hyperkmers = HyperkmerParts::new(kmer.len(), 7);
         let count = 34;
 
         // computing the left and right context to insert them in vector of hyperkmer

@@ -10,7 +10,7 @@ use serde::{
 use std::collections::HashSet;
 use std::sync::atomic::Ordering::SeqCst;
 
-use super::hyperkmer_parts::AllHyperkmerParts;
+use super::hyperkmer_parts::HyperkmerParts;
 use crate::{
     index::computation::{CacheMisere, CachedValue},
     subsequence::{BitPacked, NoBitPacked, Subsequence},
@@ -140,7 +140,7 @@ impl HKCount {
     /// minimizer is assumed to be in canonical form
     pub fn get_extended_hyperkmer_left_id(
         &self,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         minimizer: &Minimizer,
         extended_hyperkmer_left: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, usize, bool)> {
@@ -165,7 +165,7 @@ impl HKCount {
     /// minimizer is assumed to be in canonical form
     pub fn get_extended_hyperkmer_right_id(
         &self,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         minimizer: &Minimizer,
         extended_hyperkmer_right: &Subsequence<NoBitPacked>,
     ) -> Option<(usize, usize, bool)> {
@@ -209,7 +209,7 @@ impl HKCount {
     // pub fn increase_count_if_exact_match(
     //     &self,
     //     minimizer: &Minimizer,
-    //     hyperkmers: &AllHyperkmerParts,
+    //     hyperkmers: &HyperkmerParts,
     //     left_hk: &Subsequence<NoBitPacked>,
     //     right_hk: &Subsequence<NoBitPacked>,
     // ) -> bool {
@@ -236,7 +236,7 @@ impl HKCount {
         &'a self,
         minimizer: &'a Minimizer,
         is_minimizer_canonical_in_the_read: bool,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
         cache_vec: &mut Vec<&'a (HKMetadata, HKMetadata, AtomicCount)>,
@@ -295,7 +295,7 @@ impl HKCount {
         &'a self,
         minimizer: &'a Minimizer,
         is_minimizer_canonical_in_the_read: bool,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
         cache_vec: &mut Vec<&'a (HKMetadata, HKMetadata, AtomicCount)>,
@@ -378,7 +378,7 @@ impl HKCount {
         &self,
         minimizer: &Minimizer,
         is_minimizer_canonical_in_the_read: bool,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
         cache: CacheMisere<(HKMetadata, HKMetadata, AtomicCount)>,
@@ -465,7 +465,7 @@ impl HKCount {
     pub fn search_exact_match(
         &mut self,
         minimizer: &Minimizer,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         left_hk: &Subsequence<NoBitPacked>,
         right_hk: &Subsequence<NoBitPacked>,
     ) -> bool {
@@ -488,7 +488,7 @@ impl HKCount {
 
     pub fn search_for_inclusion(
         &self,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         superkmer: &Superkmer,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
@@ -557,7 +557,7 @@ impl HKCount {
     /// Returns the metadata associated with this inclusion
     pub fn search_for_maximal_inclusion(
         &self,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         k: usize,
         m: usize,
         minimizer: &Minimizer,
@@ -623,7 +623,7 @@ impl HKCount {
 
     pub fn count_occurence_kmer(
         &self,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         minimizer: &Minimizer,
         left_context: &Subsequence<NoBitPacked>,
         right_context: &Subsequence<NoBitPacked>,
@@ -667,7 +667,7 @@ impl HKCount {
     pub fn increase_count_of_sk_if_found_else_insert_it(
         &mut self,
         k: usize,
-        hyperkmers: &AllHyperkmerParts,
+        hyperkmers: &HyperkmerParts,
         minimizer: &Minimizer,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
@@ -833,7 +833,7 @@ impl HKCount {
 /// Create a new (not large) hyperkmer and returns the associated `HKMetadata`.
 fn insert_new_right_hyperkmer_and_compute_associated_metadata(
     sequence: &Subsequence<NoBitPacked>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     k: usize,
 ) -> HKMetadata {
     let nb_base_missing = (k - 1) - sequence.len();
@@ -890,7 +890,7 @@ fn insert_new_right_hyperkmer_and_compute_associated_metadata(
 /// Since this is the left hyperkmer, if it is less the k-1 bases, we need to add some base at its beginning
 fn insert_new_left_hyperkmer_and_compute_associated_metadata(
     sequence: &Subsequence<NoBitPacked>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     k: usize,
 ) -> HKMetadata {
     let nb_base_missing = (k - 1) - sequence.len();
@@ -1024,7 +1024,7 @@ impl Ord for MatchCases {
 }
 
 pub fn extract_subsequence_from_hk_metadata<'a>(
-    hyperkmers: &'a AllHyperkmerParts,
+    hyperkmers: &'a HyperkmerParts,
     hk_metadata: &HKMetadata,
 ) -> Subsequence<BitPacked<'a>> {
     hyperkmers
@@ -1034,7 +1034,7 @@ pub fn extract_subsequence_from_hk_metadata<'a>(
 }
 
 pub fn extract_left_and_right_subsequences<'a>(
-    hyperkmers: &'a AllHyperkmerParts,
+    hyperkmers: &'a HyperkmerParts,
     left_hk_metadata: &HKMetadata,
     right_hk_metadata: &HKMetadata,
 ) -> (Subsequence<BitPacked<'a>>, Subsequence<BitPacked<'a>>) {
@@ -1047,7 +1047,7 @@ pub fn extract_left_and_right_subsequences<'a>(
 /// Checks that `left_hk` and `right_hk` are equal to the subsequences stored in hyperkmers
 /// indicated by `left_ext_hk_metadata` and `right_ext_hk_metadata`.
 pub fn search_exact_hyperkmer_match(
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     left_hk: &Subsequence<NoBitPacked>,
     right_hk: &Subsequence<NoBitPacked>,
     left_ext_hk_metadata: &HKMetadata,
@@ -1085,7 +1085,7 @@ pub fn search_exact_hyperkmer_match(
 
 /// Same as `search_exact_hyperkmer_match`, but checks the left first.
 pub fn search_exact_hyperkmer_match_left_first(
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     left_hk: &Subsequence<NoBitPacked>,
     right_hk: &Subsequence<NoBitPacked>,
     left_ext_hk_metadata: &HKMetadata,
@@ -1105,7 +1105,7 @@ pub fn search_exact_hyperkmer_match_left_first(
 
 /// Same as `search_exact_hyperkmer_match`, but checks the right first.
 pub fn search_exact_hyperkmer_match_right_first(
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     left_hk: &Subsequence<NoBitPacked>,
     right_hk: &Subsequence<NoBitPacked>,
     left_ext_hk_metadata: &HKMetadata,

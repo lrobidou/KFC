@@ -1,4 +1,4 @@
-//! This module contains the hyperkmer parts. They are stored in the struct `AllHyperkmerParts`.
+//! This module contains the hyperkmer parts. They are stored in the struct `HyperkmerParts`.
 //! There are two kinds of hyperkmer parts: typical ones, and, well, atypical ones.
 //!
 //! Let's start by describing typical hyperkmer parts. They account for most of the hyperkmer parts. They are always k-1 bases large.
@@ -33,12 +33,12 @@ use core::intrinsics::likely;
 use super::HKMetadata;
 
 #[derive(PartialEq, Serialize, Deserialize)]
-pub struct AllHyperkmerParts {
+pub struct HyperkmerParts {
     typical_hyperkmer_parts: TypicalHyperkmerParts,
     atypical_hyperkmer_parts: AtypicalHyperkmerParts,
 }
 
-impl AllHyperkmerParts {
+impl HyperkmerParts {
     pub fn new(k: usize, nb_hk_in_a_buffer: usize) -> Self {
         Self {
             typical_hyperkmer_parts: TypicalHyperkmerParts::new(k, nb_hk_in_a_buffer),
@@ -88,7 +88,7 @@ impl AllHyperkmerParts {
 }
 
 // #[cfg(any(debug_assertions, test))]
-// impl AllHyperkmerParts {
+// impl HyperkmerParts {
 //     pub fn from_components(
 //         typical_hyperkmer_parts: TypicalHyperkmerParts,
 //         atypical_hyperkmer_parts: AtypicalHyperkmerParts,
@@ -111,7 +111,7 @@ mod tests {
         let k = 5;
         let nb_hk_in_a_buffer = 13;
 
-        let hyperkmers = AllHyperkmerParts::new(k, nb_hk_in_a_buffer);
+        let hyperkmers = HyperkmerParts::new(k, nb_hk_in_a_buffer);
 
         let large_hyperkmers = hyperkmers.get_atypical_parts();
 

@@ -3,7 +3,7 @@ use crate::subsequence::Subsequence;
 use crate::AtomicCount;
 use std::sync::atomic::Ordering::SeqCst;
 
-use super::components::{AllHyperkmerParts, HKMetadata};
+use super::components::{HKMetadata, HyperkmerParts};
 
 use std::collections::HashMap;
 use std::iter::Peekable;
@@ -14,7 +14,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
     hk_counts_grouped_by_key: &mut Peekable<
         IterGroupByKey<'_, u64, (HKMetadata, HKMetadata, AtomicCount), ahash::RandomState>,
     >,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     k: &usize,
     m: &usize,
 ) -> Option<std::collections::HashMap<Vec<u8>, u16>> {
@@ -50,7 +50,7 @@ pub fn extract_kmers_from_contexts_associated_to_a_minimizer(
 pub fn extract_context(
     entry: &(HKMetadata, HKMetadata, AtomicCount),
     m: usize,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
 ) -> (String, usize) {
     let (left_ext_hk_metadata, right_ext_hk_metadata, _count) = entry;
 

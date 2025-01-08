@@ -3,7 +3,7 @@ use crate::{
     complexity,
     compute_left_and_right::{get_left_and_rigth_extended_hk, get_left_and_rigth_of_sk},
     index::components::{
-        search_exact_hyperkmer_match, AllHyperkmerParts, HKCount, HKMetadata, SuperKmerCounts,
+        search_exact_hyperkmer_match, HKCount, HKMetadata, HyperkmerParts, SuperKmerCounts,
     },
     read_modification::replace_n,
     subsequence::{NoBitPacked, Subsequence},
@@ -44,14 +44,10 @@ pub fn first_stage<P: AsRef<Path>>(
     k: usize,
     m: usize,
     threshold: Count,
-) -> (
-    Buckets<SuperKmerCounts>,
-    Buckets<HKCount>,
-    AllHyperkmerParts,
-) {
+) -> (Buckets<SuperKmerCounts>, Buckets<HKCount>, HyperkmerParts) {
     let sk_count = Buckets::<SuperKmerCounts>::new(SuperKmerCounts::new);
     let hk_count = Buckets::<HKCount>::new(HKCount::new);
-    let hyperkmers = AllHyperkmerParts::new(k, 1000);
+    let hyperkmers = HyperkmerParts::new(k, 1000);
 
     let sequences = parse_fastx_file(path).unwrap();
     let sequences = LinesIter::new(sequences);
@@ -90,7 +86,7 @@ pub fn first_stage<P: AsRef<Path>>(
 pub fn second_stage<P: AsRef<Path>>(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     path: P,
     k: usize,
     m: usize,
@@ -133,7 +129,7 @@ fn get_bucket_of_previous_hk(
     previous_sk: &Superkmer,
     hk_count_locks: &ThreeLocks<HKCount>,
     left_extended_hk: &Subsequence<NoBitPacked>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
 ) -> (usize, usize, bool) {
     // used to access buckets and compute hyperkmer id
     // read hk_count table associated with the previous minimizer
@@ -161,7 +157,7 @@ fn get_bucket_of_next_hk(
     next_sk: &Superkmer,
     hk_count_locks: &ThreeLocks<HKCount>,
     right_extended_hk: &Subsequence<NoBitPacked>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
 ) -> (usize, usize, bool) {
     let next_minimizer = next_sk.get_minimizer();
     let next_hk_count: &HKCount = match hk_count_locks.4 {
@@ -212,7 +208,7 @@ fn get_bucket_of_previous_hk_or_insert_if_not_found(
     previous_sk: &Superkmer,
     previous_sk_is_solid: bool,
     hk_count_locks: &ThreeLocks<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     left_extended_hk: (Subsequence<NoBitPacked>, usize, usize, bool),
     cached_value: &Option<CachedValue>,
 ) -> (usize, usize, bool) {
@@ -256,7 +252,7 @@ fn get_bucket_of_next_hk_or_insert_if_not_found(
     next_sk: &Superkmer,
     next_sk_is_solid: bool,
     hk_count_locks: &ThreeLocks<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     right_extended_hk: &(Subsequence<NoBitPacked>, usize, usize, bool),
     cached_value: &Option<CachedValue>,
 ) -> (usize, usize, bool) {
@@ -304,7 +300,7 @@ fn first_stage_for_a_chunck(
     threshold: Count,
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
 ) {
     replace_n(sequences);
     let mut cache = cache::CacheMisere::<(HKMetadata, HKMetadata, AtomicCount)>::new();
@@ -548,7 +544,7 @@ fn first_stage_for_a_chunck(
 fn second_stage_for_a_chunk(
     sk_count: &Buckets<SuperKmerCounts>,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     sequences: &mut Vec<Vec<u8>>, // OPTIMIZE prendre un iterateur sur des &[u8] ?
     k: usize,
     m: usize,
@@ -691,7 +687,7 @@ fn increase_count_of_sk_or_insert_it(
     k: usize,
     superkmer: &Superkmer,
     hk_count: &Buckets<HKCount>,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
 ) {
     let minimizer = superkmer.get_minimizer();
 
@@ -714,7 +710,7 @@ fn increase_count_of_sk_or_insert_it(
 #[cfg(debug_assertions)]
 fn check_correct_inclusion_first_stage(
     m: usize,
-    hyperkmers: &AllHyperkmerParts,
+    hyperkmers: &HyperkmerParts,
     left_hk_metadata: &HKMetadata,
     left_extended_hk: &(Subsequence<NoBitPacked<'_>>, usize, usize, bool),
     right_hk_metadata: &HKMetadata,
