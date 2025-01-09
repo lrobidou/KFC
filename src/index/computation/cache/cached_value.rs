@@ -1,3 +1,6 @@
+use crate::index::components::HKMetadata;
+
+// todo: use all HKMetadata fields ?
 #[derive(Debug, Clone)]
 pub struct CachedValue {
     id_bucket: usize,
@@ -11,6 +14,23 @@ impl CachedValue {
             id_bucket,
             id_hk,
             is_large,
+        }
+    }
+
+    /// Selects which `HKMetadata` to put in the cache based on `is_current_sk_canonical_in_the_read`.
+    pub fn from_left_and_right(
+        is_current_sk_canonical_in_the_read: bool,
+        left: &HKMetadata,
+        right: &HKMetadata,
+    ) -> Self {
+        if is_current_sk_canonical_in_the_read {
+            Self::new(
+                right.get_bucket_id(),
+                right.get_index(),
+                right.get_is_large(),
+            )
+        } else {
+            Self::new(left.get_bucket_id(), left.get_index(), left.get_is_large())
         }
     }
 
