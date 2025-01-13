@@ -320,6 +320,7 @@ fn first_stage_for_a_chunck(
                     k,
                     COMPLEXITY_THRESHOLD,
                 ) {
+                    cached_value = None;
                     continue;
                 }
             }
@@ -521,6 +522,12 @@ fn first_stage_for_a_chunck(
                             &metadata_to_insert_right,
                             1,
                         );
+                        // update the cache
+                        cached_value = Some(CachedValue::from_left_and_right(
+                            current_sk.is_canonical_in_the_read(),
+                            &metadata_to_insert_left,
+                            &metadata_to_insert_right,
+                        ));
                         // ensure the hyperkmer was correctly inserted
                         debug_assert!(search_exact_hyperkmer_match(
                             hyperkmers,
