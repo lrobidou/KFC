@@ -61,7 +61,7 @@ impl<'de> Deserialize<'de> for AtypicalHyperkmerParts {
 
         const FIELDS: &[&str] = &["data"];
         deserializer.deserialize_struct(
-            "HyperkmerPartsBucket",
+            "HyperkmerPartsBucket", // TODO name ?
             FIELDS,
             AtypicalHyperkmerPartsVisitor,
         )
