@@ -45,6 +45,13 @@ impl CachedValue {
     pub fn get_is_large(&self) -> bool {
         self.is_large
     }
+
+    // TODO do a full match ?
+    pub fn partial_match_metadata(&self, other: &HKMetadata) -> bool {
+        other.get_bucket_id() == self.get_id_bucket()
+            && other.get_is_large() == self.get_is_large()
+            && other.get_index() == self.get_id_hk()
+    }
 }
 
 #[cfg(test)]

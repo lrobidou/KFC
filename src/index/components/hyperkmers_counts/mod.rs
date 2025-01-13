@@ -134,6 +134,9 @@ impl HKCount {
         }
 
         set
+
+        // TODO check efficiency
+        // self.data.iter().map(|(minimizer, _)| minimizer).collect()
     }
 
     /// Searches for a match between `extended_hyperkmer_left` and one of the left extended hyperkmers assiociated with `minimizer`
@@ -203,35 +206,6 @@ impl HKCount {
         );
     }
 
-    // /// Search if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`
-    // /// If so, increase the count of the occurence and return `true`
-    // /// Else, return false
-    // pub fn increase_count_if_exact_match(
-    //     &self,
-    //     minimizer: &Minimizer,
-    //     hyperkmers: &HyperkmerParts,
-    //     left_hk: &Subsequence<NoBitPacked>,
-    //     right_hk: &Subsequence<NoBitPacked>,
-    // ) -> bool {
-    //     for (candidate_left_ext_hk_metadata, candidate_right_ext_hk_metadata, count_hk) in
-    //         //DEBUG why not self mut ?
-    //         self.data.get_iter(minimizer)
-    //     {
-    //         let is_exact_match = search_exact_hyperkmer_match(
-    //             hyperkmers,
-    //             left_hk,
-    //             right_hk,
-    //             candidate_left_ext_hk_metadata,
-    //             candidate_right_ext_hk_metadata,
-    //         );
-    //         if is_exact_match {
-    //             count_hk.fetch_add(1, SeqCst);
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
-
     fn increase_count_if_exact_match_in_cache_only<'a>(
         &'a self,
         minimizer: &'a Minimizer,
@@ -246,9 +220,7 @@ impl HKCount {
             // the cache is for the left
             for entry in self.data.get_iter(minimizer) {
                 let (c_left_ext_hk_metadata, c_right_ext_hk_metadata, count_hk) = entry;
-                if c_left_ext_hk_metadata.get_bucket_id() == cached_value.get_id_bucket()
-                    && c_left_ext_hk_metadata.get_is_large() == cached_value.get_is_large()
-                    && c_left_ext_hk_metadata.get_index() == cached_value.get_id_hk()
+                if cached_value.partial_match_metadata(c_left_ext_hk_metadata)
                     && search_exact_hyperkmer_match_right_first(
                         hyperkmers,
                         left_sk,
@@ -269,9 +241,7 @@ impl HKCount {
             // the cache is for the right
             for entry in self.data.get_iter(minimizer) {
                 let (c_left_ext_hk_metadata, c_right_ext_hk_metadata, count_hk) = entry;
-                if c_right_ext_hk_metadata.get_bucket_id() == cached_value.get_id_bucket()
-                    && c_right_ext_hk_metadata.get_is_large() == cached_value.get_is_large()
-                    && c_right_ext_hk_metadata.get_index() == cached_value.get_id_hk()
+                if cached_value.partial_match_metadata(c_right_ext_hk_metadata)
                     && search_exact_hyperkmer_match_left_first(
                         hyperkmers,
                         left_sk,
@@ -567,7 +537,7 @@ impl HKCount {
         let mut match_size = k - 1;
         let mut match_metadata = None;
         // maximal posssible inclusion: if we reach this, we can exit early
-        // caution: this includes the (m - 1) duplicationbases in the minimizer (twice)
+        // caution: this includes the (m - 1) duplication bases in the minimizer (twice)
         let max_inclusion = left_sk.len() + right_sk.len();
 
         for (c_left_hk_metadata, c_right_hk_metadata, _count) in self.data.get_iter(minimizer) {
