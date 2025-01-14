@@ -375,59 +375,12 @@ impl HKCount {
                 cache_vec.into(),
             );
         }
-
-        // no exact match found => we search for inclusion in the cache
-        for (c_left_hk_metadata, c_right_hk_metadata, _count_hk) in cache_vec.iter() {
-            // extract relevant subsequences frome whole context
-            let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
-                hyperkmers,
-                c_left_hk_metadata,
-                c_right_hk_metadata,
-            );
-
-            let match_start_left = c_left_hk.starts_with_nobitpacked(left_sk);
-            let match_end_left = c_left_hk.ends_with_nobitpacked(left_sk);
-            let match_left = match_start_left || match_end_left;
-
-            let match_start_right = c_right_hk.starts_with_nobitpacked(right_sk);
-            let match_end_right = c_right_hk.ends_with_nobitpacked(right_sk);
-            let match_right = match_start_right || match_end_right;
-
-            if match_left && match_right {
-                let (start_left, end_left) = if match_start_left {
-                    (0, left_sk.len())
-                } else {
-                    (c_left_hk.len() - left_sk.len(), c_left_hk.len())
-                };
-
-                let (start_right, end_right) = if match_start_right {
-                    (0, right_sk.len())
-                } else {
-                    (c_right_hk.len() - right_sk.len(), c_right_hk.len())
-                };
-
-                let inclusion = ExactMatchOrInclusion::Inclusion(
-                    HKMetadata::new(
-                        c_left_hk_metadata.get_bucket_id(),
-                        c_left_hk_metadata.get_index(),
-                        start_left,
-                        end_left,
-                        c_left_hk_metadata.get_is_large(),
-                        c_left_hk_metadata.get_change_orientation(),
-                    ),
-                    HKMetadata::new(
-                        c_right_hk_metadata.get_bucket_id(),
-                        c_right_hk_metadata.get_index(),
-                        start_right,
-                        end_right,
-                        c_right_hk_metadata.get_is_large(),
-                        c_right_hk_metadata.get_change_orientation(),
-                    ),
-                );
-                return (inclusion, cache_vec.into());
-            }
+        let iterator = cache_vec.iter().copied(); // TODO check copy cost (should be the cost of a reference, rigth ?)
+        let inclusion = Self::search_for_inclusion(iterator, hyperkmers, left_sk, right_sk);
+        match inclusion {
+            None => (ExactMatchOrInclusion::NotFound, cache_vec.into()),
+            Some(x) => (ExactMatchOrInclusion::Inclusion(x.0, x.1), cache_vec.into()),
         }
-        (ExactMatchOrInclusion::NotFound, cache_vec.into())
     }
 
     /// Searches if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`.
@@ -456,15 +409,13 @@ impl HKCount {
         false
     }
 
-    pub fn search_for_inclusion(
-        &self,
+    pub fn search_for_inclusion<'a>(
+        iterator: impl Iterator<Item = &'a (HKMetadata, HKMetadata, AtomicCount)>,
         hyperkmers: &HyperkmerParts,
-        superkmer: &Superkmer,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
-        let minimizer = superkmer.get_minimizer();
-        for (c_left_hk_metadata, c_right_hk_metadata, _count_hk) in self.data.get_iter(&minimizer) {
+        for (c_left_hk_metadata, c_right_hk_metadata, _count_hk) in iterator {
             // extract relevant subsequences frome whole context
             let (c_left_hk, c_right_hk) = extract_left_and_right_subsequences(
                 hyperkmers,
