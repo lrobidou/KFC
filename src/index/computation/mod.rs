@@ -487,20 +487,11 @@ fn first_stage_for_a_chunck(
                 match found_or_inclusion {
                     ExactMatchOrInclusion::ExactMatch(left, right) => {
                         // update the cache
-                        // TODO
-                        cached_value = Some(if current_sk.is_canonical_in_the_read() {
-                            CachedValue::new(
-                                right.get_bucket_id(),
-                                right.get_index(),
-                                right.get_is_large(),
-                            )
-                        } else {
-                            CachedValue::new(
-                                left.get_bucket_id(),
-                                left.get_index(),
-                                left.get_is_large(),
-                            )
-                        });
+                        cached_value = Some(CachedValue::from_left_and_right(
+                            current_sk.is_canonical_in_the_read(),
+                            &left,
+                            &right,
+                        ));
                         continue;
                     }
                     ExactMatchOrInclusion::NotFound => {
