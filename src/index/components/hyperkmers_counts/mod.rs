@@ -574,177 +574,136 @@ impl HKCount {
     }
 }
 
-// methods using cache
-// TODO remove this line
-impl HKCount {
-    fn increase_count_if_condition<'a>(
-        iterator: impl Iterator<Item = &'a (HKMetadata, HKMetadata, AtomicCount)>,
-        is_minimizer_canonical_in_the_read: bool,
-        hyperkmers: &HyperkmerParts,
-        left_sk: &Subsequence<NoBitPacked>,
-        right_sk: &Subsequence<NoBitPacked>,
-        cache_vec: &mut Vec<&'a (HKMetadata, HKMetadata, AtomicCount)>,
-        cached_value: &CachedValue,
-        condition: fn(&CachedValue, &(HKMetadata, HKMetadata, AtomicU16)) -> bool,
-    ) -> Option<(HKMetadata, HKMetadata)> {
-        // the cache is for the left
-        for entry in iterator {
-            let (_left, _right, count_hk) = entry;
-            if condition(cached_value, entry) {
-                // if cached_value.partial_match_metadata(c_left_ext_hk_metadata)
-                //     && search_exact_hyperkmer_match_right_first(
-                //         hyperkmers,
-                //         left_sk,
-                //         right_sk,
-                //         c_left_ext_hk_metadata,
-                //         c_right_ext_hk_metadata,
-                //     )
+type HKEntry = (HKMetadata, HKMetadata, AtomicCount);
 
-                count_hk.fetch_add(1, SeqCst);
-                return Some((entry.0, entry.1));
+// methods using cache
+impl HKCount {
+    fn increase_count_if_condition_else_put_in_cache<'a, F>(
+        iterator: impl Iterator<Item = &'a HKEntry>,
+        cache_vec: &mut Vec<&'a HKEntry>,
+        condition: F,
+    ) -> Option<(HKMetadata, HKMetadata)>
+    where
+        F: Fn(&HKMetadata, &HKMetadata) -> bool,
+    {
+        for entry in iterator {
+            let (left_metadata, right_metadata, count) = entry;
+            if condition(left_metadata, right_metadata) {
+                count.fetch_add(1, SeqCst);
+                return Some((*left_metadata, *right_metadata));
             }
-            // not an exact match: if no exact match is going to be found, we will iterate over this minimizer again
-            // to prevent iterating over the whole map again, I'll store the entries in a cache and iterate over that cache again
+
             cache_vec.push(entry);
         }
 
         None
     }
 
-    fn increase_count_if_exact_match_in_cache_only<'a>(
-        &'a self,
-        minimizer: &'a Minimizer,
-        is_minimizer_canonical_in_the_read: bool,
-        hyperkmers: &HyperkmerParts,
-        left_sk: &Subsequence<NoBitPacked>,
-        right_sk: &Subsequence<NoBitPacked>,
-        cache_vec: &mut Vec<&'a (HKMetadata, HKMetadata, AtomicCount)>,
-        cached_value: &CachedValue,
-    ) -> Option<(HKMetadata, HKMetadata)> {
-        if is_minimizer_canonical_in_the_read {
-            // the cache is for the left
-            for entry in self.data.get_iter(minimizer) {
-                let (c_left_ext_hk_metadata, c_right_ext_hk_metadata, count_hk) = entry;
-                if cached_value.partial_match_metadata(c_left_ext_hk_metadata)
-                    && search_exact_hyperkmer_match_right_first(
-                        hyperkmers,
-                        left_sk,
-                        right_sk,
-                        c_left_ext_hk_metadata,
-                        c_right_ext_hk_metadata,
-                    )
-                {
-                    count_hk.fetch_add(1, SeqCst);
-                    return Some((entry.0, entry.1));
-                }
-                // not an exact match: if no exact match is going to be found, we will iterate over this minimizer again
-                // to prevent iterating over the whole map again, I'll store the entries in a cache and iterate over that cache again
-                cache_vec.push(entry);
-            }
-            None
-        } else {
-            // the cache is for the right
-            for entry in self.data.get_iter(minimizer) {
-                let (c_left_ext_hk_metadata, c_right_ext_hk_metadata, count_hk) = entry;
-                if cached_value.partial_match_metadata(c_right_ext_hk_metadata)
-                    && search_exact_hyperkmer_match_left_first(
-                        hyperkmers,
-                        left_sk,
-                        right_sk,
-                        c_left_ext_hk_metadata,
-                        c_right_ext_hk_metadata,
-                    )
-                {
-                    count_hk.fetch_add(1, SeqCst);
-                    return Some((entry.0, entry.1));
-                }
-                // not an exact match: if no exact match is going to be found, we will iterate over this minimizer again
-                // to prevent iterating over the whole map again, I'll store the entries in a cache and iterate over that cache again
-                cache_vec.push(entry);
-            }
-            None
-        }
-    }
-
-    fn search_for_exact_match_in_iter<'a>(
-        iterator: impl Iterator<Item = &'a (HKMetadata, HKMetadata, AtomicCount)>,
+    fn increase_count_if_exact_match_in_iter<'a>(
+        iterator: impl Iterator<Item = &'a HKEntry>,
         hyperkmers: &HyperkmerParts,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
     ) -> Option<(HKMetadata, HKMetadata)> {
         for entry in iterator {
-            let (c_left_ext_hk_metadata, c_right_ext_hk_metadata, count_hk) = entry;
-
-            let is_exact_match = search_exact_hyperkmer_match(
+            let (left_metadata, right_metadata, count) = entry;
+            if search_exact_hyperkmer_match(
                 hyperkmers,
                 left_sk,
                 right_sk,
-                c_left_ext_hk_metadata,
-                c_right_ext_hk_metadata,
-            );
-            if is_exact_match {
-                count_hk.fetch_add(1, SeqCst);
-                return Some((*c_left_ext_hk_metadata, *c_right_ext_hk_metadata));
+                left_metadata,
+                right_metadata,
+            ) {
+                count.fetch_add(1, SeqCst);
+                return Some((*left_metadata, *right_metadata));
             }
         }
+
         None
     }
 
-    fn search_for_exact_match_and_fill_cache<'a>(
+    fn increase_count_if_exact_match<'a>(
         &'a self,
         minimizer: &'a Minimizer,
         is_minimizer_canonical_in_the_read: bool,
         hyperkmers: &HyperkmerParts,
         left_sk: &Subsequence<NoBitPacked>,
         right_sk: &Subsequence<NoBitPacked>,
-        cache_vec: &mut Vec<&'a (HKMetadata, HKMetadata, AtomicCount)>,
+        cache_vec: &mut Vec<&'a HKEntry>,
         cached_value: &Option<CachedValue>,
     ) -> Option<(HKMetadata, HKMetadata)> {
-        let res = match cached_value {
+        let all_entry_iterator = self.data.get_iter(minimizer);
+        match cached_value {
             Some(cached_value) => {
-                // strategy: use the cached value to do a first pass
-                // if it is not there, re do a pass searching for exact match on all entry
+                // we have a previous value
 
-                // first pass in question
-                let exact_match = self.increase_count_if_exact_match_in_cache_only(
-                    minimizer,
-                    is_minimizer_canonical_in_the_read,
-                    hyperkmers,
-                    left_sk,
-                    right_sk,
-                    cache_vec,
-                    cached_value,
-                );
+                // pseudo code:
+                // for entry in map[minimizer]:
+                //     if entry is matching previous value and match(hyperkmer parts of entry, superkmer):
+                //         return left, right of entry
+                //     put entry in cache
+                // for entry in cache:
+                //     if match(hyperkmer parts of entry, superkmer):
+                //         return left, right of entry
+                // return None
+                let exact_match = if is_minimizer_canonical_in_the_read {
+                    // the cache is for the left
+                    Self::increase_count_if_condition_else_put_in_cache(
+                        all_entry_iterator,
+                        cache_vec,
+                        |left_metadata, right_metadata| {
+                            cached_value.partial_match_metadata(left_metadata)
+                                && search_exact_hyperkmer_match_right_first(
+                                    hyperkmers,
+                                    left_sk,
+                                    right_sk,
+                                    left_metadata,
+                                    right_metadata,
+                                )
+                        },
+                    )
+                } else {
+                    // the cache is for the right
+                    Self::increase_count_if_condition_else_put_in_cache(
+                        all_entry_iterator,
+                        cache_vec,
+                        |left_metadata, right_metadata| {
+                            cached_value.partial_match_metadata(right_metadata)
+                                && search_exact_hyperkmer_match_left_first(
+                                    hyperkmers,
+                                    left_sk,
+                                    right_sk,
+                                    left_metadata,
+                                    right_metadata,
+                                )
+                        },
+                    )
+                };
                 if exact_match.is_some() {
-                    return exact_match;
+                    exact_match
+                } else {
+                    Self::increase_count_if_exact_match_in_iter(
+                        cache_vec.iter().copied(),
+                        hyperkmers,
+                        left_sk,
+                        right_sk,
+                    )
                 }
-                Self::search_for_exact_match_in_iter(
-                    cache_vec.iter().copied(),
-                    hyperkmers,
-                    left_sk,
-                    right_sk,
-                )
             }
-            None => Self::search_for_exact_match_in_iter(
-                self.data.get_iter(minimizer),
-                hyperkmers,
-                left_sk,
-                right_sk,
+            None => Self::increase_count_if_condition_else_put_in_cache(
+                all_entry_iterator,
+                cache_vec,
+                |left_metadata, right_metadata| {
+                    search_exact_hyperkmer_match(
+                        hyperkmers,
+                        left_sk,
+                        right_sk,
+                        left_metadata,
+                        right_metadata,
+                    )
+                },
             ),
-        }; // 700
-
-        #[cfg(debug_assertions)]
-        {
-            let expected_cache = self.data.get_iter(minimizer).collect_vec();
-            assert_eq!(expected_cache.len(), cache_vec.len());
-            for (x, y) in cache_vec.iter().zip(expected_cache) {
-                assert_eq!(x.0, y.0);
-                assert_eq!(x.1, y.1);
-                assert_eq!(x.2.load(SeqCst), y.2.load(SeqCst)); // TODO this test might be wrong in case of data race
-            }
         }
-
-        res
     }
 
     /// Search if `left_hk` and `right_hk` are associated with the minimizer of `superkmer`
@@ -765,7 +724,7 @@ impl HKCount {
     ) {
         let mut cache_vec: Vec<&(HKMetadata, HKMetadata, AtomicCount)> = cache.into();
 
-        let included = self.search_for_exact_match_and_fill_cache(
+        let included = self.increase_count_if_exact_match(
             minimizer,
             is_minimizer_canonical_in_the_read,
             hyperkmers,
@@ -774,6 +733,17 @@ impl HKCount {
             &mut cache_vec,
             cached_value,
         );
+
+        #[cfg(debug_assertions)]
+        {
+            let expected_cache = self.data.get_iter(minimizer).collect_vec();
+            assert_eq!(expected_cache.len(), cache_vec.len());
+            for (x, y) in cache_vec.iter().zip(expected_cache) {
+                assert_eq!(x.0, y.0);
+                assert_eq!(x.1, y.1);
+                assert_eq!(x.2.load(SeqCst), y.2.load(SeqCst)); // TODO this test might be wrong in case of data race
+            }
+        }
 
         if let Some(matching_entry) = included {
             return (
