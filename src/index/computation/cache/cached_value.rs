@@ -1,56 +1,62 @@
-use crate::index::components::HKMetadata;
+use crate::index::components::{HKMetadata, SIZE_BUCKET_ID};
 
-// todo: use all HKMetadata fields ?
 #[derive(Debug, Clone)]
 pub struct CachedValue {
-    id_bucket: usize,
-    id_hk: usize,
-    is_large: bool,
+    metadata_bucket_index_large: u64,
 }
 
+/// Cache of a HKMetadata.
+/// The cache is not valid accross reads.
+/// Since:
+/// - the sequence indicated by the metadata depends on the orientation of the minimizer
+/// - we want to use the cache for consecutive minimizers
+///
+/// => the cache needs to be minimizer-agnostic
+/// So the cache represents the hyperkmer as it is in the read
+/// => the cache should not be reused across reads
 impl CachedValue {
-    pub fn new(id_bucket: usize, id_hk: usize, is_large: bool) -> Self {
+    pub fn from_hk_metadata(metadata: &HKMetadata) -> Self {
         Self {
-            id_bucket,
-            id_hk,
-            is_large,
+            metadata_bucket_index_large: metadata.get_bucket_index_large(),
         }
     }
 
-    /// Selects which `HKMetadata` to put in the cache based on `is_current_sk_canonical_in_the_read`.
+    /// Selects which `HKMetadata` to put in the cache based on `is_sk_canonical_in_the_read`.
     pub fn from_left_and_right(
         is_current_sk_canonical_in_the_read: bool,
         left: &HKMetadata,
         right: &HKMetadata,
     ) -> Self {
         if is_current_sk_canonical_in_the_read {
-            Self::new(
-                right.get_bucket_id(),
-                right.get_index(),
-                right.get_is_large(),
-            )
+            Self::from_hk_metadata(right)
         } else {
-            Self::new(left.get_bucket_id(), left.get_index(), left.get_is_large())
+            Self::from_hk_metadata(left)
         }
     }
 
     pub fn get_id_bucket(&self) -> usize {
-        self.id_bucket
+        // first N bits
+        let shift_amount = 64 - SIZE_BUCKET_ID;
+        (self.metadata_bucket_index_large >> shift_amount)
+            .try_into()
+            .unwrap()
     }
 
     pub fn get_id_hk(&self) -> usize {
-        self.id_hk
+        let nb_bits_up = SIZE_BUCKET_ID;
+        let nb_bits_down = 2;
+        ((self.metadata_bucket_index_large << nb_bits_up) >> (nb_bits_up + nb_bits_down))
+            .try_into()
+            .unwrap()
     }
 
     pub fn get_is_large(&self) -> bool {
-        self.is_large
+        (self.metadata_bucket_index_large >> 1) % 2 == 1
     }
 
     // TODO do a full match ?
     pub fn partial_match_metadata(&self, other: &HKMetadata) -> bool {
-        other.get_bucket_id() == self.get_id_bucket()
-            && other.get_is_large() == self.get_is_large()
-            && other.get_index() == self.get_id_hk()
+        self.metadata_bucket_index_large == other.get_bucket_index_large()
     }
 }
 
@@ -64,7 +70,10 @@ mod tests {
         let id_bucket: usize = 5;
         let id_hk: usize = 9;
         let is_large: bool = false;
-        let cache_value = CachedValue::new(id_bucket, id_hk, is_large);
+        let start = 10;
+        let end = 56;
+        let metadata = HKMetadata::new(id_bucket, id_hk, start, end, is_large, false);
+        let cache_value = CachedValue::from_hk_metadata(&metadata);
 
         assert_eq!(cache_value.get_id_bucket(), id_bucket);
         assert_eq!(cache_value.get_id_hk(), id_hk);

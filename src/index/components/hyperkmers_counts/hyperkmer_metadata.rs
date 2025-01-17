@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+pub const SIZE_BUCKET_ID: usize = 16;
+pub const SIZE_INDEX: usize = 46;
+pub const SIZE_START: usize = 32;
+pub const SIZE_END: usize = 32;
+
 /// Contains values packed in a single u64 value.
 ///
 /// Values are:
@@ -10,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd, Ord, Eq)]
 pub struct HKMetadata {
     // 2**32 is about 17 times lager than the largest human chomosome
-    data: HKMetadataInner<16, 46, 32, 32>,
+    data: HKMetadataInner<SIZE_BUCKET_ID, SIZE_INDEX, SIZE_START, SIZE_END>,
 }
 
 impl HKMetadata {
@@ -58,6 +63,10 @@ impl HKMetadata {
     pub fn get_change_orientation(&self) -> bool {
         self.data.get_change_orientation()
     }
+
+    pub fn get_bucket_index_large(&self) -> u64 {
+        self.data.get_bucket_index_large()
+    }
 }
 
 impl std::fmt::Debug for HKMetadata {
@@ -85,7 +94,7 @@ struct HKMetadataInner<
     const SIZE_END: usize,
 > {
     // BUCKET_ID | INDEX | IS_LARGE | CHANGE_ORIENTATION
-    bucket_index_end_large: u64,
+    bucket_index_large_orientation: u64,
     // START | END
     start_stop: u64,
 }
@@ -115,17 +124,18 @@ impl<
         assert!(start < 2usize.pow((SIZE_START + 1) as u32) as u64);
         assert!(end < 2usize.pow((SIZE_END + 1) as u32) as u64);
 
-        let bucket_index_end_large = bucket_id << (SIZE_INDEX + 2);
-        let bucket_index_end_large =
-            bucket_index_end_large + (index << (SIZE_BUCKET_ID + 2) >> SIZE_BUCKET_ID);
-        let bucket_index_end_large = bucket_index_end_large + 2 * (is_large as u64);
-        let bucket_index_end_large = bucket_index_end_large + change_orientation as u64;
+        let bucket_index_large_orientation = bucket_id << (SIZE_INDEX + 2);
+        let bucket_index_large_orientation =
+            bucket_index_large_orientation + (index << (SIZE_BUCKET_ID + 2) >> SIZE_BUCKET_ID);
+        let bucket_index_large_orientation = bucket_index_large_orientation + 2 * (is_large as u64);
+        let bucket_index_large_orientation =
+            bucket_index_large_orientation + change_orientation as u64;
 
         let start_stop = start << SIZE_END;
         let start_stop = start_stop + ((end << SIZE_START) >> (SIZE_START));
 
         let me = Self {
-            bucket_index_end_large,
+            bucket_index_large_orientation,
             start_stop,
         };
 
@@ -142,13 +152,13 @@ impl<
     pub fn get_bucket_id(&self) -> u64 {
         // first N bits
         let shift_amount = 64 - SIZE_BUCKET_ID;
-        self.bucket_index_end_large >> shift_amount
+        self.bucket_index_large_orientation >> shift_amount
     }
 
     pub fn get_index(&self) -> u64 {
         let nb_bits_up = SIZE_BUCKET_ID;
         let nb_bits_down = 2;
-        (self.bucket_index_end_large << nb_bits_up) >> (nb_bits_up + nb_bits_down)
+        (self.bucket_index_large_orientation << nb_bits_up) >> (nb_bits_up + nb_bits_down)
     }
 
     pub fn get_start(&self) -> u64 {
@@ -162,12 +172,17 @@ impl<
     }
 
     pub fn get_is_large(&self) -> bool {
-        (self.bucket_index_end_large >> 1) % 2 == 1
+        (self.bucket_index_large_orientation >> 1) % 2 == 1
     }
 
     pub fn get_change_orientation(&self) -> bool {
         // last bit of the data
-        self.bucket_index_end_large % 2 == 1
+        self.bucket_index_large_orientation % 2 == 1
+    }
+
+    pub fn get_bucket_index_large(&self) -> u64 {
+        let mask: u64 = 0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111110;
+        self.bucket_index_large_orientation & mask
     }
 }
 

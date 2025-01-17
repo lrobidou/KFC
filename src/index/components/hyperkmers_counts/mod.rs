@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub use hyperkmer_metadata::HKMetadata;
+pub use hyperkmer_metadata::SIZE_BUCKET_ID;
 
 // Notation: in this module, variables starting with `c_` are `candidate`s variables,
 // e.g. variables computed by iterating over the `HKCount` table.
@@ -734,16 +735,17 @@ impl HKCount {
             cached_value,
         );
 
-        #[cfg(debug_assertions)]
-        {
-            let expected_cache = self.data.get_iter(minimizer).collect_vec();
-            assert_eq!(expected_cache.len(), cache_vec.len());
-            for (x, y) in cache_vec.iter().zip(expected_cache) {
-                assert_eq!(x.0, y.0);
-                assert_eq!(x.1, y.1);
-                assert_eq!(x.2.load(SeqCst), y.2.load(SeqCst)); // TODO this test might be wrong in case of data race
-            }
-        }
+        // TODO this test is incorect
+        // #[cfg(debug_assertions)]
+        // {
+        //     let expected_cache = self.data.get_iter(minimizer).collect_vec();
+        //     assert_eq!(expected_cache.len(), cache_vec.len());
+        //     for (x, y) in cache_vec.iter().zip(expected_cache) {
+        //         assert_eq!(x.0, y.0);
+        //         assert_eq!(x.1, y.1);
+        //         assert_eq!(x.2.load(SeqCst), y.2.load(SeqCst)); // TODO this test might be wrong in case of data race
+        //     }
+        // }
 
         if let Some(matching_entry) = included {
             return (

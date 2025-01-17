@@ -397,13 +397,6 @@ fn first_stage_for_a_chunck(
                 drop(hk_count_locks.1);
                 drop(hk_count_locks.2);
 
-                // update the cache
-                cached_value = Some(if current_sk.is_canonical_in_the_read() {
-                    CachedValue::new(id_right_bucket, id_right_hk, is_large_right)
-                } else {
-                    CachedValue::new(id_left_bucket, id_left_hk, is_large_left)
-                });
-
                 // we have two ids (left and rigth) of extended hyperkmers containing our left and right hyperkemr
                 // let's get their orientation wrt to the orientation of the minimizer
 
@@ -427,6 +420,13 @@ fn first_stage_for_a_chunck(
                     is_large_right,
                     right_change_orientation,
                 );
+
+                // update the cache
+                cached_value = Some(CachedValue::from_left_and_right(
+                    current_sk.is_canonical_in_the_read(),
+                    &left_hk_metadata,
+                    &right_hk_metadata,
+                ));
 
                 #[cfg(debug_assertions)]
                 check_correct_inclusion_first_stage(
