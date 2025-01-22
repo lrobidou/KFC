@@ -79,7 +79,7 @@ impl ChunkOfHyperkmerParts {
     /// `len` is the number of `u64` in the slice.
     pub fn as_slice(&self, len: usize) -> &[u64] {
         let ptr = &self.ptr;
-        unsafe { std::slice::from_raw_parts(*ptr, len * 64) }
+        unsafe { std::slice::from_raw_parts(*ptr, len) }
     }
 
     // SAFETY: no one else should read or write to this slice
@@ -91,7 +91,7 @@ impl ChunkOfHyperkmerParts {
         subseq: Subsequence<NoBitPacked>,
     ) {
         let ptr = &self.ptr;
-        let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len * 64) };
+        let slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(*ptr, len) };
         subseq.dump_as_2bits(&mut slice[start..end]);
     }
 
